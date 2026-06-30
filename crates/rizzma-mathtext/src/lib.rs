@@ -38,6 +38,10 @@ const RADICAL_GAP_EM: f64 = 0.10;
 const RADICAL_PAD_EM: f64 = 0.08;
 const RADICAL_RULE_EM: f64 = 0.04;
 const SPACE_EM: f64 = 0.28;
+const THIN_SPACE_EM: f64 = 3.0 / 18.0;
+const MEDIUM_SPACE_EM: f64 = 4.0 / 18.0;
+const THICK_SPACE_EM: f64 = 5.0 / 18.0;
+const QUAD_SPACE_EM: f64 = 1.0;
 
 /// A laid-out math expression in y-up coordinates.
 #[derive(Clone, Debug, PartialEq)]
@@ -325,6 +329,7 @@ struct Row {
 enum Node {
     Text(String),
     Space,
+    Kern(f64),
     Fraction {
         numerator: Row,
         denominator: Row,
@@ -505,6 +510,9 @@ impl<'a> Parser<'a> {
         if name.is_empty() {
             if let Some(ch) = self.peek_char() {
                 self.pos += ch.len_utf8();
+                if let Some(kern) = single_char_spacing_command(ch) {
+                    return Node::Kern(kern);
+                }
                 return Node::Text(ch.to_string());
             }
             return Node::Text("\\".to_owned());
@@ -524,6 +532,11 @@ impl<'a> Parser<'a> {
 
         if name == "left" {
             return self.parse_left_right(start);
+        }
+
+        if let Some(kern) = named_spacing_command(name) {
+            self.consume_ascii_whitespace();
+            return Node::Kern(kern);
         }
 
         if let Some(kind) = large_operator_kind(name) {
@@ -830,6 +843,16 @@ impl<'a> Parser<'a> {
             source: source.to_owned(),
         });
     }
+
+    fn consume_ascii_whitespace(&mut self) {
+        while let Some(ch) = self.peek_char() {
+            if ch.is_ascii_whitespace() {
+                self.pos += ch.len_utf8();
+            } else {
+                break;
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -885,6 +908,12 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
         Node::Space => LayoutBox {
             elements: Vec::new(),
             width: font_size_px * SPACE_EM,
+            ascent: 0.0,
+            descent: 0.0,
+        },
+        Node::Kern(em) => LayoutBox {
+            elements: Vec::new(),
+            width: font_size_px * em,
             ascent: 0.0,
             descent: 0.0,
         },
@@ -1280,6 +1309,7 @@ fn flatten_row_text(row: &Row) -> String {
         match node {
             Node::Text(text) => out.push_str(text),
             Node::Space => out.push(' '),
+            Node::Kern(_) => {}
             Node::Fraction { .. } => out.push_str("\\frac"),
             Node::Radical { body } => out.push_str(&flatten_row_text(body)),
             Node::Delimited { body, .. } => out.push_str(&flatten_row_text(body)),
@@ -1295,6 +1325,7 @@ fn flatten_node_text(node: &Node) -> String {
     match node {
         Node::Text(text) => text.clone(),
         Node::Space => " ".to_owned(),
+        Node::Kern(_) => String::new(),
         Node::Fraction { .. } => "\\frac".to_owned(),
         Node::Radical { body } => flatten_row_text(body),
         Node::Delimited { body, .. } => flatten_row_text(body),
@@ -1376,6 +1407,28 @@ fn large_operator_symbol(kind: LargeOperatorKind) -> &'static str {
         LargeOperatorKind::Prod => "∏",
         LargeOperatorKind::Integral => "∫",
         LargeOperatorKind::ContourIntegral => "∮",
+    }
+}
+
+fn single_char_spacing_command(ch: char) -> Option<f64> {
+    match ch {
+        ',' => Some(THIN_SPACE_EM),
+        ':' => Some(MEDIUM_SPACE_EM),
+        ';' => Some(THICK_SPACE_EM),
+        '!' => Some(-THIN_SPACE_EM),
+        _ => None,
+    }
+}
+
+fn named_spacing_command(name: &str) -> Option<f64> {
+    match name {
+        "thinspace" => Some(THIN_SPACE_EM),
+        "medspace" => Some(MEDIUM_SPACE_EM),
+        "thickspace" => Some(THICK_SPACE_EM),
+        "negthinspace" => Some(-THIN_SPACE_EM),
+        "quad" => Some(QUAD_SPACE_EM),
+        "qquad" => Some(2.0 * QUAD_SPACE_EM),
+        _ => None,
     }
 }
 
@@ -1601,6 +1654,49 @@ mod tests {
             .count();
         assert_eq!(glyph_count, 3);
         assert!(scripted.width > layout_math("x^1", &font(), 20.0).width);
+    }
+
+    #[test]
+    fn spacing_commands_adjust_width_without_glyphs_or_warnings() {
+        let tight = layout_math("ab", &font(), 18.0);
+        let thin = layout_math("a\\,b", &font(), 18.0);
+        let med = layout_math("a\\:b", &font(), 18.0);
+        let thick = layout_math("a\\;b", &font(), 18.0);
+        let quad = layout_math("a\\quad b", &font(), 18.0);
+        let qquad = layout_math("a\\qquad b", &font(), 18.0);
+        let neg = layout_math("a\\!b", &font(), 18.0);
+
+        assert!(neg.width < tight.width);
+        assert!(thin.width > tight.width);
+        assert!(med.width > thin.width);
+        assert!(thick.width > med.width);
+        assert!(quad.width > thick.width);
+        assert!(qquad.width > quad.width);
+
+        for layout in [&thin, &med, &thick, &quad, &qquad, &neg] {
+            assert_eq!(
+                layout
+                    .elements
+                    .iter()
+                    .filter(|element| matches!(element, MathElement::Glyph { .. }))
+                    .count(),
+                2
+            );
+            assert!(layout.warnings.is_empty());
+        }
+    }
+
+    #[test]
+    fn named_spacing_aliases_match_symbol_spacing_commands() {
+        let thin = layout_math("a\\,b", &font(), 18.0);
+        let named_thin = layout_math("a\\thinspace b", &font(), 18.0);
+        let neg = layout_math("a\\!b", &font(), 18.0);
+        let named_neg = layout_math("a\\negthinspace b", &font(), 18.0);
+
+        assert!((thin.width - named_thin.width).abs() < 1e-9);
+        assert!((neg.width - named_neg.width).abs() < 1e-9);
+        assert!(named_thin.warnings.is_empty());
+        assert!(named_neg.warnings.is_empty());
     }
 
     #[test]
