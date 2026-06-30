@@ -3,3 +3,6 @@
 
 # Rust build artifacts
 /target/
+
+# Local agent / editor state
+/.claude/
