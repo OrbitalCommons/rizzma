@@ -1,20 +1,23 @@
 //! Artist scene graph and drawable primitives for rizzma.
 //!
-//! Defines the [`Artist`] trait every drawable implements and [`Line2D`], the
-//! first concrete primitive. An [`Artist`] knows how to [`draw`](Artist::draw)
-//! itself into a [`Renderer`] given a data-to-device [`Affine2D`], and reports a
-//! [`zorder`](Artist::zorder), [`visibility`](Artist::visible), and optional
-//! data-space [`extents`](Artist::data_extents) for future autoscaling.
+//! Defines the [`Artist`] trait every drawable implements plus the concrete
+//! primitives [`Line2D`] and [`Patch`]. An [`Artist`] knows how to
+//! [`draw`](Artist::draw) itself into a [`Renderer`] given a data-to-device
+//! [`Affine2D`], and reports a [`zorder`](Artist::zorder),
+//! [`visibility`](Artist::visible), and optional data-space
+//! [`extents`](Artist::data_extents) for future autoscaling.
 //!
-//! Markers, the `Patch` hierarchy, `hatch`, and the batched `Collection` family
-//! are deferred to follow-up work; this crate currently ships the trait plus
-//! `Line2D` and a small [`draw_artists`] scene helper.
+//! Markers, `hatch`, and the batched `Collection` family are deferred to
+//! follow-up work; this crate currently ships the trait plus `Line2D`, the
+//! `Patch` shape hierarchy, and a small [`draw_artists`] scene helper.
 //!
 //! Build-order home: Phase 5 of `design/04-implementation-plan.md`.
 
 mod line;
+mod patch;
 
 pub use line::Line2D;
+pub use patch::Patch;
 
 pub use rizzma_core::{Affine2D, Bbox, Path, color::Rgba};
 pub use rizzma_render::{CapStyle, GraphicsContext, JoinStyle, Renderer};
