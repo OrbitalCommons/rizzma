@@ -42,6 +42,9 @@ pub struct Figure {
     font: FontSource,
     /// The axes owned by this figure, drawn in insertion order.
     axes: Vec<Axes>,
+    /// Colorbars registered on this figure, drawn after the axes (see
+    /// [`Figure::colorbar`]).
+    pub(crate) colorbars: Vec<crate::colorbar::Colorbar>,
 }
 
 impl Figure {
@@ -56,7 +59,14 @@ impl Figure {
             facecolor: Rgba::WHITE,
             font: FontSource::dejavu_sans(),
             axes: Vec::new(),
+            colorbars: Vec::new(),
         }
+    }
+
+    /// A shared reference to this figure's font source (used by colorbars and
+    /// other figure-level decorations).
+    pub(crate) fn font_source(&self) -> &FontSource {
+        &self.font
     }
 
     /// Set the DPI, returning `self` for chaining.
@@ -135,6 +145,9 @@ impl Figure {
         for ax in &self.axes {
             ax.draw(renderer, w, h, &self.font);
         }
+
+        // Draw figure-level colorbars on top of the axes.
+        self.draw_colorbars(renderer);
     }
 
     /// Render the figure to a fresh [`SkiaRenderer`] and return it.
@@ -162,6 +175,28 @@ impl Figure {
     /// Returns a [`PngError`] if encoding fails.
     pub fn encode_png(&self) -> Result<Vec<u8>, PngError> {
         self.render().encode_png()
+    }
+
+    /// Render the figure to an SVG document and return it as a string.
+    ///
+    /// This drives the *same* [`Figure::draw`] path used for PNG output, but
+    /// against an [`SvgRenderer`] instead of the raster backend, proving the
+    /// figure is backend-agnostic (one scene → PNG via skia, SVG via svg).
+    #[must_use]
+    pub fn to_svg(&self) -> String {
+        let (w, h) = self.size_px();
+        let mut renderer = rizzma_svg::SvgRenderer::new(w, h, self.dpi);
+        self.draw(&mut renderer);
+        renderer.finish()
+    }
+
+    /// Render the figure and write it to `path` as an SVG file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`std::io::Error`] if writing the file fails.
+    pub fn save_svg<P: AsRef<std::path::Path>>(&self, path: P) -> std::io::Result<()> {
+        std::fs::write(path, self.to_svg())
     }
 }
 
@@ -217,5 +252,17 @@ mod tests {
 
         // (c) PNG encodes to non-empty bytes.
         assert!(!fig.encode_png().expect("encode succeeds").is_empty());
+    }
+
+    #[test]
+    fn to_svg_contains_svg_and_path() {
+        let mut fig = Figure::new(2.0, 2.0).with_dpi(100.0);
+        let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+        ax.plot(&[0.0, 1.0, 2.0], &[0.0, 1.0, 0.0]);
+
+        let svg = fig.to_svg();
+        assert!(svg.contains("<svg"), "missing <svg root: {svg}");
+        assert!(svg.contains("</svg>"), "missing </svg> close");
+        assert!(svg.contains("<path"), "missing at least one <path");
     }
 }
