@@ -1,0 +1,79 @@
+name: Publish
+
+# Publish the `rizzma` crate to crates.io whenever its version changes.
+#
+# On every push to `main` that touches a manifest (or this workflow), the job
+# reads the version from `crates/rizzma/Cargo.toml`, asks crates.io whether that
+# exact version is already published, and only runs `cargo publish` when it is
+# new. The check makes the workflow idempotent: re-runs, or manifest edits that
+# leave the version untouched, are no-ops rather than failed publishes.
+#
+# Requires a `CARGO_REGISTRY_TOKEN` repository secret (a crates.io API token with
+# publish scope for `rizzma`).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "crates/rizzma/Cargo.toml"
+      - ".github/workflows/publish.yml"
+
+# Never cancel an in-flight publish, and never run two at once.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: publish rizzma to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rustup honors rust-toolchain.toml, installing the pinned stable.
+      - name: Show toolchain
+        run: |
+          rustup show active-toolchain
+          cargo --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Read crate version
+        id: ver
+        run: |
+          version=$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.name == "rizzma") | .version')
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "::error::could not read rizzma version from cargo metadata"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "rizzma manifest version: $version"
+
+      - name: Check whether this version is already on crates.io
+        id: check
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "User-Agent: rizzma-publish-ci (https://github.com/OrbitalCommons/rizzma)" \
+            "https://crates.io/api/v1/crates/rizzma/${version}")
+          if [ "$code" = "200" ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "rizzma ${version} is already on crates.io (HTTP ${code}) — skipping publish."
+          elif [ "$code" = "404" ]; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "rizzma ${version} is not yet published (HTTP 404) — will publish."
+          else
+            echo "::error::unexpected HTTP ${code} from crates.io while checking rizzma ${version}"
+            exit 1
+          fi
+
+      - name: Publish to crates.io
+        if: steps.check.outputs.published == 'false'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p rizzma
