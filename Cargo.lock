@@ -947,6 +947,7 @@ dependencies = [
  "rizzma-axis",
  "rizzma-core",
  "rizzma-mathtext",
+ "rizzma-pdf",
  "rizzma-render",
  "rizzma-skia",
  "rizzma-svg",
