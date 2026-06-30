@@ -7,7 +7,8 @@
 //! later step; this crate owns only parsing and layout.
 //!
 //! Supported in this first pass: ordinary symbols, whitespace glue, `{...}`
-//! groups, superscripts/subscripts, `\frac{...}{...}`, `\sqrt{...}`,
+//! groups, superscripts/subscripts, `\frac{...}{...}`, `\sqrt{...}` and
+//! `\sqrt[n]{...}`,
 //! `\text{...}`, `\left...\right` delimiters, large operators, and a table of
 //! common named symbols and accents. Unsupported commands are preserved as
 //! literal fallback text and reported as structured warnings. The
@@ -335,6 +336,7 @@ enum Node {
         denominator: Row,
     },
     Radical {
+        index: Option<Row>,
         body: Row,
     },
     Delimited {
@@ -582,12 +584,22 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_radical(&mut self, start: usize) -> Node {
+        let index = self.parse_optional_bracket_group();
         let Some(body) =
             self.parse_required_group(start, "sqrt", MathTextWarningReason::MissingCommandArgument)
         else {
             return Node::Text("\\sqrt".to_owned());
         };
-        self.parse_scripts(Node::Radical { body })
+        self.parse_scripts(Node::Radical { index, body })
+    }
+
+    fn parse_optional_bracket_group(&mut self) -> Option<Row> {
+        if self.peek_char() != Some('[') {
+            return None;
+        }
+
+        self.pos += 1;
+        Some(self.parse_row(Some(']')))
     }
 
     fn parse_text_command(&mut self, start: usize) -> Node {
@@ -921,7 +933,7 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
             numerator,
             denominator,
         } => layout_fraction(numerator, denominator, font, font_size_px),
-        Node::Radical { body } => layout_radical(body, font, font_size_px),
+        Node::Radical { index, body } => layout_radical(index.as_ref(), body, font, font_size_px),
         Node::Delimited { left, body, right } => {
             layout_delimited(*left, body, *right, font, font_size_px)
         }
@@ -1016,8 +1028,14 @@ fn layout_accent(kind: AccentKind, body: &Row, font: &FontSource, font_size_px: 
     }
 }
 
-fn layout_radical(body: &Row, font: &FontSource, font_size_px: f64) -> LayoutBox {
+fn layout_radical(
+    index: Option<&Row>,
+    body: &Row,
+    font: &FontSource,
+    font_size_px: f64,
+) -> LayoutBox {
     let body_box = layout_row(&body.nodes, font, font_size_px);
+    let index_box = index.map(|index| layout_row(&index.nodes, font, font_size_px * SCRIPT_SCALE));
     let gap = font_size_px * RADICAL_GAP_EM;
     let pad = font_size_px * RADICAL_PAD_EM;
     let rule_thickness = (font_size_px * RADICAL_RULE_EM).max(1.0);
@@ -1025,11 +1043,19 @@ fn layout_radical(body: &Row, font: &FontSource, font_size_px: f64) -> LayoutBox
     let top_y = body_box.ascent + gap;
     let bottom_y = -body_box.descent;
     let total_height = (top_y - bottom_y).max(font_size_px);
-    let body_x = sign_width + pad;
+    let index_reserved_width = index_box.as_ref().map_or(0.0, |index| index.width * 0.55);
+    let sign_x = index_reserved_width;
+    let body_x = sign_x + sign_width + pad;
 
     let mut elements = Vec::new();
+    let mut ascent = top_y + rule_thickness;
+    if let Some(index) = index_box {
+        let index_baseline = top_y - index.descent - font_size_px * 0.12;
+        ascent = ascent.max(index_baseline + index.ascent);
+        elements.extend(shift_elements(index.elements, 0.0, index_baseline));
+    }
     elements.push(MathElement::Radical {
-        path: radical_path(0.0, bottom_y, sign_width, total_height, rule_thickness),
+        path: radical_path(sign_x, bottom_y, sign_width, total_height, rule_thickness),
     });
     elements.push(MathElement::Rule {
         path: rect_path(body_x, top_y, body_box.width + pad, rule_thickness),
@@ -1039,7 +1065,7 @@ fn layout_radical(body: &Row, font: &FontSource, font_size_px: f64) -> LayoutBox
     LayoutBox {
         elements,
         width: body_x + body_box.width + pad,
-        ascent: top_y + rule_thickness,
+        ascent,
         descent: body_box.descent,
     }
 }
@@ -1311,7 +1337,7 @@ fn flatten_row_text(row: &Row) -> String {
             Node::Space => out.push(' '),
             Node::Kern(_) => {}
             Node::Fraction { .. } => out.push_str("\\frac"),
-            Node::Radical { body } => out.push_str(&flatten_row_text(body)),
+            Node::Radical { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Delimited { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Accent { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::LargeOperator { kind } => out.push_str(large_operator_symbol(*kind)),
@@ -1327,7 +1353,7 @@ fn flatten_node_text(node: &Node) -> String {
         Node::Space => " ".to_owned(),
         Node::Kern(_) => String::new(),
         Node::Fraction { .. } => "\\frac".to_owned(),
-        Node::Radical { body } => flatten_row_text(body),
+        Node::Radical { body, .. } => flatten_row_text(body),
         Node::Delimited { body, .. } => flatten_row_text(body),
         Node::Accent { body, .. } => flatten_row_text(body),
         Node::LargeOperator { kind } => large_operator_symbol(*kind).to_owned(),
@@ -1776,8 +1802,80 @@ mod tests {
     }
 
     #[test]
+    fn nth_root_places_index_at_upper_left() {
+        let square_root = layout_math("\\sqrt{x}", &font(), 24.0);
+        let cube_root = layout_math("\\sqrt[3]{x}", &font(), 24.0);
+        let texts: Vec<_> = cube_root
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(texts.contains(&"3"));
+        assert!(texts.contains(&"x"));
+        assert_eq!(
+            cube_root
+                .elements
+                .iter()
+                .filter(|element| matches!(element, MathElement::Radical { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            cube_root
+                .elements
+                .iter()
+                .filter(|element| matches!(element, MathElement::Rule { .. }))
+                .count(),
+            1
+        );
+        assert!(cube_root.width > square_root.width);
+        assert!(cube_root.ascent >= square_root.ascent);
+        assert_eq!(cube_root.descent, square_root.descent);
+        assert!(cube_root.warnings.is_empty());
+    }
+
+    #[test]
+    fn nth_root_accepts_scripts_on_whole_radical() {
+        let layout = layout_math("\\sqrt[3]{x}^2", &font(), 24.0);
+        let texts: Vec<_> = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(texts.contains(&"3"));
+        assert!(texts.contains(&"x"));
+        assert!(texts.contains(&"2"));
+        assert!(layout.ascent > layout_math("\\sqrt[3]{x}", &font(), 24.0).ascent);
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
     fn radical_missing_argument_warns_and_preserves_command() {
         let layout = layout_math("\\sqrt+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(
+            layout.elements.iter().any(
+                |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\sqrt")
+            )
+        );
+    }
+
+    #[test]
+    fn nth_root_missing_body_warns_and_preserves_command() {
+        let layout = layout_math("\\sqrt[3]+x", &font(), 20.0);
 
         assert_eq!(layout.warnings.len(), 1);
         assert_eq!(
