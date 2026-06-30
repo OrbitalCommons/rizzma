@@ -178,5 +178,27 @@ fn main() {
         fig.save_png("target/gallery_legend_colorbar.png").unwrap();
     }
 
+    // 12. stem
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let x = linspace(0.0, TAU, 24);
+        let y: Vec<f64> = x.iter().map(|v| v.sin() * (-0.2 * v).exp()).collect();
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.stem(&x, &y);
+        ax.set_title("stem");
+        fig.save_png("target/gallery_stem.png").unwrap();
+    }
+
+    // 13. stairs
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let values = [1.0, 3.0, 2.0, 4.0, 3.5, 2.5, 4.5, 3.0];
+        let edges = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.stairs(&values, &edges);
+        ax.set_title("stairs");
+        fig.save_png("target/gallery_stairs.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
