@@ -33,8 +33,8 @@
 //! | [`Axes::fill_betweenx`] | [`Axes::ecdf`] | [`Axes::matshow`] |
 //! | ![spy](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_spy.png) | ![hist2d](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_hist2d.png) | ![pie](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_pie.png) |
 //! | [`Axes::spy`] | [`Axes::hist2d`] | [`Axes::pie`] |
-//! | ![violinplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_violinplot.png) | ![hexbin](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_hexbin.png) | |
-//! | [`Axes::violinplot`] | [`Axes::hexbin`] | |
+//! | ![violinplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_violinplot.png) | ![hexbin](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_hexbin.png) | ![grouped_bar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_grouped_bar.png) |
+//! | [`Axes::violinplot`] | [`Axes::hexbin`] | [`Axes::grouped_bar`] |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
@@ -47,6 +47,7 @@ mod plotting;
 mod plotting_area;
 mod plotting_box;
 mod plotting_contour;
+mod plotting_grouped_bar;
 mod plotting_hexbin;
 mod plotting_image;
 mod plotting_matrix;
