@@ -7,8 +7,10 @@
 
 pub mod affine;
 pub mod bbox;
+pub mod color;
 pub mod path;
 
 pub use affine::Affine2D;
 pub use bbox::Bbox;
+pub use color::Rgba;
 pub use path::{Path, PathCode, PathSegment};
