@@ -9,6 +9,8 @@
 //! The `image-diff` subcommand is the substrate for rizzma's matplotlib
 //! golden-image tests: it compares a baseline render against a freshly
 //! produced image and reports a root-mean-square per-channel difference.
+//! `wasm-size` is the lightweight M4 guardrail for tracking the browser
+//! artifact size without requiring `wasm-pack` or a browser.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -113,7 +115,9 @@ fn print_usage() {
          check-gallery-links [--gallery-dir <dir>] [--strict] [PATHS...]\n        \
          Verify every `gallery_*.png` referenced in the README/docs is actually\n        \
          produced by the gallery example (run it first). --strict also fails on\n        \
-         generated-but-unreferenced images."
+         generated-but-unreferenced images.\n    \
+         wasm-size <artifact.wasm> [--max-bytes <N>]\n        \
+         Report a wasm artifact size and optionally fail when it exceeds N bytes."
     );
 }
 
@@ -396,12 +400,107 @@ fn run_image_diff(args: &[String]) -> ExitCode {
     }
 }
 
+/// Parsed arguments for the `wasm-size` subcommand.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WasmSizeArgs {
+    path: PathBuf,
+    max_bytes: Option<u64>,
+}
+
+/// Parse `wasm-size <artifact.wasm> [--max-bytes <N>]`.
+fn parse_wasm_size(args: &[String]) -> Result<WasmSizeArgs, String> {
+    let mut positional: Vec<PathBuf> = Vec::new();
+    let mut max_bytes = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--max-bytes" => {
+                let v = args
+                    .get(i + 1)
+                    .ok_or_else(|| "--max-bytes requires a value".to_string())?;
+                max_bytes = Some(
+                    v.parse::<u64>()
+                        .map_err(|e| format!("invalid --max-bytes value {v:?}: {e}"))?,
+                );
+                i += 2;
+            }
+            "-h" | "--help" => return Err("help".to_string()),
+            other if other.starts_with("--") => return Err(format!("unknown flag: {other}")),
+            other => {
+                positional.push(PathBuf::from(other));
+                i += 1;
+            }
+        }
+    }
+
+    if positional.len() != 1 {
+        return Err(format!(
+            "expected exactly one wasm artifact path, got {}",
+            positional.len()
+        ));
+    }
+
+    Ok(WasmSizeArgs {
+        path: positional.pop().expect("one positional arg present"),
+        max_bytes,
+    })
+}
+
+/// A short human-readable rendering of `bytes`.
+fn format_bytes(bytes: u64) -> String {
+    let kib = bytes as f64 / 1024.0;
+    let mib = kib / 1024.0;
+    format!("{bytes} bytes ({kib:.1} KiB, {mib:.2} MiB)")
+}
+
+/// Run the `wasm-size` subcommand.
+fn run_wasm_size(args: &[String]) -> ExitCode {
+    let parsed = match parse_wasm_size(args) {
+        Ok(p) => p,
+        Err(msg) => {
+            if msg != "help" {
+                eprintln!("error: {msg}\n");
+            }
+            eprintln!("USAGE:\n    cargo xtask wasm-size <artifact.wasm> [--max-bytes <N>]");
+            return ExitCode::from(2);
+        }
+    };
+
+    let metadata = match std::fs::metadata(&parsed.path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("error: failed to stat {}: {e}", parsed.path.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let bytes = metadata.len();
+    println!(
+        "wasm-size: {} {}",
+        parsed.path.display(),
+        format_bytes(bytes)
+    );
+
+    if let Some(max) = parsed.max_bytes
+        && bytes > max
+    {
+        eprintln!(
+            "FAIL: wasm artifact is {} over the budget of {}",
+            format_bytes(bytes - max),
+            format_bytes(max)
+        );
+        return ExitCode::FAILURE;
+    }
+
+    ExitCode::SUCCESS
+}
+
 /// CLI dispatch.
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("image-diff") => run_image_diff(&args[1..]),
         Some("check-gallery-links") => run_check_gallery_links(&args[1..]),
+        Some("wasm-size") => run_wasm_size(&args[1..]),
         Some("-h") | Some("--help") | None => {
             print_usage();
             ExitCode::SUCCESS
@@ -475,5 +574,35 @@ mod tests {
     #[test]
     fn bare_prefix_yields_no_token() {
         assert!(find_gallery_tokens("gallery_.png and gallery_").is_empty());
+    }
+
+    #[test]
+    fn parse_wasm_size_accepts_optional_budget() {
+        let args = vec![
+            "target/wasm32-unknown-unknown/release/rizzma_wasm.wasm".to_string(),
+            "--max-bytes".to_string(),
+            "2500000".to_string(),
+        ];
+        let parsed = parse_wasm_size(&args).expect("valid args");
+
+        assert_eq!(
+            parsed.path,
+            PathBuf::from("target/wasm32-unknown-unknown/release/rizzma_wasm.wasm")
+        );
+        assert_eq!(parsed.max_bytes, Some(2_500_000));
+    }
+
+    #[test]
+    fn parse_wasm_size_rejects_missing_path() {
+        let err = parse_wasm_size(&[]).expect_err("path required");
+        assert!(err.contains("expected exactly one wasm artifact path"));
+    }
+
+    #[test]
+    fn format_bytes_reports_bytes_kib_and_mib() {
+        assert_eq!(
+            format_bytes(2_199_745),
+            "2199745 bytes (2148.2 KiB, 2.10 MiB)"
+        );
     }
 }
