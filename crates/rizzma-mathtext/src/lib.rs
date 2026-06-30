@@ -8,10 +8,10 @@
 //!
 //! Supported in this first pass: ordinary symbols, whitespace glue, `{...}`
 //! groups, superscripts/subscripts, `\frac{...}{...}`, `\sqrt{...}` and
-//! `\sqrt[n]{...}`,
-//! `\text{...}`, `\left...\right` delimiters, large operators, and a table of
-//! common named symbols and accents. Unsupported commands are preserved as
-//! literal fallback text and reported as structured warnings. The
+//! `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`, `\text{...}`,
+//! `\left...\right` delimiters, large operators, and a table of common named
+//! symbols and accents. Unsupported commands are preserved as literal fallback
+//! text and reported as structured warnings. The
 //! [`richtext`] module combines plain text spans and math spans into reusable
 //! label geometry for axes, titles, and other text artists.
 //!
@@ -38,6 +38,8 @@ const LARGE_OPERATOR_SCALE: f64 = 1.35;
 const RADICAL_GAP_EM: f64 = 0.10;
 const RADICAL_PAD_EM: f64 = 0.08;
 const RADICAL_RULE_EM: f64 = 0.04;
+const LINE_DECORATION_GAP_EM: f64 = 0.08;
+const LINE_DECORATION_RULE_EM: f64 = 0.04;
 const SPACE_EM: f64 = 0.28;
 const THIN_SPACE_EM: f64 = 3.0 / 18.0;
 const MEDIUM_SPACE_EM: f64 = 4.0 / 18.0;
@@ -218,6 +220,12 @@ pub enum AccentKind {
     Ddot,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LineDecorationKind {
+    Overline,
+    Underline,
+}
+
 /// Supported delimiter commands for `\left...\right`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DelimiterKind {
@@ -337,6 +345,10 @@ enum Node {
     },
     Radical {
         index: Option<Row>,
+        body: Row,
+    },
+    LineDecoration {
+        kind: LineDecorationKind,
         body: Row,
     },
     Delimited {
@@ -532,6 +544,14 @@ impl<'a> Parser<'a> {
             return self.parse_text_command(start);
         }
 
+        if name == "overline" {
+            return self.parse_line_decoration(start, name, LineDecorationKind::Overline);
+        }
+
+        if name == "underline" {
+            return self.parse_line_decoration(start, name, LineDecorationKind::Underline);
+        }
+
         if name == "left" {
             return self.parse_left_right(start);
         }
@@ -611,6 +631,22 @@ impl<'a> Parser<'a> {
             return Node::Text("\\text".to_owned());
         };
         self.parse_scripts(Node::Text(text))
+    }
+
+    fn parse_line_decoration(
+        &mut self,
+        start: usize,
+        command: &str,
+        kind: LineDecorationKind,
+    ) -> Node {
+        let Some(body) = self.parse_required_group(
+            start,
+            command,
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text(format!("\\{command}"));
+        };
+        self.parse_scripts(Node::LineDecoration { kind, body })
     }
 
     fn parse_left_right(&mut self, start: usize) -> Node {
@@ -934,6 +970,9 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
             denominator,
         } => layout_fraction(numerator, denominator, font, font_size_px),
         Node::Radical { index, body } => layout_radical(index.as_ref(), body, font, font_size_px),
+        Node::LineDecoration { kind, body } => {
+            layout_line_decoration(*kind, body, font, font_size_px)
+        }
         Node::Delimited { left, body, right } => {
             layout_delimited(*left, body, *right, font, font_size_px)
         }
@@ -1025,6 +1064,39 @@ fn layout_accent(kind: AccentKind, body: &Row, font: &FontSource, font_size_px: 
         width: base.width,
         ascent: mark_y + mark_height,
         descent: base.descent,
+    }
+}
+
+fn layout_line_decoration(
+    kind: LineDecorationKind,
+    body: &Row,
+    font: &FontSource,
+    font_size_px: f64,
+) -> LayoutBox {
+    let base = layout_row(&body.nodes, font, font_size_px);
+    let rule_thickness = (font_size_px * LINE_DECORATION_RULE_EM).max(1.0);
+    let gap = font_size_px * LINE_DECORATION_GAP_EM;
+    let mut elements = base.elements;
+    let (rule_y, ascent, descent) = match kind {
+        LineDecorationKind::Overline => {
+            let y = base.ascent + gap;
+            (y, y + rule_thickness, base.descent)
+        }
+        LineDecorationKind::Underline => {
+            let y = -base.descent - gap - rule_thickness;
+            (y, base.ascent, -y)
+        }
+    };
+
+    elements.push(MathElement::Rule {
+        path: rect_path(0.0, rule_y, base.width, rule_thickness),
+    });
+
+    LayoutBox {
+        elements,
+        width: base.width,
+        ascent,
+        descent,
     }
 }
 
@@ -1338,6 +1410,7 @@ fn flatten_row_text(row: &Row) -> String {
             Node::Kern(_) => {}
             Node::Fraction { .. } => out.push_str("\\frac"),
             Node::Radical { body, .. } => out.push_str(&flatten_row_text(body)),
+            Node::LineDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Delimited { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Accent { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::LargeOperator { kind } => out.push_str(large_operator_symbol(*kind)),
@@ -1354,6 +1427,7 @@ fn flatten_node_text(node: &Node) -> String {
         Node::Kern(_) => String::new(),
         Node::Fraction { .. } => "\\frac".to_owned(),
         Node::Radical { body, .. } => flatten_row_text(body),
+        Node::LineDecoration { body, .. } => flatten_row_text(body),
         Node::Delimited { body, .. } => flatten_row_text(body),
         Node::Accent { body, .. } => flatten_row_text(body),
         Node::LargeOperator { kind } => large_operator_symbol(*kind).to_owned(),
@@ -1946,6 +2020,78 @@ mod tests {
             }
         )));
         assert!(layout.descent > layout_math("\\vec{x}", &font(), 24.0).descent);
+    }
+
+    #[test]
+    fn overline_adds_rule_above_body() {
+        let plain = layout_math("xy", &font(), 24.0);
+        let overline = layout_math("\\overline{xy}", &font(), 24.0);
+
+        assert_eq!(
+            overline
+                .elements
+                .iter()
+                .filter(|element| matches!(element, MathElement::Rule { .. }))
+                .count(),
+            1
+        );
+        assert!(overline.ascent > plain.ascent);
+        assert_eq!(overline.descent, plain.descent);
+        assert_eq!(overline.width, plain.width);
+        assert!(overline.warnings.is_empty());
+    }
+
+    #[test]
+    fn underline_adds_rule_below_body() {
+        let plain = layout_math("xy", &font(), 24.0);
+        let underline = layout_math("\\underline{xy}", &font(), 24.0);
+
+        assert_eq!(
+            underline
+                .elements
+                .iter()
+                .filter(|element| matches!(element, MathElement::Rule { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(underline.ascent, plain.ascent);
+        assert!(underline.descent > plain.descent);
+        assert_eq!(underline.width, plain.width);
+        assert!(underline.warnings.is_empty());
+    }
+
+    #[test]
+    fn line_decorations_can_take_scripts() {
+        let decorated = layout_math("\\overline{x}^2", &font(), 24.0);
+        let without_script = layout_math("\\overline{x}", &font(), 24.0);
+        let texts: Vec<_> = decorated
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(texts.contains(&"x"));
+        assert!(texts.contains(&"2"));
+        assert!(decorated.ascent > without_script.ascent);
+        assert!(decorated.width > without_script.width);
+        assert!(decorated.warnings.is_empty());
+    }
+
+    #[test]
+    fn line_decoration_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\overline+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\overline")
+        ));
     }
 
     #[test]
