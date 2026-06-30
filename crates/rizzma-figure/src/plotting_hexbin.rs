@@ -118,15 +118,19 @@ impl Axes {
         let norm = LinearNorm::new(0.0, max_count);
         let cmap = colormap("viridis").expect("viridis is built in");
 
-        // Unit hexagon outline (offsets relative to a center): flat left/right
-        // edges of width sx, points at the top/bottom at ±2/3 sy.
+        // Unit hexagon outline (offsets relative to a center): pointy-top, with
+        // vertical flat edges of width sx and points at the top/bottom at ±sy/3.
+        // This is matplotlib's hexbin polygon; it tessellates exactly with the
+        // two grids offset by (sx/2, sy/2) — each cell's upper-right edge is
+        // shared with the offset cell's lower-left edge, so there are no seams
+        // and no overlaps.
         let hexagon = [
-            [0.0, sy * 2.0 / 3.0],
-            [sx / 2.0, sy / 3.0],
-            [sx / 2.0, -sy / 3.0],
-            [0.0, -sy * 2.0 / 3.0],
-            [-sx / 2.0, -sy / 3.0],
-            [-sx / 2.0, sy / 3.0],
+            [sx / 2.0, -sy / 6.0],
+            [sx / 2.0, sy / 6.0],
+            [0.0, sy / 3.0],
+            [-sx / 2.0, sy / 6.0],
+            [-sx / 2.0, -sy / 6.0],
+            [0.0, -sy / 3.0],
         ];
 
         // Emit a filled hexagon for each occupied cell of both grids. The face
