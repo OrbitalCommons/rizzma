@@ -255,5 +255,16 @@ fn main() {
         fig.save_png("target/gallery_boxplot.png").unwrap();
     }
 
+    // 18. mathtext title (`$...$` math in an Axes title)
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let x = linspace(-3.0, 3.0, 200);
+        let y: Vec<f64> = x.iter().map(|v| v * v + 0.5).collect();
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.plot(&x, &y);
+        ax.set_title("$y = x^2 + \\frac{1}{2}$");
+        fig.save_png("target/gallery_mathtext.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

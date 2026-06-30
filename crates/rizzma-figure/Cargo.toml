@@ -14,6 +14,7 @@ workspace = true
 rizzma-artist = { version = "0.0.0", path = "../rizzma-artist" }
 rizzma-axis = { version = "0.0.0", path = "../rizzma-axis" }
 rizzma-core = { version = "0.0.0", path = "../rizzma-core" }
+rizzma-mathtext = { version = "0.0.0", path = "../rizzma-mathtext" }
 rizzma-render = { version = "0.0.0", path = "../rizzma-render" }
 rizzma-skia = { version = "0.0.0", path = "../rizzma-skia" }
 rizzma-svg = { version = "0.0.0", path = "../rizzma-svg" }

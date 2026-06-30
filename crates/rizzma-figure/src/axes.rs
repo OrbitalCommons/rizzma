@@ -19,6 +19,8 @@ use rizzma_core::{Affine2D, Bbox, Path};
 use rizzma_render::{GraphicsContext, Renderer};
 use rizzma_text::FontSource;
 
+use crate::richtext::layout_rich_text;
+
 /// Default fractional margin added on each side of the autoscaled data limits.
 const DEFAULT_MARGIN: f64 = 0.05;
 
@@ -461,23 +463,30 @@ impl Axes {
         // 6a. Draw the legend box inside the upper-right of the axes.
         self.draw_legend(renderer, &axes_px, font);
 
-        // 7. Draw the title, centered above the axes.
+        // 7. Draw the title, centered above the axes. Math spans (`$...$`) are
+        // laid out by the mathtext engine via `layout_rich_text`; plain titles
+        // reduce to the previous single-string path.
         if let Some(title) = &self.title
             && !title.is_empty()
         {
             let title_size = 12.0;
             let pad = 6.0;
-            let extent = font.measure(title, title_size);
+            let rich = layout_rich_text(font, title, title_size);
             let cx = (axes_px.xmin() + axes_px.xmax()) / 2.0;
-            let x = cx - extent.width / 2.0;
+            let x = cx - rich.width / 2.0;
+            // Place the baseline `pad` above the top spine, exactly as the
+            // previous single-string path did; the rich paths are in a
+            // baseline-relative y-up frame.
             let y = axes_px.ymax() + pad;
-            let path = font.text_to_path(title, title_size, [x, y]);
-            renderer.draw_path(
-                &GraphicsContext::new(),
-                &path,
-                &Affine2D::identity(),
-                Some(Rgba::BLACK),
-            );
+            let shift = Affine2D::from_translation(x, y);
+            for path in &rich.paths {
+                renderer.draw_path(
+                    &GraphicsContext::new(),
+                    &path.transformed(&shift),
+                    &Affine2D::identity(),
+                    Some(Rgba::BLACK),
+                );
+            }
         }
     }
 }

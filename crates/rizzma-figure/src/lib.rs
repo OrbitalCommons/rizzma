@@ -27,6 +27,8 @@
 //! | [`Axes::stem`] | [`Axes::stairs`] | [`Axes::stackplot`] |
 //! | ![broken_barh](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_broken_barh.png) | ![pcolormesh](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_pcolormesh.png) | ![boxplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_boxplot.png) |
 //! | [`Axes::broken_barh`] | [`Axes::pcolormesh`] | [`Axes::boxplot`] |
+//! | ![mathtext](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_mathtext.png) | | |
+//! | mathtext title ([`richtext`]) | | |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
@@ -42,6 +44,7 @@ mod plotting_image;
 mod plotting_mesh;
 mod plotting_stats;
 mod plotting_steps;
+pub mod richtext;
 mod subplotspec;
 
 pub use axes::Axes;
