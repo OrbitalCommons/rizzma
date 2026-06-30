@@ -180,6 +180,39 @@ impl Rgba {
             a: alpha,
         }
     }
+
+    /// Format this color as an `#rrggbbaa` hex string.
+    ///
+    /// Channels are clamped to `0.0..=1.0` and rounded to 8 bits, matching
+    /// [`Rgba::to_u8_array`]. The alpha channel is always included, so the
+    /// result round-trips through [`Rgba::from_hex`].
+    #[must_use]
+    pub fn to_hex(&self) -> String {
+        let [r, g, b, a] = self.to_u8_array();
+        format!("#{r:02x}{g:02x}{b:02x}{a:02x}")
+    }
+}
+
+impl serde::Serialize for Rgba {
+    /// Serialize as an `#rrggbbaa` hex string (see [`Rgba::to_hex`]).
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_hex())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Rgba {
+    /// Deserialize from any hex form accepted by [`Rgba::from_hex`].
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
+        Rgba::from_hex(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("invalid hex color: {s:?}")))
+    }
 }
 
 /// Clamp a `0.0..=1.0` channel and round it to the nearest 8-bit value.
