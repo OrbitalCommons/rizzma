@@ -14,7 +14,6 @@ workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-js-sys = "0.3.103"
 rizzma-core = { version = "0.0.0", path = "../rizzma-core" }
 rizzma-figure = { version = "0.0.0", path = "../rizzma-figure" }
 rizzma-skia = { version = "0.0.0", path = "../rizzma-skia" }

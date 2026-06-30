@@ -8,8 +8,8 @@
 //!    RGBA8 buffer plus its pixel dimensions. It compiles and is tested on the
 //!    native host, with no browser or DOM dependency.
 //!
-//! 2. **Wasm-only canvas blit** ([`draw_sample_to_canvas`],
-//!    [`render_rgba_to_canvas`]). Gated behind `#[cfg(target_arch = "wasm32")]`,
+//! 2. **Wasm-only canvas blit** (`draw_sample_to_canvas`,
+//!    `render_rgba_to_canvas`). Gated behind `#[cfg(target_arch = "wasm32")]`,
 //!    this takes the straight RGBA from the core path, wraps it in an
 //!    [`web_sys::ImageData`], and pushes it onto an `HtmlCanvasElement`'s 2D
 //!    context via `putImageData`. "Canvas is just another backend."
@@ -59,7 +59,7 @@ pub fn sample_figure() -> Figure {
 ///
 /// tiny-skia stores premultiplied RGBA internally; this function reads each
 /// pixel's *straight* channel values back out (tiny-skia's
-/// [`tiny_skia::PremultipliedColorU8::demultiply`]), so the returned buffer is
+/// `PremultipliedColorU8::demultiply`), so the returned buffer is
 /// non-premultiplied.
 #[must_use]
 pub fn figure_to_rgba(fig: &Figure) -> (Vec<u8>, u32, u32) {

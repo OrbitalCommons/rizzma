@@ -921,7 +921,6 @@ dependencies = [
 name = "rizzma-wasm"
 version = "0.0.0"
 dependencies = [
- "js-sys",
  "rizzma-core",
  "rizzma-figure",
  "rizzma-skia",
