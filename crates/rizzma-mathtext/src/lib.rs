@@ -9,9 +9,10 @@
 //! Supported in this first pass: ordinary symbols, whitespace glue, `{...}`
 //! groups, superscripts/subscripts, `\frac{...}{...}`, `\binom{...}{...}`,
 //! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
-//! `\text{...}`, `\left...\right` delimiters, large operators, and a table of
-//! common named symbols and accents. Unsupported commands are preserved as
-//! literal fallback text and reported as structured warnings. The
+//! `\text{...}`, `\begin{matrix}`/`pmatrix`/`bmatrix` environments,
+//! `\left...\right` delimiters, large operators, and a table of common named
+//! symbols and accents. Unsupported commands are preserved as literal fallback
+//! text and reported as structured warnings. The
 //! [`richtext`] module combines plain text spans and math spans into reusable
 //! label geometry for axes, titles, and other text artists.
 //!
@@ -40,6 +41,8 @@ const RADICAL_PAD_EM: f64 = 0.08;
 const RADICAL_RULE_EM: f64 = 0.04;
 const LINE_DECORATION_GAP_EM: f64 = 0.08;
 const LINE_DECORATION_RULE_EM: f64 = 0.04;
+const MATRIX_COL_GAP_EM: f64 = 0.75;
+const MATRIX_ROW_GAP_EM: f64 = 0.28;
 const SPACE_EM: f64 = 0.28;
 const THIN_SPACE_EM: f64 = 3.0 / 18.0;
 const MEDIUM_SPACE_EM: f64 = 4.0 / 18.0;
@@ -351,6 +354,11 @@ enum Node {
         index: Option<Row>,
         body: Row,
     },
+    Matrix {
+        rows: Vec<Vec<Row>>,
+        left: DelimiterKind,
+        right: DelimiterKind,
+    },
     LineDecoration {
         kind: LineDecorationKind,
         body: Row,
@@ -550,6 +558,10 @@ impl<'a> Parser<'a> {
 
         if name == "text" {
             return self.parse_text_command(start);
+        }
+
+        if name == "begin" {
+            return self.parse_environment(start);
         }
 
         if name == "overline" {
@@ -783,6 +795,100 @@ impl<'a> Parser<'a> {
         Some(text)
     }
 
+    fn parse_environment(&mut self, start: usize) -> Node {
+        let Some(environment) = self.parse_required_raw_group(
+            start,
+            "begin",
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text("\\begin".to_owned());
+        };
+
+        let (left, right) = match environment.as_str() {
+            "matrix" => (DelimiterKind::None, DelimiterKind::None),
+            "pmatrix" => (DelimiterKind::Paren, DelimiterKind::Paren),
+            "bmatrix" => (DelimiterKind::Bracket, DelimiterKind::Bracket),
+            _ => {
+                let source = format!("\\begin{{{environment}}}");
+                self.warnings.push(MathTextWarning {
+                    range: Some(start..self.pos),
+                    reason: MathTextWarningReason::UnsupportedCommand,
+                    source: source.clone(),
+                });
+                return Node::Text(source);
+            }
+        };
+
+        let rows = self.parse_matrix_rows(&environment);
+        self.parse_scripts(Node::Matrix { rows, left, right })
+    }
+
+    fn parse_matrix_rows(&mut self, environment: &str) -> Vec<Vec<Row>> {
+        let mut rows = Vec::new();
+        let mut cells = Vec::new();
+        let mut nodes = Vec::new();
+
+        while self.pos < self.source.len() {
+            if self.consume_environment_end(environment) {
+                cells.push(Row { nodes });
+                rows.push(cells);
+                return rows;
+            }
+
+            if self.source[self.pos..].starts_with("\\\\") {
+                self.pos += 2;
+                cells.push(Row { nodes });
+                rows.push(cells);
+                cells = Vec::new();
+                nodes = Vec::new();
+                continue;
+            }
+
+            match self.peek_char() {
+                Some('&') => {
+                    self.pos += 1;
+                    cells.push(Row { nodes });
+                    nodes = Vec::new();
+                }
+                Some('}') => {
+                    self.warn_here(MathTextWarningReason::UnmatchedCloseBrace, "}");
+                    self.pos += 1;
+                }
+                Some('{') => {
+                    self.pos += 1;
+                    let group = self.parse_group_from_open();
+                    nodes.extend(group.nodes);
+                }
+                Some('^') | Some('_') => {
+                    let source = self.peek_slice().to_owned();
+                    self.warn_here(MathTextWarningReason::MissingScript, &source);
+                    self.pos += 1;
+                }
+                Some('\\') => nodes.push(self.parse_command()),
+                Some(ch) if ch.is_whitespace() => {
+                    self.pos += ch.len_utf8();
+                    if !matches!(nodes.last(), Some(Node::Space)) {
+                        nodes.push(Node::Space);
+                    }
+                }
+                Some(_) => {
+                    let base = self.parse_atom();
+                    nodes.push(self.parse_scripts(base));
+                }
+                None => break,
+            }
+        }
+
+        self.warnings.push(MathTextWarning {
+            range: Some(self.source.len()..self.source.len()),
+            reason: MathTextWarningReason::UnclosedGroup,
+            source: format!("\\begin{{{environment}}}"),
+        });
+        cells.push(Row { nodes });
+        rows.push(cells);
+        rows
+    }
+
     fn parse_row_until_right(&mut self) -> (Row, Option<DelimiterKind>) {
         let mut nodes = Vec::new();
 
@@ -882,6 +988,16 @@ impl<'a> Parser<'a> {
             });
             None
         })
+    }
+
+    fn consume_environment_end(&mut self, environment: &str) -> bool {
+        let marker = format!("\\end{{{environment}}}");
+        if self.source[self.pos..].starts_with(&marker) {
+            self.pos += marker.len();
+            true
+        } else {
+            false
+        }
     }
 
     fn starts_command(&self, command: &str) -> bool {
@@ -997,6 +1113,9 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
         } => layout_fraction(numerator, denominator, font, font_size_px),
         Node::Binomial { upper, lower } => layout_binomial(upper, lower, font, font_size_px),
         Node::Radical { index, body } => layout_radical(index.as_ref(), body, font, font_size_px),
+        Node::Matrix { rows, left, right } => {
+            layout_matrix(rows, *left, *right, font, font_size_px)
+        }
         Node::LineDecoration { kind, body } => {
             layout_line_decoration(*kind, body, font, font_size_px)
         }
@@ -1125,6 +1244,133 @@ fn layout_binomial(upper: &Row, lower: &Row, font: &FontSource, font_size_px: f6
     LayoutBox {
         elements,
         width: right_x + delimiter_width,
+        ascent,
+        descent,
+    }
+}
+
+fn layout_matrix(
+    rows: &[Vec<Row>],
+    left: DelimiterKind,
+    right: DelimiterKind,
+    font: &FontSource,
+    font_size_px: f64,
+) -> LayoutBox {
+    if rows.is_empty() {
+        return LayoutBox {
+            elements: Vec::new(),
+            width: 0.0,
+            ascent: 0.0,
+            descent: 0.0,
+        };
+    }
+
+    let col_gap = font_size_px * MATRIX_COL_GAP_EM;
+    let row_gap = font_size_px * MATRIX_ROW_GAP_EM;
+    let pad = font_size_px * 0.08;
+    let stroke = (font_size_px * 0.045).max(1.0);
+    let delimiter_width = delimiter_width(font_size_px, stroke);
+    let col_count = rows.iter().map(Vec::len).max().unwrap_or(0);
+
+    let mut cells: Vec<Vec<LayoutBox>> = Vec::new();
+    let mut col_widths = vec![0.0_f64; col_count];
+    let mut row_ascents = Vec::with_capacity(rows.len());
+    let mut row_descents = Vec::with_capacity(rows.len());
+
+    for row in rows {
+        let mut laid_out_row = Vec::with_capacity(row.len());
+        let mut row_ascent: f64 = 0.0;
+        let mut row_descent: f64 = 0.0;
+        for (col, cell) in row.iter().enumerate() {
+            let cell_box = layout_row(&cell.nodes, font, font_size_px);
+            col_widths[col] = col_widths[col].max(cell_box.width);
+            row_ascent = row_ascent.max(cell_box.ascent);
+            row_descent = row_descent.max(cell_box.descent);
+            laid_out_row.push(cell_box);
+        }
+        row_ascents.push(row_ascent);
+        row_descents.push(row_descent);
+        cells.push(laid_out_row);
+    }
+
+    let inner_width = col_widths.iter().sum::<f64>() + col_gap * col_count.saturating_sub(1) as f64;
+    let total_height = row_ascents.iter().sum::<f64>()
+        + row_descents.iter().sum::<f64>()
+        + row_gap * rows.len().saturating_sub(1) as f64;
+    let ascent = total_height / 2.0;
+    let descent = total_height - ascent;
+
+    let mut elements = Vec::new();
+    let mut col_x = Vec::with_capacity(col_count);
+    let mut x = if left != DelimiterKind::None {
+        delimiter_width + pad
+    } else {
+        0.0
+    };
+    for (col, width) in col_widths.iter().copied().enumerate() {
+        col_x.push(x);
+        x += width;
+        if col + 1 < col_count {
+            x += col_gap;
+        }
+    }
+    let inner_start_x = if left != DelimiterKind::None {
+        delimiter_width + pad
+    } else {
+        0.0
+    };
+    let inner_end_x = inner_start_x + inner_width;
+
+    let mut baseline = ascent - row_ascents[0];
+    for (row_index, row_cells) in cells.into_iter().enumerate() {
+        for (col, cell_box) in row_cells.into_iter().enumerate() {
+            let cell_x = col_x[col] + (col_widths[col] - cell_box.width) / 2.0;
+            elements.extend(shift_elements(cell_box.elements, cell_x, baseline));
+        }
+        if row_index + 1 < rows.len() {
+            baseline -= row_descents[row_index] + row_gap + row_ascents[row_index + 1];
+        }
+    }
+
+    if left != DelimiterKind::None {
+        elements.insert(
+            0,
+            MathElement::Delimiter {
+                kind: left,
+                path: delimiter_path(
+                    left,
+                    0.0,
+                    -descent,
+                    delimiter_width,
+                    total_height,
+                    stroke,
+                    true,
+                ),
+            },
+        );
+    }
+
+    let mut width = inner_end_x;
+    if right != DelimiterKind::None {
+        width += pad;
+        elements.push(MathElement::Delimiter {
+            kind: right,
+            path: delimiter_path(
+                right,
+                width,
+                -descent,
+                delimiter_width,
+                total_height,
+                stroke,
+                false,
+            ),
+        });
+        width += delimiter_width;
+    }
+
+    LayoutBox {
+        elements,
+        width,
         ascent,
         descent,
     }
@@ -1493,6 +1739,7 @@ fn flatten_row_text(row: &Row) -> String {
             Node::Fraction { .. } => out.push_str("\\frac"),
             Node::Binomial { .. } => out.push_str("\\binom"),
             Node::Radical { body, .. } => out.push_str(&flatten_row_text(body)),
+            Node::Matrix { rows, .. } => out.push_str(&flatten_matrix_text(rows)),
             Node::LineDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Delimited { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Accent { body, .. } => out.push_str(&flatten_row_text(body)),
@@ -1511,12 +1758,21 @@ fn flatten_node_text(node: &Node) -> String {
         Node::Fraction { .. } => "\\frac".to_owned(),
         Node::Binomial { .. } => "\\binom".to_owned(),
         Node::Radical { body, .. } => flatten_row_text(body),
+        Node::Matrix { rows, .. } => flatten_matrix_text(rows),
         Node::LineDecoration { body, .. } => flatten_row_text(body),
         Node::Delimited { body, .. } => flatten_row_text(body),
         Node::Accent { body, .. } => flatten_row_text(body),
         Node::LargeOperator { kind } => large_operator_symbol(*kind).to_owned(),
         Node::Script { base, .. } => flatten_node_text(base),
     }
+}
+
+fn flatten_matrix_text(rows: &[Vec<Row>]) -> String {
+    rows.iter()
+        .flat_map(|row| row.iter())
+        .map(flatten_row_text)
+        .collect::<Vec<_>>()
+        .join("")
 }
 
 fn combine_paths(paths: &[Path]) -> Path {
@@ -2004,6 +2260,126 @@ mod tests {
         assert!(layout.elements.iter().any(
             |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\binom")
         ));
+    }
+
+    #[test]
+    fn matrix_environment_lays_out_aligned_cells_without_delimiters() {
+        let single_row = layout_math("ab", &font(), 24.0);
+        let matrix = layout_math("\\begin{matrix}a&b\\\\c&d\\end{matrix}", &font(), 24.0);
+        let texts: Vec<_> = matrix
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(texts, ["a", "b", "c", "d"]);
+        assert!(
+            !matrix
+                .elements
+                .iter()
+                .any(|element| matches!(element, MathElement::Delimiter { .. }))
+        );
+        assert!(matrix.width > single_row.width);
+        assert!(matrix.height() > single_row.height());
+        assert!(matrix.warnings.is_empty());
+    }
+
+    #[test]
+    fn pmatrix_and_bmatrix_add_matching_delimiters() {
+        let plain = layout_math("\\begin{matrix}a&b\\\\c&d\\end{matrix}", &font(), 24.0);
+        let pmatrix = layout_math("\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}", &font(), 24.0);
+        let bmatrix = layout_math("\\begin{bmatrix}a&b\\\\c&d\\end{bmatrix}", &font(), 24.0);
+        let parens = pmatrix
+            .elements
+            .iter()
+            .filter(|element| {
+                matches!(
+                    element,
+                    MathElement::Delimiter {
+                        kind: DelimiterKind::Paren,
+                        ..
+                    }
+                )
+            })
+            .count();
+        let brackets = bmatrix
+            .elements
+            .iter()
+            .filter(|element| {
+                matches!(
+                    element,
+                    MathElement::Delimiter {
+                        kind: DelimiterKind::Bracket,
+                        ..
+                    }
+                )
+            })
+            .count();
+
+        assert_eq!(parens, 2);
+        assert_eq!(brackets, 2);
+        assert!(pmatrix.width > plain.width);
+        assert!(pmatrix.warnings.is_empty());
+        assert!(bmatrix.warnings.is_empty());
+    }
+
+    #[test]
+    fn matrix_environment_can_take_scripts() {
+        let matrix = layout_math("\\begin{bmatrix}a&b\\\\c&d\\end{bmatrix}", &font(), 24.0);
+        let scripted = layout_math(
+            "\\begin{bmatrix}a&b\\\\c&d\\end{bmatrix}^{-1}",
+            &font(),
+            24.0,
+        );
+        let texts: Vec<_> = scripted
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(texts.contains(&"-"));
+        assert!(texts.contains(&"1"));
+        assert!(scripted.width > matrix.width);
+        assert!(scripted.ascent > matrix.ascent);
+        assert!(scripted.warnings.is_empty());
+    }
+
+    #[test]
+    fn matrix_environment_recovers_from_bad_environment_boundaries() {
+        let unsupported = layout_math("\\begin{array}a&b\\end{array}", &font(), 20.0);
+        assert_eq!(unsupported.warnings.len(), 2);
+        assert_eq!(
+            unsupported.warnings[0].reason,
+            MathTextWarningReason::UnsupportedCommand
+        );
+        assert!(unsupported.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\begin{array}")
+        ));
+
+        let unclosed = layout_math("\\begin{matrix}a&b", &font(), 20.0);
+        assert_eq!(unclosed.warnings.len(), 1);
+        assert_eq!(
+            unclosed.warnings[0].reason,
+            MathTextWarningReason::UnclosedGroup
+        );
+        assert!(
+            unclosed
+                .elements
+                .iter()
+                .any(|element| matches!(element, MathElement::Glyph { text, .. } if text == "a"))
+        );
+        assert!(
+            unclosed
+                .elements
+                .iter()
+                .any(|element| matches!(element, MathElement::Glyph { text, .. } if text == "b"))
+        );
     }
 
     #[test]
