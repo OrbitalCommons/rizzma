@@ -6,7 +6,7 @@ use std::f64::consts::{PI, TAU};
 use chrono::NaiveDate;
 use rizzma_axis::dates::date2num;
 use rizzma_core::color::Rgba;
-use rizzma_figure::Figure;
+use rizzma_figure::{Figure, PolarAxes};
 
 fn linspace(a: f64, b: f64, n: usize) -> Vec<f64> {
     (0..n)
@@ -633,6 +633,16 @@ fn main() {
         ax.set_xlabel("2026");
         ax.set_ylabel("value");
         fig.save_png("target/gallery_dates.png").unwrap();
+    }
+
+    // 38. polar (4-petal rose r = |cos(2*theta)|)
+    {
+        let theta: Vec<f64> = (0..=720).map(|i| i as f64 * TAU / 720.0).collect();
+        let r: Vec<f64> = theta.iter().map(|t| (2.0 * t).cos().abs()).collect();
+        let mut ax = PolarAxes::new();
+        ax.plot(&theta, &r);
+        ax.save_png("target/gallery_polar.png", 500, 500, 100.0)
+            .unwrap();
     }
 
     println!("wrote target/gallery_*.png");

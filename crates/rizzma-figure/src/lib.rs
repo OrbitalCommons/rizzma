@@ -41,8 +41,8 @@
 //! | [`Axes::triplot`] | [`Axes::tripcolor`] | [`Axes::symlogy`] |
 //! | ![logit](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_logit.png) | | |
 //! | [`Axes::logity`] | | |
-//! | ![dates](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_dates.png) | | |
-//! | [`Axes::set_xaxis_date`] | | |
+//! | ![dates](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_dates.png) | ![polar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar.png) | |
+//! | [`Axes::set_xaxis_date`] | [`PolarAxes`] | |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
@@ -68,10 +68,12 @@ mod plotting_steps;
 mod plotting_stream;
 mod plotting_tri;
 mod plotting_violin;
+pub mod polar;
 pub mod richtext;
 mod subplotspec;
 
 pub use axes::Axes;
 pub use figure::Figure;
 pub use gridspec::GridSpec;
+pub use polar::PolarAxes;
 pub use subplotspec::SubplotSpec;
