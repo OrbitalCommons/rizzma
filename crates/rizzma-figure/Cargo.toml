@@ -20,4 +20,4 @@ rizzma-svg = { version = "0.0.0", path = "../rizzma-svg" }
 rizzma-text = { version = "0.0.0", path = "../rizzma-text" }
 
 [dev-dependencies]
-resvg = "0.47.0"
+resvg = { version = "0.47.0", default-features = false }
