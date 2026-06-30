@@ -424,5 +424,38 @@ fn main() {
         fig.save_png("target/gallery_violinplot.png").unwrap();
     }
 
+    // 28. hexbin
+    {
+        let mut fig = Figure::new(5.0, 3.8);
+        let mut seed = 0x243F6A8885A308D3u64;
+        let mut next = || {
+            seed ^= seed >> 12;
+            seed ^= seed << 25;
+            seed ^= seed >> 27;
+            ((seed.wrapping_mul(0x2545F4914F6CDD1D) >> 11) as f64) / ((1u64 << 53) as f64)
+        };
+        // Two overlapping correlated blobs (sum-of-uniforms ~ gaussian) so the
+        // hexagons fill in densely and the viridis gradient is visible.
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+        for _ in 0..4000 {
+            let gx = (next() + next() + next() + next()) / 4.0;
+            let gy = (next() + next() + next() + next()) / 4.0;
+            let a = gx * 4.0 - 2.0;
+            x.push(a - 1.0);
+            y.push(0.7 * a + (gy * 2.0 - 1.0) - 0.5);
+        }
+        for _ in 0..3000 {
+            let gx = (next() + next() + next() + next()) / 4.0;
+            let gy = (next() + next() + next() + next()) / 4.0;
+            x.push(gx * 3.0 + 1.0);
+            y.push(gy * 3.0 + 1.0);
+        }
+        let ax = fig.add_axes(0.14, 0.14, 0.78, 0.76);
+        ax.hexbin(&x, &y, 30);
+        ax.set_title("hexbin");
+        fig.save_png("target/gallery_hexbin.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
