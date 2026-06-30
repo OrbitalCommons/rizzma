@@ -9,8 +9,9 @@
 //!
 //! `hatch` is deferred to follow-up work; this crate currently ships the trait
 //! plus `Line2D`, the `Patch` shape hierarchy, point [`MarkerStyle`]s, the
-//! batched scatter [`Collection`], the colormapped raster [`AxesImage`], and a
-//! small [`draw_artists`] scene helper.
+//! batched scatter [`Collection`], the colormapped raster [`AxesImage`], the
+//! colormapped [`QuadMesh`] (`pcolormesh`), and a small [`draw_artists`] scene
+//! helper.
 //!
 //! Build-order home: Phase 5 of `design/04-implementation-plan.md`.
 
@@ -19,12 +20,14 @@ mod image;
 mod line;
 mod marker;
 mod patch;
+mod quadmesh;
 
 pub use collection::Collection;
 pub use image::AxesImage;
 pub use line::Line2D;
 pub use marker::MarkerStyle;
 pub use patch::Patch;
+pub use quadmesh::QuadMesh;
 
 pub use rizzma_core::{Affine2D, Bbox, Path, color::Rgba};
 pub use rizzma_render::{CapStyle, GraphicsContext, JoinStyle, Renderer};
