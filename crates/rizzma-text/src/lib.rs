@@ -9,11 +9,21 @@
 //! vector [`rizzma_core::Path`]s) lives in [`textpath`]; shaping and full layout
 //! are deferred to a later phase.
 //!
+//! Math-aware text is represented as parsed [`TextRun`] spans. The span model is
+//! render-independent: it classifies plain text, portable mathtext, and raw TeX,
+//! preserving exact source text so backends can warn or pass through unsupported
+//! spans without losing author intent.
+//!
 //! Build-order home: Phase 4 of `design/04-implementation-plan.md`.
 
 pub mod font;
 pub mod metrics;
+pub mod span;
 pub mod textpath;
 
 pub use font::FontSource;
 pub use metrics::TextExtent;
+pub use span::{
+    MathMode, TextFallbackAction, TextFallbackReason, TextFallbackWarning, TextRenderCapabilities,
+    TextRun, TextSpan, TextSpanKind,
+};
