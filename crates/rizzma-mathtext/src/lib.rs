@@ -7,14 +7,15 @@
 //! later step; this crate owns only parsing and layout.
 //!
 //! Supported in this first pass: ordinary symbols, whitespace glue, `{...}`
-//! groups, superscripts/subscripts, `\frac{...}{...}`, and a small table of
-//! common named symbols and accents. Unsupported commands are preserved as
-//! literal fallback text and reported as structured warnings.
+//! groups, superscripts/subscripts, `\frac{...}{...}`, `\left...\right`
+//! delimiters, large operators, and a small table of common named symbols and
+//! accents. Unsupported commands are preserved as literal fallback text and
+//! reported as structured warnings.
 //!
 //! This is intentionally a scoped approximation: it uses the embedded DejaVu
 //! Sans face for wasm-clean, deterministic glyph geometry, so it does not yet
-//! provide math italic, dedicated math-font metrics, stretch delimiters, or
-//! publication-grade TeX spacing.
+//! provide math italic, dedicated math-font metrics, true extensible delimiter
+//! assembly, or publication-grade TeX spacing.
 //!
 //! Build-order home: Phase 10 of `design/04-implementation-plan.md`.
 
@@ -26,6 +27,7 @@ const SCRIPT_GAP_EM: f64 = 0.08;
 const FRAC_GAP_EM: f64 = 0.18;
 const FRAC_RULE_EM: f64 = 0.04;
 const FRAC_PAD_EM: f64 = 0.12;
+const LARGE_OPERATOR_SCALE: f64 = 1.35;
 const SPACE_EM: f64 = 0.28;
 
 /// A laid-out math expression in y-up coordinates.
@@ -99,6 +101,20 @@ pub enum MathElement {
         /// Accent mark path in final math-layout coordinates.
         path: Path,
     },
+    /// Delimiter geometry for a `\left...\right` group.
+    Delimiter {
+        /// Delimiter kind.
+        kind: DelimiterKind,
+        /// Delimiter path in final math-layout coordinates.
+        path: Path,
+    },
+    /// Large operator geometry, such as `\sum` or `\int`.
+    LargeOperator {
+        /// Operator kind.
+        kind: LargeOperatorKind,
+        /// Operator path in final math-layout coordinates.
+        path: Path,
+    },
 }
 
 impl MathElement {
@@ -111,7 +127,9 @@ impl MathElement {
         match self {
             MathElement::Glyph { path, .. }
             | MathElement::Rule { path }
-            | MathElement::Accent { path, .. } => path,
+            | MathElement::Accent { path, .. }
+            | MathElement::Delimiter { path, .. }
+            | MathElement::LargeOperator { path, .. } => path,
         }
     }
 
@@ -138,6 +156,14 @@ impl MathElement {
                 kind: *kind,
                 path: path.transformed(transform),
             },
+            MathElement::Delimiter { kind, path } => MathElement::Delimiter {
+                kind: *kind,
+                path: path.transformed(transform),
+            },
+            MathElement::LargeOperator { kind, path } => MathElement::LargeOperator {
+                kind: *kind,
+                path: path.transformed(transform),
+            },
         }
     }
 }
@@ -157,6 +183,38 @@ pub enum AccentKind {
     Dot,
     /// `\ddot{x}`.
     Ddot,
+}
+
+/// Supported delimiter commands for `\left...\right`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DelimiterKind {
+    /// `(`.
+    Paren,
+    /// `[`.
+    Bracket,
+    /// `{`.
+    Brace,
+    /// `|`.
+    Bar,
+    /// `\|`.
+    DoubleBar,
+    /// `\langle` or `\rangle`.
+    Angle,
+    /// `.` invisible delimiter.
+    None,
+}
+
+/// Supported large operators.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LargeOperatorKind {
+    /// `\sum`.
+    Sum,
+    /// `\prod`.
+    Prod,
+    /// `\int`.
+    Integral,
+    /// `\oint`.
+    ContourIntegral,
 }
 
 /// A non-fatal parser/layout warning.
@@ -185,6 +243,10 @@ pub enum MathTextWarningReason {
     MissingFractionArgument,
     /// A command was missing a required group argument.
     MissingCommandArgument,
+    /// `\left` or `\right` was missing its required delimiter token.
+    MissingDelimiter,
+    /// A `\left` group reached end-of-input before `\right`.
+    MissingRightDelimiter,
 }
 
 /// Error returned when an API receives a non-math span.
@@ -239,9 +301,17 @@ enum Node {
         numerator: Row,
         denominator: Row,
     },
+    Delimited {
+        left: DelimiterKind,
+        body: Row,
+        right: DelimiterKind,
+    },
     Accent {
         kind: AccentKind,
         body: Row,
+    },
+    LargeOperator {
+        kind: LargeOperatorKind,
     },
     Script {
         base: Box<Node>,
@@ -413,6 +483,14 @@ impl<'a> Parser<'a> {
             return self.parse_fraction(start);
         }
 
+        if name == "left" {
+            return self.parse_left_right(start);
+        }
+
+        if let Some(kind) = large_operator_kind(name) {
+            return self.parse_scripts(Node::LargeOperator { kind });
+        }
+
         if let Some(kind) = accent_kind(name) {
             return self.parse_accent(start, name, kind);
         }
@@ -451,6 +529,22 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_left_right(&mut self, start: usize) -> Node {
+        let Some(left) = self.parse_delimiter_token(start, "left") else {
+            return Node::Text("\\left".to_owned());
+        };
+        let (body, right) = self.parse_row_until_right();
+        let right = right.unwrap_or_else(|| {
+            self.warnings.push(MathTextWarning {
+                range: Some(self.source.len()..self.source.len()),
+                reason: MathTextWarningReason::MissingRightDelimiter,
+                source: "\\left".to_owned(),
+            });
+            DelimiterKind::None
+        });
+        self.parse_scripts(Node::Delimited { left, body, right })
+    }
+
     fn parse_accent(&mut self, start: usize, command: &str, kind: AccentKind) -> Node {
         let Some(body) = self.parse_required_group(
             start,
@@ -481,6 +575,123 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_row_until_right(&mut self) -> (Row, Option<DelimiterKind>) {
+        let mut nodes = Vec::new();
+
+        while self.pos < self.source.len() {
+            if self.starts_command("right") {
+                let start = self.pos;
+                self.pos += "\\right".len();
+                let right = self.parse_delimiter_token(start, "right");
+                return (Row { nodes }, right);
+            }
+
+            match self.peek_char() {
+                Some('}') => {
+                    self.warn_here(MathTextWarningReason::UnmatchedCloseBrace, "}");
+                    self.pos += 1;
+                }
+                Some('{') => {
+                    self.pos += 1;
+                    let group = self.parse_group_from_open();
+                    nodes.extend(group.nodes);
+                }
+                Some('^') | Some('_') => {
+                    let source = self.peek_slice().to_owned();
+                    self.warn_here(MathTextWarningReason::MissingScript, &source);
+                    self.pos += 1;
+                }
+                Some('\\') => nodes.push(self.parse_command()),
+                Some(ch) if ch.is_whitespace() => {
+                    self.pos += ch.len_utf8();
+                    if !matches!(nodes.last(), Some(Node::Space)) {
+                        nodes.push(Node::Space);
+                    }
+                }
+                Some(_) => {
+                    let base = self.parse_atom();
+                    nodes.push(self.parse_scripts(base));
+                }
+                None => break,
+            }
+        }
+
+        (Row { nodes }, None)
+    }
+
+    fn parse_delimiter_token(
+        &mut self,
+        command_start: usize,
+        command: &str,
+    ) -> Option<DelimiterKind> {
+        let Some(ch) = self.peek_char() else {
+            self.warnings.push(MathTextWarning {
+                range: Some(command_start..self.pos),
+                reason: MathTextWarningReason::MissingDelimiter,
+                source: format!("\\{command}"),
+            });
+            return None;
+        };
+
+        if ch == '\\' {
+            self.pos += 1;
+            let name_start = self.pos;
+            while let Some(ch) = self.peek_char() {
+                if ch.is_ascii_alphabetic() {
+                    self.pos += ch.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            let name = &self.source[name_start..self.pos];
+            if name.is_empty() {
+                if let Some(ch) = self.peek_char() {
+                    self.pos += ch.len_utf8();
+                    return if ch == '|' {
+                        Some(DelimiterKind::DoubleBar)
+                    } else {
+                        delimiter_symbol(ch)
+                    };
+                }
+                return None;
+            }
+            return delimiter_command(name).or_else(|| {
+                self.warnings.push(MathTextWarning {
+                    range: Some(command_start..self.pos),
+                    reason: MathTextWarningReason::MissingDelimiter,
+                    source: format!("\\{command}"),
+                });
+                None
+            });
+        }
+
+        self.pos += ch.len_utf8();
+        delimiter_symbol(ch).or_else(|| {
+            self.warnings.push(MathTextWarning {
+                range: Some(command_start..self.pos),
+                reason: MathTextWarningReason::MissingDelimiter,
+                source: format!("\\{command}"),
+            });
+            None
+        })
+    }
+
+    fn starts_command(&self, command: &str) -> bool {
+        let Some(rest) = self.source.get(self.pos..) else {
+            return false;
+        };
+        let Some(rest) = rest.strip_prefix('\\') else {
+            return false;
+        };
+        let Some(after_command) = rest.strip_prefix(command) else {
+            return false;
+        };
+        after_command
+            .chars()
+            .next()
+            .is_none_or(|ch| !ch.is_ascii_alphabetic())
+    }
+
     fn peek_char(&self) -> Option<char> {
         self.source[self.pos..].chars().next()
     }
@@ -506,6 +717,12 @@ struct LayoutBox {
     width: f64,
     ascent: f64,
     descent: f64,
+}
+
+impl LayoutBox {
+    fn height(&self) -> f64 {
+        self.ascent + self.descent
+    }
 }
 
 fn layout_nodes(nodes: &[Node], font: &FontSource, font_size_px: f64) -> MathLayout {
@@ -554,7 +771,11 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
             numerator,
             denominator,
         } => layout_fraction(numerator, denominator, font, font_size_px),
+        Node::Delimited { left, body, right } => {
+            layout_delimited(*left, body, *right, font, font_size_px)
+        }
         Node::Accent { kind, body } => layout_accent(*kind, body, font, font_size_px),
+        Node::LargeOperator { kind } => layout_large_operator(*kind, font, font_size_px),
         Node::Script { base, sup, sub } => {
             layout_script(base, sup.as_ref(), sub.as_ref(), font, font_size_px)
         }
@@ -634,6 +855,68 @@ fn layout_accent(kind: AccentKind, body: &Row, font: &FontSource, font_size_px: 
         width: base.width,
         ascent: mark_y + mark_height,
         descent: base.descent,
+    }
+}
+
+fn layout_delimited(
+    left: DelimiterKind,
+    body: &Row,
+    right: DelimiterKind,
+    font: &FontSource,
+    font_size_px: f64,
+) -> LayoutBox {
+    let body_box = layout_row(&body.nodes, font, font_size_px);
+    let pad = font_size_px * 0.08;
+    let min_height = font_size_px * 1.2;
+    let height = body_box.height().max(min_height);
+    let ymin = -body_box.descent - (height - body_box.height()) / 2.0;
+    let stroke = (font_size_px * 0.045).max(1.0);
+    let delimiter_width = delimiter_width(font_size_px, stroke);
+
+    let mut elements = Vec::new();
+    let mut x = 0.0;
+    if left != DelimiterKind::None {
+        elements.push(MathElement::Delimiter {
+            kind: left,
+            path: delimiter_path(left, x, ymin, delimiter_width, height, stroke, true),
+        });
+        x += delimiter_width + pad;
+    }
+
+    elements.extend(shift_elements(body_box.elements, x, 0.0));
+    x += body_box.width;
+
+    if right != DelimiterKind::None {
+        x += pad;
+        elements.push(MathElement::Delimiter {
+            kind: right,
+            path: delimiter_path(right, x, ymin, delimiter_width, height, stroke, false),
+        });
+        x += delimiter_width;
+    }
+
+    LayoutBox {
+        elements,
+        width: x,
+        ascent: (-ymin + height).max(body_box.ascent),
+        descent: (-ymin).max(body_box.descent),
+    }
+}
+
+fn layout_large_operator(
+    kind: LargeOperatorKind,
+    font: &FontSource,
+    font_size_px: f64,
+) -> LayoutBox {
+    let text = large_operator_symbol(kind);
+    let size = font_size_px * LARGE_OPERATOR_SCALE;
+    let extent = font.measure(text, size);
+    let path = font.text_to_path(text, size, [0.0, 0.0]);
+    LayoutBox {
+        elements: vec![MathElement::LargeOperator { kind, path }],
+        width: extent.width,
+        ascent: extent.ascent,
+        descent: extent.descent,
     }
 }
 
@@ -729,6 +1012,92 @@ fn accent_path(kind: AccentKind, x: f64, y: f64, width: f64, height: f64) -> Pat
     }
 }
 
+fn delimiter_width(font_size_px: f64, stroke: f64) -> f64 {
+    (font_size_px * 0.32).max(stroke * 4.0)
+}
+
+fn delimiter_path(
+    kind: DelimiterKind,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    stroke: f64,
+    is_left: bool,
+) -> Path {
+    match kind {
+        DelimiterKind::None => Path::new(Vec::new(), None),
+        DelimiterKind::Paren => {
+            let mid_y = y + height * 0.5;
+            let inner_x = if is_left { x + width } else { x };
+            let outer_x = if is_left {
+                x + stroke
+            } else {
+                x + width - stroke
+            };
+            Path::from_polyline(&[
+                [inner_x, y],
+                [outer_x, y + height * 0.18],
+                [outer_x, mid_y],
+                [outer_x, y + height * 0.82],
+                [inner_x, y + height],
+            ])
+        }
+        DelimiterKind::Bracket => {
+            let vertical_x = if is_left {
+                x + stroke * 0.5
+            } else {
+                x + width - stroke * 0.5
+            };
+            let cap_x = if is_left { x + width } else { x };
+            Path::from_polyline(&[
+                [cap_x, y],
+                [vertical_x, y],
+                [vertical_x, y + height],
+                [cap_x, y + height],
+            ])
+        }
+        DelimiterKind::Brace => {
+            let inner_x = if is_left { x + width } else { x };
+            let outer_x = if is_left {
+                x + stroke
+            } else {
+                x + width - stroke
+            };
+            let mid_y = y + height * 0.5;
+            Path::from_polyline(&[
+                [inner_x, y],
+                [outer_x, y + height * 0.12],
+                [outer_x, y + height * 0.35],
+                [inner_x, mid_y],
+                [outer_x, y + height * 0.65],
+                [outer_x, y + height * 0.88],
+                [inner_x, y + height],
+            ])
+        }
+        DelimiterKind::Bar => rect_path(x + width * 0.5 - stroke * 0.5, y, stroke, height),
+        DelimiterKind::DoubleBar => {
+            let gap = stroke * 1.5;
+            let first = rect_path(x + width * 0.5 - gap - stroke * 0.5, y, stroke, height);
+            let second = rect_path(x + width * 0.5 + gap - stroke * 0.5, y, stroke, height);
+            combine_paths(&[first, second])
+        }
+        DelimiterKind::Angle => {
+            let inner_x = if is_left { x + width } else { x };
+            let outer_x = if is_left {
+                x + stroke
+            } else {
+                x + width - stroke
+            };
+            Path::from_polyline(&[
+                [inner_x, y],
+                [outer_x, y + height * 0.5],
+                [inner_x, y + height],
+            ])
+        }
+    }
+}
+
 fn rect_path(x: f64, y: f64, width: f64, height: f64) -> Path {
     Path::unit_rectangle()
         .transformed(&Affine2D::from_scale(width, height).then(&Affine2D::from_translation(x, y)))
@@ -741,7 +1110,9 @@ fn flatten_row_text(row: &Row) -> String {
             Node::Text(text) => out.push_str(text),
             Node::Space => out.push(' '),
             Node::Fraction { .. } => out.push_str("\\frac"),
+            Node::Delimited { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Accent { body, .. } => out.push_str(&flatten_row_text(body)),
+            Node::LargeOperator { kind } => out.push_str(large_operator_symbol(*kind)),
             Node::Script { base, .. } => out.push_str(&flatten_node_text(base)),
         }
     }
@@ -753,7 +1124,9 @@ fn flatten_node_text(node: &Node) -> String {
         Node::Text(text) => text.clone(),
         Node::Space => " ".to_owned(),
         Node::Fraction { .. } => "\\frac".to_owned(),
+        Node::Delimited { body, .. } => flatten_row_text(body),
         Node::Accent { body, .. } => flatten_row_text(body),
+        Node::LargeOperator { kind } => large_operator_symbol(*kind).to_owned(),
         Node::Script { base, .. } => flatten_node_text(base),
     }
 }
@@ -787,6 +1160,49 @@ fn accent_kind(name: &str) -> Option<AccentKind> {
         "dot" => Some(AccentKind::Dot),
         "ddot" => Some(AccentKind::Ddot),
         _ => None,
+    }
+}
+
+fn delimiter_symbol(ch: char) -> Option<DelimiterKind> {
+    match ch {
+        '(' | ')' => Some(DelimiterKind::Paren),
+        '[' | ']' => Some(DelimiterKind::Bracket),
+        '{' | '}' => Some(DelimiterKind::Brace),
+        '|' => Some(DelimiterKind::Bar),
+        '.' => Some(DelimiterKind::None),
+        '<' | '>' => Some(DelimiterKind::Angle),
+        _ => None,
+    }
+}
+
+fn delimiter_command(name: &str) -> Option<DelimiterKind> {
+    match name {
+        "{" | "}" => Some(DelimiterKind::Brace),
+        "|" | "Vert" | "lVert" | "rVert" => Some(DelimiterKind::DoubleBar),
+        "langle" | "rangle" => Some(DelimiterKind::Angle),
+        "lbrace" | "rbrace" => Some(DelimiterKind::Brace),
+        "lbrack" | "rbrack" => Some(DelimiterKind::Bracket),
+        "lparen" | "rparen" => Some(DelimiterKind::Paren),
+        _ => None,
+    }
+}
+
+fn large_operator_kind(name: &str) -> Option<LargeOperatorKind> {
+    match name {
+        "sum" => Some(LargeOperatorKind::Sum),
+        "prod" => Some(LargeOperatorKind::Prod),
+        "int" => Some(LargeOperatorKind::Integral),
+        "oint" => Some(LargeOperatorKind::ContourIntegral),
+        _ => None,
+    }
+}
+
+fn large_operator_symbol(kind: LargeOperatorKind) -> &'static str {
+    match kind {
+        LargeOperatorKind::Sum => "∑",
+        LargeOperatorKind::Prod => "∏",
+        LargeOperatorKind::Integral => "∫",
+        LargeOperatorKind::ContourIntegral => "∮",
     }
 }
 
@@ -851,10 +1267,6 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "infty" => Some("∞"),
         "partial" => Some("∂"),
         "nabla" => Some("∇"),
-        "sum" => Some("∑"),
-        "prod" => Some("∏"),
-        "int" => Some("∫"),
-        "oint" => Some("∮"),
         "sqrt" => Some("√"),
         "cdot" => Some("⋅"),
         "bullet" => Some("•"),
@@ -912,7 +1324,7 @@ mod tests {
             .iter()
             .filter_map(|element| match element {
                 MathElement::Glyph { text, .. } => Some(text.as_str()),
-                MathElement::Rule { .. } | MathElement::Accent { .. } => None,
+                _ => None,
             })
             .collect();
         assert_eq!(texts, ["α", "+", "β"]);
@@ -927,7 +1339,7 @@ mod tests {
             .iter()
             .filter_map(|element| match element {
                 MathElement::Glyph { text, .. } => Some(text.as_str()),
-                MathElement::Rule { .. } | MathElement::Accent { .. } => None,
+                _ => None,
             })
             .collect();
         assert_eq!(text, "≤≈∇→⊆");
@@ -1028,7 +1440,7 @@ mod tests {
 
     #[test]
     fn element_path_accessor_covers_all_variants() {
-        let layout = layout_math("\\hat{\\frac{x}{y}}", &font(), 24.0);
+        let layout = layout_math("\\left(\\hat{\\frac{x}{y}}\\right)+\\sum", &font(), 24.0);
         assert!(
             layout
                 .elements
@@ -1047,10 +1459,95 @@ mod tests {
                 .iter()
                 .any(|element| matches!(element, MathElement::Accent { .. }))
         );
+        assert!(
+            layout
+                .elements
+                .iter()
+                .any(|element| matches!(element, MathElement::Delimiter { .. }))
+        );
+        assert!(
+            layout
+                .elements
+                .iter()
+                .any(|element| matches!(element, MathElement::LargeOperator { .. }))
+        );
 
         for element in &layout.elements {
             assert!(!element.path().vertices().is_empty());
         }
+    }
+
+    #[test]
+    fn left_right_emit_stretched_delimiters() {
+        let body = layout_math("\\frac{a}{b}", &font(), 24.0);
+        let delimited = layout_math("\\left(\\frac{a}{b}\\right)", &font(), 24.0);
+        let delimiters: Vec<_> = delimited
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Delimiter { kind, path } => Some((*kind, path.get_extents())),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(delimiters.len(), 2);
+        assert_eq!(delimiters[0].0, DelimiterKind::Paren);
+        assert_eq!(delimiters[1].0, DelimiterKind::Paren);
+        assert!(delimited.width > body.width);
+        assert!(delimiters[0].1.height() >= body.height());
+        assert!(delimited.warnings.is_empty());
+    }
+
+    #[test]
+    fn invisible_delimiter_suppresses_geometry() {
+        let layout = layout_math("\\left. x \\right|", &font(), 20.0);
+        let delimiter_count = layout
+            .elements
+            .iter()
+            .filter(|element| matches!(element, MathElement::Delimiter { .. }))
+            .count();
+
+        assert_eq!(delimiter_count, 1);
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn missing_right_delimiter_warns_and_preserves_body() {
+        let layout = layout_math("\\left(x+1", &font(), 20.0);
+
+        assert!(layout.elements.iter().any(|element| {
+            matches!(
+                element,
+                MathElement::Delimiter {
+                    kind: DelimiterKind::Paren,
+                    ..
+                }
+            )
+        }));
+        assert!(
+            layout
+                .warnings
+                .iter()
+                .any(|w| w.reason == MathTextWarningReason::MissingRightDelimiter)
+        );
+    }
+
+    #[test]
+    fn large_operators_use_larger_geometry_and_take_scripts() {
+        let plain = layout_math("∑", &font(), 24.0);
+        let sum = layout_math("\\sum_{i=0}^{n}", &font(), 24.0);
+        let large = sum.elements.iter().find_map(|element| match element {
+            MathElement::LargeOperator { kind, path } => Some((*kind, path.get_extents())),
+            _ => None,
+        });
+        let large = large.expect("sum should emit large-operator geometry");
+
+        assert_eq!(large.0, LargeOperatorKind::Sum);
+        assert!(large.1.height() > plain.height());
+        assert!(sum.width > plain.width);
+        assert!(sum.ascent > plain.ascent);
+        assert!(sum.descent > plain.descent);
+        assert!(sum.warnings.is_empty());
     }
 
     #[test]
