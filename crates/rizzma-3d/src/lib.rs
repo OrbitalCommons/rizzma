@@ -6,10 +6,11 @@
 //! [`Renderer`]. A light-gray wireframe of the data cube supplies the depth cue.
 //!
 //! What is implemented here: [`Axes3D::plot3d`] (3D polylines),
-//! [`Axes3D::scatter3d`] (projected point markers), and the wireframe bounding
-//! box, all depth-sorted with a basic painter's algorithm. Deferred for later
-//! cuts: perspective projection, 3D tick labels, surfaces/bar3d, and wiring
-//! `Axes3D` into `Figure`.
+//! [`Axes3D::scatter3d`] (projected point markers), [`Axes3D::plot_surface`]
+//! (flat-shaded colormapped surfaces), and the wireframe bounding box, all
+//! depth-sorted with a basic painter's algorithm. Deferred for later cuts:
+//! perspective projection, 3D tick labels, surface lighting/Gouraud shading,
+//! bar3d, and wiring `Axes3D` into `Figure`.
 //!
 //! ```
 //! use rizzma_3d::Axes3D;
@@ -25,7 +26,8 @@
 //!
 //! Build-order home: Phase 11 (its own epic) of `design/04-implementation-plan.md`.
 
-use rizzma_core::{Affine2D, Path, color::Rgba};
+use rizzma_core::color::viridis;
+use rizzma_core::{Affine2D, Colormap, LinearNorm, Normalize, Path, color::Rgba};
 use rizzma_render::{GraphicsContext, Renderer};
 use rizzma_skia::SkiaRenderer;
 
@@ -90,6 +92,23 @@ struct Scatter3D {
     size: f64,
 }
 
+/// A single flat-shaded surface quad: four 3D corners plus its mean-height color.
+#[derive(Debug, Clone)]
+struct SurfaceQuad {
+    corners: [[f64; 3]; 4],
+    color: Rgba,
+}
+
+/// A flat-shaded surface drawn with [`Axes3D::plot_surface`].
+///
+/// Each grid cell becomes one [`SurfaceQuad`], colored by its mean height through
+/// a [`viridis`] colormap; quads are depth-sorted with the rest of the scene.
+#[derive(Debug, Clone)]
+struct Surface3D {
+    quads: Vec<SurfaceQuad>,
+    edge: Rgba,
+}
+
 /// An orthographic 3D axes that projects collected `(x, y, z)` data to 2D.
 ///
 /// Data is accumulated in raw coordinates; the data bounds and the `(elev,
@@ -106,6 +125,7 @@ pub struct Axes3D {
     zr: Range,
     lines: Vec<Line3D>,
     scatters: Vec<Scatter3D>,
+    surfaces: Vec<Surface3D>,
     /// Color cycle index for the next auto-colored artist.
     cycle: usize,
 }
@@ -122,6 +142,9 @@ const COLOR_CYCLE: &[Rgba] = &[
 /// Light gray used for the wireframe bounding box.
 const BOX_COLOR: Rgba = Rgba::new(0.7, 0.7, 0.7, 1.0);
 
+/// Thin dark gray edge stroked around each surface quad so the mesh reads.
+const SURFACE_EDGE_COLOR: Rgba = Rgba::new(0.15, 0.15, 0.15, 0.55);
+
 /// Fractional pixel margin reserved around the projected cube on every side.
 const MARGIN_FRAC: f64 = 0.12;
 
@@ -137,6 +160,7 @@ impl Axes3D {
             zr: Range::empty(),
             lines: Vec::new(),
             scatters: Vec::new(),
+            surfaces: Vec::new(),
             cycle: 0,
         }
     }
@@ -202,6 +226,75 @@ impl Axes3D {
             points,
             color,
             size: 5.0,
+        });
+        self
+    }
+
+    /// Add a flat-shaded surface over a regular `nx`-by-`ny` grid.
+    ///
+    /// `x` has length `nx`, `y` has length `ny`, and `z` has length `nx * ny` in
+    /// row-major order: `z[j * nx + i]` is the height at `(x[i], y[j])`. Each grid
+    /// cell `(i, j)` becomes a filled quadrilateral from its four corner heights,
+    /// colored by the cell's mean height through a [`viridis`] colormap (flat
+    /// shading) with a thin darker edge so the mesh reads. The quads join the
+    /// rest of the scene in the painter's-algorithm depth sort.
+    ///
+    /// Degenerate input — a `z` length mismatch, a grid narrower than `2` in
+    /// either axis, or empty slices — adds nothing and never panics.
+    pub fn plot_surface(&mut self, x: &[f64], y: &[f64], z: &[f64]) -> &mut Self {
+        let nx = x.len();
+        let ny = y.len();
+        if nx < 2 || ny < 2 || z.len() != nx * ny {
+            return self;
+        }
+
+        // Height extent drives both the bounds expansion and the color norm.
+        let mut zmin = f64::INFINITY;
+        let mut zmax = f64::NEG_INFINITY;
+        for &v in z {
+            if v.is_finite() {
+                zmin = zmin.min(v);
+                zmax = zmax.max(v);
+            }
+        }
+
+        // Expand data bounds to cover every surface vertex.
+        for &xi in x {
+            self.xr.expand(xi);
+        }
+        for &yj in y {
+            self.yr.expand(yj);
+        }
+        for &zv in z {
+            self.zr.expand(zv);
+        }
+
+        let norm = LinearNorm::new(zmin, zmax);
+        let cmap = viridis();
+        let at = |i: usize, j: usize| z[j * nx + i];
+
+        let mut quads = Vec::with_capacity((nx - 1) * (ny - 1));
+        for j in 0..ny - 1 {
+            for i in 0..nx - 1 {
+                let z00 = at(i, j);
+                let z10 = at(i + 1, j);
+                let z11 = at(i + 1, j + 1);
+                let z01 = at(i, j + 1);
+                let corners = [
+                    [x[i], y[j], z00],
+                    [x[i + 1], y[j], z10],
+                    [x[i + 1], y[j + 1], z11],
+                    [x[i], y[j + 1], z01],
+                ];
+                let mean = 0.25 * (z00 + z10 + z11 + z01);
+                let color = cmap.sample(norm.normalize(mean));
+                quads.push(SurfaceQuad { corners, color });
+            }
+        }
+
+        self.surfaces.push(Surface3D {
+            quads,
+            edge: SURFACE_EDGE_COLOR,
         });
         self
     }
@@ -280,6 +373,27 @@ impl Axes3D {
             });
         }
 
+        for surface in &self.surfaces {
+            for quad in &surface.quads {
+                let mut projected = [[0.0; 2]; 4];
+                let mut depth = 0.0;
+                for (k, c) in quad.corners.iter().enumerate() {
+                    let (px, py, d) = self.project(c[0], c[1], c[2], width, height);
+                    projected[k] = [px, py];
+                    depth += d;
+                }
+                depth *= 0.25;
+                items.push(Drawable {
+                    depth,
+                    kind: DrawKind::Quad {
+                        points: projected,
+                        fill: quad.color,
+                        edge: surface.edge,
+                    },
+                });
+            }
+        }
+
         for line in &self.lines {
             let projected: Vec<[f64; 2]> = line
                 .points
@@ -346,6 +460,15 @@ impl Axes3D {
                         .with_stroke(color)
                         .with_line_width(lw);
                     renderer.draw_path(&gc, &path, &Affine2D::identity(), None);
+                }
+                DrawKind::Quad { points, fill, edge } => {
+                    let path = Path::from_polyline(&[
+                        points[0], points[1], points[2], points[3], points[0],
+                    ]);
+                    let gc = GraphicsContext::new()
+                        .with_stroke(edge)
+                        .with_line_width(0.5);
+                    renderer.draw_path(&gc, &path, &Affine2D::identity(), Some(fill));
                 }
                 DrawKind::Marker {
                     center,
@@ -417,6 +540,11 @@ enum DrawKind {
         points: Vec<[f64; 2]>,
         color: Rgba,
         width: f64,
+    },
+    Quad {
+        points: [[f64; 2]; 4],
+        fill: Rgba,
+        edge: Rgba,
     },
     Marker {
         center: [f64; 2],
@@ -558,5 +686,87 @@ mod tests {
     fn view_angles() {
         assert_eq!(Axes3D::new().view(), (30.0, -60.0));
         assert_eq!(Axes3D::new().with_view(45.0, 10.0).view(), (45.0, 10.0));
+    }
+
+    /// A small ramp grid for surface tests: z increases monotonically.
+    fn ramp_surface(nx: usize, ny: usize) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+        let x: Vec<f64> = (0..nx).map(|i| i as f64).collect();
+        let y: Vec<f64> = (0..ny).map(|j| j as f64).collect();
+        let z: Vec<f64> = (0..nx * ny).map(|k| k as f64).collect();
+        (x, y, z)
+    }
+
+    /// Count the quad primitives `collect_drawables` emits.
+    fn quad_count(ax: &Axes3D) -> usize {
+        ax.collect_drawables(W, H)
+            .iter()
+            .filter(|d| matches!(d.kind, DrawKind::Quad { .. }))
+            .count()
+    }
+
+    /// `plot_surface` over an `nx*ny` grid emits exactly `(nx-1)*(ny-1)` quads.
+    #[test]
+    fn plot_surface_emits_one_quad_per_cell() {
+        let (nx, ny) = (5_usize, 3_usize);
+        let (x, y, z) = ramp_surface(nx, ny);
+        let mut ax = Axes3D::new();
+        ax.plot_surface(&x, &y, &z);
+        assert_eq!(ax.surfaces[0].quads.len(), (nx - 1) * (ny - 1));
+        assert_eq!(quad_count(&ax), (nx - 1) * (ny - 1));
+    }
+
+    /// The lowest- and highest-mean-height quads get distinct viridis colors.
+    #[test]
+    fn surface_min_and_max_quads_differ_in_color() {
+        let (x, y, z) = ramp_surface(4, 4);
+        let mut ax = Axes3D::new();
+        ax.plot_surface(&x, &y, &z);
+        let quads = &ax.surfaces[0].quads;
+        // The ramp's first quad covers the smallest heights, the last the largest.
+        let first = quads.first().unwrap().color;
+        let last = quads.last().unwrap().color;
+        assert!(
+            (first.r - last.r).abs() + (first.g - last.g).abs() + (first.b - last.b).abs() > 1e-3,
+            "min and max quads should map to different colors: {first:?} vs {last:?}"
+        );
+    }
+
+    /// Mismatched `z` length, too-small grids, and empty slices add nothing.
+    #[test]
+    fn surface_rejects_degenerate_input() {
+        let mut ax = Axes3D::new();
+        // z length mismatch (needs 6, given 5).
+        ax.plot_surface(&[0.0, 1.0, 2.0], &[0.0, 1.0], &[0.0, 1.0, 2.0, 3.0, 4.0]);
+        // nx < 2.
+        ax.plot_surface(&[0.0], &[0.0, 1.0], &[0.0, 1.0]);
+        // ny < 2.
+        ax.plot_surface(&[0.0, 1.0], &[0.0], &[0.0, 1.0]);
+        // empty.
+        ax.plot_surface(&[], &[], &[]);
+        assert!(ax.surfaces.is_empty());
+        assert_eq!(quad_count(&ax), 0);
+    }
+
+    /// `plot_surface` widens the data bounds to the surface extent.
+    #[test]
+    fn surface_expands_bounds() {
+        let x = vec![-2.0, 0.0, 3.0];
+        let y = vec![1.0, 4.0];
+        let z = vec![-5.0, 0.0, 2.0, 7.0, 1.0, -1.0];
+        let mut ax = Axes3D::new();
+        ax.plot_surface(&x, &y, &z);
+        assert_eq!((ax.xr.min, ax.xr.max), (-2.0, 3.0));
+        assert_eq!((ax.yr.min, ax.yr.max), (1.0, 4.0));
+        assert_eq!((ax.zr.min, ax.zr.max), (-5.0, 7.0));
+    }
+
+    /// A surface renders without panicking.
+    #[test]
+    fn surface_renders() {
+        let (x, y, z) = ramp_surface(6, 6);
+        let mut ax = Axes3D::new();
+        ax.plot_surface(&x, &y, &z);
+        let r = ax.render_png(128, 128, 72.0);
+        assert_eq!(r.pixmap().width(), 128);
     }
 }
