@@ -542,7 +542,7 @@ plan above stays the *intent* and this section is the *ground truth*).
   dedicated required CI workflow job. Remaining quality work: headless wasm smoke and
   wasm canvas parity.
 
-### Merged PRs (#1–#51)
+### Merged PRs (#1–#58)
 - **Infra/docs:** #1 scaffold/CI/toolchain, #2 licenses, #3/#20/#28/#32/#42 log updates,
   #5 `xtask` image-diff, #33 gallery publishing + doc-link CI, #34 TeX rendering path
   split, #38 `AGENTS.md` coordination rules, #39 wasm32 workspace check.
@@ -552,14 +552,20 @@ plan above stays the *intent* and this section is the *ground truth*).
 - **`rizzma-skia`:** #11 `tiny-skia` raster backend → PNG, #29 `draw_image` raster blit.
 - **`rizzma-svg`:** #24 SVG vector backend (2nd `Renderer`), #36 embedded raster
   `draw_image` via PNG data URIs, #44 resvg-backed SVG image rasterization coverage.
-- **`rizzma-text`:** #6 font embed (DejaVu) + metrics, #14 `text_to_path` glyph outlines.
+- **`rizzma-text`:** #6 font embed (DejaVu) + metrics, #14 `text_to_path` glyph
+  outlines, #53 render-independent math/raw-TeX span model.
+- **`rizzma-mathtext`:** #55 portable box-and-glue mathtext layout engine, #57 accents,
+  expanded symbol coverage, and variant-agnostic geometry placement accessors.
 - **`rizzma-artist`:** #13 `Artist`+`Line2D`, #16 `Patch`, #18 `MarkerStyle`,
-  #21 `Collection`, #37 builder setter cleanup, #41 scatter marker sizing in device units.
+  #21 `Collection`, #37 builder setter cleanup, #41 scatter marker sizing in device units,
+  #54 `QuadMesh`.
 - **`rizzma-axis`:** #7 ticker, #9 scales (lin/log/symlog/logit), #17 renderable `Axis`.
 - **`rizzma-figure`:** #15 `GridSpec`, #19 `Figure`+`Axes`, #23 Tier-1 methods, #25 scatter/
   hist/errorbar, #27 legend/colorbar/`save_svg`, #30 prop-cycle, #31 `imshow`,
   #43 PNG-vs-SVG raster parity test for a renderer-seam scene, #47 pixel↔data
-  coordinate inversion helpers for interaction, #51 `stem`/`stairs` Tier-2 plots.
+  coordinate inversion helpers for interaction, #51 `stem`/`stairs` Tier-2 plots,
+  #52 `stackplot`/`broken_barh`, #54 `pcolormesh`, #56 `boxplot`, #58 mathtext in
+  `Axes` titles.
 - **`rizzma-pyplot`:** #26 stateful façade (`plot`/`scatter`/`bar`/`hist`/`savefig`/…).
 - **`rizzma-wasm`:** #40 render-to-straight-RGBA core plus wasm-only Canvas `ImageData`
   blit entry points, #45 browser demo page, #49 DOM event readout demo.
@@ -575,6 +581,10 @@ plan above stays the *intent* and this section is the *ground truth*).
 - Cross-backend equivalence is partly automated: PNG vs SVG-rasterized has a shared-scene
   diff, but wasm canvas output is not yet in that harness.
 - headless wasm smoke and wasm canvas parity are still queued.
+- Portable mathtext now handles common inline expressions, fractions, scripts, accents, and
+  common named symbols through backend-independent glyph/rule/accent paths. Remaining math
+  fidelity work includes stretch delimiters, large/display operators, math italic/metrics,
+  broader TeX-subset coverage, and the optional native-TeX export backend.
 - Per-method `///` rustdoc examples + embedded gallery images still to backfill (see below).
 
 ### Documentation pattern: a rendered example per graphic type
@@ -614,9 +624,8 @@ that adds the method (Definition-of-Done addition).
 ### Next
 - M4 quality: headless wasm smoke and wasm canvas parity.
 - Quality: native `draw_text`, arbitrary `clip_path`, renderer/backend parity checks.
-- Tier-2: log-scale axes (`loglog`/`semilog*`), `pcolormesh`, `contour`, `boxplot`,
-  `pie`. Then raw-TeX/frontend passthrough, mathtext fallback, optional native TeX export,
-  dates-on-axes, polar, PDF, 3D.
+- Tier-2: log-scale axes (`loglog`/`semilog*`), `contour`, `pie`. Then broader mathtext
+  coverage, optional native TeX export, dates-on-axes, polar, PDF, 3D.
 - Backfill per-method rustdoc examples + embedded images per the pattern above.
 
 > Note: the DAG order is a guide, not a straitjacket. Self-contained leaves are pulled
