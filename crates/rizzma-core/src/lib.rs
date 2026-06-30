@@ -7,6 +7,8 @@
 
 pub mod affine;
 pub mod bbox;
+pub mod path;
 
 pub use affine::Affine2D;
 pub use bbox::Bbox;
+pub use path::{Path, PathCode, PathSegment};
