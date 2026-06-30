@@ -12,5 +12,8 @@ pub mod path;
 
 pub use affine::Affine2D;
 pub use bbox::Bbox;
-pub use color::Rgba;
+pub use color::{
+    BoundaryNorm, Colormap, LinearNorm, LinearSegmentedColormap, ListedColormap, LogNorm,
+    Normalize, PowerNorm, Rgba, colormap, to_rgba, to_rgba_array,
+};
 pub use path::{Path, PathCode, PathSegment};

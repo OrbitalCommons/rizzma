@@ -1,9 +1,37 @@
-//! RGBA colors.
+//! Colors, colormaps, and normalization.
 //!
 //! [`Rgba`] stores straight (non-premultiplied) red, green, blue, and alpha
 //! channels as `f64` in the range `0.0..=1.0`, mirroring matplotlib's internal
 //! RGBA tuples. Conversions to and from 8-bit channels and CSS-style hex strings
 //! are provided.
+//!
+//! The submodules add the higher-level color pipeline mirrored from
+//! `matplotlib.colors`: named-color parsing ([`to_rgba`]), data normalization
+//! ([`Normalize`] and friends), and colormaps ([`Colormap`] and friends). The
+//! [`to_rgba_array`] helper ties a [`Normalize`] and a [`Colormap`] together
+//! into the data-to-color pipeline used by scatter/imshow.
+
+pub mod cmap;
+pub mod named;
+pub mod norm;
+
+pub use cmap::{
+    Colormap, LinearSegmentedColormap, ListedColormap, SegmentPoint, VIRIDIS_DATA, colormap, gray,
+    viridis,
+};
+pub use named::{BASE_COLORS, CSS4_COLORS, DEFAULT_COLOR_CYCLE, TABLEAU_COLORS, to_rgba};
+pub use norm::{BoundaryNorm, LinearNorm, LogNorm, Normalize, PowerNorm};
+
+/// Map a data array to colors through a [`Normalize`] then a [`Colormap`].
+///
+/// This is the scatter/imshow color pipeline (matplotlib's `ScalarMappable`):
+/// each datum is normalized to `[0, 1]` and the result sampled from `cmap`.
+#[must_use]
+pub fn to_rgba_array(data: &[f64], norm: &dyn Normalize, cmap: &dyn Colormap) -> Vec<Rgba> {
+    data.iter()
+        .map(|&v| cmap.sample(norm.normalize(v)))
+        .collect()
+}
 
 /// An RGBA color with `f64` channels in the range `0.0..=1.0`.
 ///
@@ -238,5 +266,18 @@ mod tests {
     #[test]
     fn with_alpha_replaces_channel() {
         assert_eq!(Rgba::RED.with_alpha(0.5), Rgba::new(1.0, 0.0, 0.0, 0.5));
+    }
+
+    #[test]
+    fn to_rgba_array_pipeline() {
+        let data = [0.0, 0.5, 1.0];
+        let norm = LinearNorm::new(0.0, 1.0);
+        let cmap = gray();
+        let colors = to_rgba_array(&data, &norm, &cmap);
+        assert_eq!(colors.len(), 3);
+        assert_eq!(colors[0], Rgba::BLACK);
+        assert_eq!(colors[2], Rgba::WHITE);
+        // Midpoint of a gray ramp is mid-gray (within one LUT step).
+        assert!((colors[1].r - 0.5).abs() < 1.0 / 255.0);
     }
 }
