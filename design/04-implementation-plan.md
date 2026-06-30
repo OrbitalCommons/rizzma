@@ -510,30 +510,38 @@ plan above stays the *intent* and this section is the *ground truth*).
 ### Milestones reached
 - **M0 (scaffolding green)** — ✅ workspace, CI, toolchain pin.
 - **M1 (first pixels)** — ✅ `SkiaRenderer` draws filled/stroked paths to PNG, pixel-verified.
-- **M2 (line on labeled axes → PNG)** — ✅ `Figure`/`Axes` integration; the `sin(x)` example
-  renders a clean matplotlib-style figure (auto-ticked axes, title, labels, frame),
-  **visually verified**.
+- **M2 (line on labeled axes → PNG)** — ✅ `Figure`/`Axes`; `sin(x)` example **visually verified**.
+- **M3 (Tier-1 gallery via the façade)** — ✅ `plot`/`bar`/`barh`/`scatter`/`scatter_mapped`/
+  `hist`/`fill_between`/`step`/`errorbar`/reference-lines + `legend` + `colorbar`, driven
+  through the `pyplot` façade. Verified visually: a viridis spiral scatter, a histogram, a
+  bar chart with `axhline`, and a two-line plot with legend + colorbar — all matplotlib-quality.
+- **M4 (write once, render anywhere)** — 🟡 partial: the **SVG backend** (`rizzma-svg`) is a
+  second `Renderer`, and `Figure::save_svg` exports the *same* scene to PNG (skia) and SVG.
+  Remaining: the wasm `<canvas>` backend + DOM events.
 
-### Merged PRs (#1–#19)
-- **Infra:** #1 scaffold/CI/toolchain, #2 licenses, #3 gitignore+log, #5 `xtask` image-diff.
+### Merged PRs (#1–#27)
+- **Infra:** #1 scaffold/CI/toolchain, #2 licenses, #3/#20 log, #5 `xtask` image-diff.
 - **`rizzma-core`:** #4 `Affine2D`+`Bbox`, #8 `Path`, #10 `color::Rgba`, #12 named colors +
-  `Normalize` family + colormaps (viridis/gray) + `to_rgba_array`.
-- **`rizzma-render`:** #10 `Renderer` trait + `GraphicsContext` + cap/join.
+  `Normalize` + colormaps (viridis/gray) + `to_rgba_array`, #22 typed `RcParams` (serde).
+- **`rizzma-render`:** #10 `Renderer` trait + `GraphicsContext`.
 - **`rizzma-skia`:** #11 `tiny-skia` raster backend → PNG.
+- **`rizzma-svg`:** #24 SVG vector backend (2nd `Renderer`).
 - **`rizzma-text`:** #6 font embed (DejaVu) + metrics, #14 `text_to_path` glyph outlines.
-- **`rizzma-artist`:** #13 `Artist` + `Line2D`, #16 `Patch` hierarchy, #18 `MarkerStyle`.
-- **`rizzma-axis`:** #7 ticker (locators/formatters), #9 scales (lin/log/symlog/logit),
-  #17 renderable `Axis` (spine/ticks/labels/grid).
-- **`rizzma-figure`:** #15 `GridSpec`/`SubplotSpec`, #19 `Figure`+`Axes` (transData,
-  autoscale, draw loop, `save_png`).
+- **`rizzma-artist`:** #13 `Artist`+`Line2D`, #16 `Patch`, #18 `MarkerStyle`, #21 `Collection`.
+- **`rizzma-axis`:** #7 ticker, #9 scales (lin/log/symlog/logit), #17 renderable `Axis`.
+- **`rizzma-figure`:** #15 `GridSpec`, #19 `Figure`+`Axes`, #23 Tier-1 methods, #25 scatter/
+  hist/errorbar, #27 legend/colorbar/`save_svg`.
+- **`rizzma-pyplot`:** #26 stateful façade (`plot`/`scatter`/`bar`/`hist`/`savefig`/…).
 
-### In flight
-- Tier-1 plotting methods on `Axes` (bar/barh/fill_between/step/ref-lines), a scatter
-  `Collection` primitive, and typed `RcParams`.
+### Known gaps / cleanups queued
+- `Axes::plot` should apply the prop-cycle (first line currently defaults to black, not C0).
+- `Patch` `zorder`/`visible` setters shadow the `Artist` trait getters (sharp edge).
+- skia `draw_image`/`draw_text` are still TODO stubs (text renders as paths today).
 
 ### Next
-- Scatter (`Axes::scatter` over `Collection` + color mapping), `hist`, `errorbar`,
-  `legend`, `colorbar`; then the `pyplot` façade → **M3 (Tier-1 gallery)**.
+- M4: wasm `<canvas>` backend + demo. Quality: prop-cycle in `plot`, `draw_image` (→ `imshow`).
+- Tier-2: log-scale axes (`loglog`/`semilog*`), `imshow`, `pcolormesh`, `contour`, `boxplot`,
+  `pie`. Then `mathtext`, dates-on-axes, polar, PDF, 3D.
 
 > Note: the DAG order is a guide, not a straitjacket. Self-contained leaves are pulled
 > forward to maximize parallelism (often 3–4 worktree-isolated agents at once) while the
