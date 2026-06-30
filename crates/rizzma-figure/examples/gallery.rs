@@ -266,5 +266,23 @@ fn main() {
         fig.save_png("target/gallery_mathtext.png").unwrap();
     }
 
+    // 19. contour
+    {
+        let mut fig = Figure::new(5.0, 3.8);
+        let (nr, nc) = (30usize, 30usize);
+        let mut z = vec![0.0; nr * nc];
+        for r in 0..nr {
+            for col in 0..nc {
+                let yy = r as f64 / (nr - 1) as f64 * TAU;
+                let xx = col as f64 / (nc - 1) as f64 * TAU;
+                z[r * nc + col] = xx.sin() * yy.cos();
+            }
+        }
+        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        ax.contour(&z, nr, nc);
+        ax.set_title("contour");
+        fig.save_png("target/gallery_contour.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
