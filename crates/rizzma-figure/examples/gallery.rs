@@ -524,5 +524,52 @@ fn main() {
         fig.save_png("target/gallery_streamplot.png").unwrap();
     }
 
+    // A 6x6 grid of vertices over [0, 1]^2, each cell split into two
+    // triangles, shared by the triplot and tripcolor cases below.
+    let grid = 6;
+    let coords = linspace(0.0, 1.0, grid);
+    let mut vx = Vec::new();
+    let mut vy = Vec::new();
+    for &gy in &coords {
+        for &gx in &coords {
+            vx.push(gx);
+            vy.push(gy);
+        }
+    }
+    let mut triangles: Vec<[usize; 3]> = Vec::new();
+    for r in 0..grid - 1 {
+        for col in 0..grid - 1 {
+            let v00 = r * grid + col;
+            let v01 = r * grid + col + 1;
+            let v10 = (r + 1) * grid + col;
+            let v11 = (r + 1) * grid + col + 1;
+            triangles.push([v00, v01, v11]);
+            triangles.push([v00, v11, v10]);
+        }
+    }
+
+    // 33. triplot (wireframe of the triangulated unit-square grid)
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.triplot(&vx, &vy, &triangles);
+        ax.set_title("triplot");
+        fig.save_png("target/gallery_triplot.png").unwrap();
+    }
+
+    // 34. tripcolor (flat shading by a radial field over the same mesh)
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let values: Vec<f64> = vx
+            .iter()
+            .zip(&vy)
+            .map(|(&x, &y)| (x - 0.5).hypot(y - 0.5))
+            .collect();
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.tripcolor(&vx, &vy, &triangles, &values);
+        ax.set_title("tripcolor");
+        fig.save_png("target/gallery_tripcolor.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
