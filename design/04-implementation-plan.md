@@ -511,7 +511,7 @@ plan above stays the *intent* and this section is the *ground truth*).
 - **M0 (scaffolding green)** — ✅ workspace, CI, toolchain pin.
 - **M1 (first pixels)** — ✅ `SkiaRenderer` draws filled/stroked paths to PNG, pixel-verified.
 - **M2 (line on labeled axes → PNG)** — ✅ `Figure`/`Axes`; `sin(x)` example **visually verified**.
-- **M3 (Tier-1 gallery via the façade)** — ✅ `plot`/`bar`/`barh`/`scatter`/`scatter_mapped`/
+- **M3 (Tier-1 gallery via the façade)** — ✅ COMPLETE (incl. `imshow`). `plot`/`bar`/`barh`/`scatter`/`scatter_mapped`/
   `hist`/`fill_between`/`step`/`errorbar`/reference-lines + `legend` + `colorbar`, driven
   through the `pyplot` façade. Verified visually: a viridis spiral scatter, a histogram, a
   bar chart with `axhline`, and a two-line plot with legend + colorbar — all matplotlib-quality.
@@ -530,7 +530,8 @@ plan above stays the *intent* and this section is the *ground truth*).
 - **`rizzma-artist`:** #13 `Artist`+`Line2D`, #16 `Patch`, #18 `MarkerStyle`, #21 `Collection`.
 - **`rizzma-axis`:** #7 ticker, #9 scales (lin/log/symlog/logit), #17 renderable `Axis`.
 - **`rizzma-figure`:** #15 `GridSpec`, #19 `Figure`+`Axes`, #23 Tier-1 methods, #25 scatter/
-  hist/errorbar, #27 legend/colorbar/`save_svg`.
+  hist/errorbar, #27 legend/colorbar/`save_svg`, #30 prop-cycle, #31 `imshow`.
+- **`rizzma-skia`:** #29 `draw_image` (raster blit).
 - **`rizzma-pyplot`:** #26 stateful façade (`plot`/`scatter`/`bar`/`hist`/`savefig`/…).
 
 ### Known gaps / cleanups queued
