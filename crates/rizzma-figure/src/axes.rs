@@ -14,6 +14,7 @@
 
 use rizzma_artist::{Artist, AxesImage, Collection, Line2D, Patch, QuadMesh};
 use rizzma_axis::axis::{Axis, AxisSide};
+use rizzma_axis::scale::{LogScale, Scale};
 use rizzma_core::color::{DEFAULT_COLOR_CYCLE, Rgba};
 use rizzma_core::{Affine2D, Bbox, Path};
 use rizzma_render::{GraphicsContext, Renderer};
@@ -23,6 +24,79 @@ use crate::richtext::layout_rich_text;
 
 /// Default fractional margin added on each side of the autoscaled data limits.
 const DEFAULT_MARGIN: f64 = 0.05;
+
+/// Per-axis scale state owned by [`Axes`].
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum ScaleSpec {
+    /// Linear identity scale.
+    Linear,
+    /// Logarithmic scale with the given base.
+    Log { base: f64 },
+}
+
+impl ScaleSpec {
+    fn transform(self, value: f64) -> f64 {
+        match self {
+            ScaleSpec::Linear => value,
+            ScaleSpec::Log { base } => LogScale::new(base).transform(value),
+        }
+    }
+}
+
+/// Draw-time mapper from raw data coordinates to scaled data coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct DataToScaled {
+    x: ScaleSpec,
+    y: ScaleSpec,
+}
+
+impl DataToScaled {
+    /// Construct a mapper for `x` and `y` axis scales.
+    pub(crate) const fn new(x: ScaleSpec, y: ScaleSpec) -> Self {
+        Self { x, y }
+    }
+
+    /// Map a raw data-space point into scaled data space.
+    pub(crate) fn map_point(&self, x: f64, y: f64) -> [f64; 2] {
+        [self.x.transform(x), self.y.transform(y)]
+    }
+
+    /// Map every vertex in `path` into scaled data space, preserving path codes.
+    pub(crate) fn map_path(&self, path: &Path) -> Path {
+        let vertices = path
+            .vertices()
+            .iter()
+            .map(|&[x, y]| self.map_point(x, y))
+            .collect();
+        let codes = path.codes().map(|codes| codes.to_vec());
+        Path::new(vertices, codes)
+    }
+
+    /// Map raw x/y limits into scaled x/y limits.
+    pub(crate) fn map_limits(
+        &self,
+        xlim: (f64, f64),
+        ylim: (f64, f64),
+    ) -> ((f64, f64), (f64, f64)) {
+        let [x0, y0] = self.map_point(xlim.0, ylim.0);
+        let [x1, y1] = self.map_point(xlim.1, ylim.1);
+        ((x0, x1), (y0, y1))
+    }
+}
+
+#[cfg(test)]
+fn scaled_tick_position(value: f64, limits: (f64, f64), scale: ScaleSpec) -> f64 {
+    let mapper = DataToScaled::new(scale, ScaleSpec::Linear);
+    let (scaled_limits, _) = mapper.map_limits(limits, (0.0, 1.0));
+    let scaled = mapper.map_point(value, 0.0)[0];
+    let denom = scaled_limits.1 - scaled_limits.0;
+    if denom == 0.0 {
+        0.0
+    } else {
+        (scaled - scaled_limits.0) / denom
+    }
+}
 
 /// A set of plotting axes within a figure.
 ///
@@ -43,6 +117,10 @@ pub struct Axes {
     ylim: Option<(f64, f64)>,
     /// Fractional margin added on each side when autoscaling.
     margins: f64,
+    /// X-axis scale state.
+    xscale: ScaleSpec,
+    /// Y-axis scale state.
+    yscale: ScaleSpec,
     /// Background fill color of the axes region.
     facecolor: Rgba,
     /// Line artists, drawn in ascending zorder.
@@ -137,6 +215,8 @@ impl Axes {
             xlim: None,
             ylim: None,
             margins: DEFAULT_MARGIN,
+            xscale: ScaleSpec::Linear,
+            yscale: ScaleSpec::Linear,
             facecolor: Rgba::WHITE,
             lines: Vec::new(),
             patches: Vec::new(),
@@ -405,6 +485,10 @@ impl Axes {
             .translate(axes_px.xmin(), axes_px.ymin())
     }
 
+    fn data_to_scaled(&self) -> DataToScaled {
+        DataToScaled::new(self.xscale, self.yscale)
+    }
+
     /// Resolve this axes' pixel rectangle and the linear data-to-display
     /// transform for a figure of size `fig_w_px` × `fig_h_px`.
     ///
@@ -431,10 +515,12 @@ impl Axes {
             self.position.ymax() * fig_h_px,
         );
         let (xlim, ylim) = self.effective_limits();
+        let mapper = self.data_to_scaled();
+        let (scaled_xlim, scaled_ylim) = mapper.map_limits(xlim, ylim);
         if self.aspect_equal {
-            axes_px = equalize_aspect(&axes_px, xlim, ylim);
+            axes_px = equalize_aspect(&axes_px, scaled_xlim, scaled_ylim);
         }
-        let td = self.trans_data(&axes_px, xlim, ylim);
+        let td = self.trans_data(&axes_px, scaled_xlim, scaled_ylim);
         (axes_px, td)
     }
 
@@ -455,6 +541,7 @@ impl Axes {
         // forward path (also used by `Figure`'s coordinate inversion).
         let (axes_px, td) = self.pixel_rect_and_trans_data(fig_w_px, fig_h_px);
         let (xlim, ylim) = self.effective_limits();
+        let mapper = self.data_to_scaled();
 
         // 2. Fill the axes background.
         let rect = rect_path(&axes_px);
@@ -489,7 +576,12 @@ impl Axes {
                     rect_path(&Bbox::from_extents(span.lo, ylim.0, span.hi, ylim.1))
                 }
             };
-            renderer.draw_path(&GraphicsContext::new(), &rect, &td, Some(span.facecolor));
+            renderer.draw_path(
+                &GraphicsContext::new(),
+                &mapper.map_path(&rect),
+                &td,
+                Some(span.facecolor),
+            );
         }
 
         // 4. Draw artists in ascending zorder.
@@ -523,7 +615,7 @@ impl Axes {
             let gc = GraphicsContext::new()
                 .with_stroke(span.color)
                 .with_line_width(span.linewidth);
-            renderer.draw_path(&gc, &path, &td, None);
+            renderer.draw_path(&gc, &mapper.map_path(&path), &td, None);
         }
 
         // 5. Stroke the frame (suppressed when the axis is turned off).
@@ -661,6 +753,55 @@ mod tests {
         let ul = td.transform_point((xlim.0, ylim.1));
         approx(ul.0, axes_px.xmin());
         approx(ul.1, axes_px.ymax());
+    }
+
+    #[test]
+    fn data_to_scaled_linear_is_exact_identity_for_points_paths_and_limits() {
+        let mapper = DataToScaled::new(ScaleSpec::Linear, ScaleSpec::Linear);
+        let path = Path::unit_rectangle();
+
+        assert_eq!(mapper.map_point(-3.0, 4.5), [-3.0, 4.5]);
+        assert_eq!(mapper.map_path(&path), path);
+        assert_eq!(
+            mapper.map_limits((-1.0, 3.0), (10.0, 20.0)),
+            ((-1.0, 3.0), (10.0, 20.0))
+        );
+    }
+
+    #[test]
+    fn data_to_scaled_log_maps_points_paths_and_limits() {
+        let mapper = DataToScaled::new(ScaleSpec::Log { base: 10.0 }, ScaleSpec::Linear);
+        let path = Path::from_polyline(&[[1.0, 2.0], [10.0, 4.0], [100.0, 8.0]]);
+        let scaled = mapper.map_path(&path);
+
+        assert_eq!(mapper.map_point(1000.0, 5.0), [3.0, 5.0]);
+        assert_eq!(scaled.vertices(), &[[0.0, 2.0], [1.0, 4.0], [2.0, 8.0]]);
+        assert_eq!(scaled.codes(), path.codes());
+        assert_eq!(
+            mapper.map_limits((1.0, 1000.0), (2.0, 8.0)),
+            ((0.0, 3.0), (2.0, 8.0))
+        );
+    }
+
+    #[test]
+    fn log_tick_position_uses_scaled_coordinate_fraction() {
+        let scale = ScaleSpec::Log { base: 10.0 };
+
+        approx(scaled_tick_position(10.0, (1.0, 1000.0), scale), 1.0 / 3.0);
+        approx(scaled_tick_position(100.0, (1.0, 1000.0), scale), 2.0 / 3.0);
+    }
+
+    #[test]
+    fn pixel_rect_and_trans_data_linear_matches_direct_affine() {
+        let mut axes = Axes::new(Bbox::from_extents(0.1, 0.2, 0.9, 0.8));
+        axes.set_xlim(-1.0, 3.0).set_ylim(10.0, 20.0);
+        let (axes_px, td) = axes.pixel_rect_and_trans_data(500.0, 400.0);
+        let direct = axes.trans_data(&axes_px, (-1.0, 3.0), (10.0, 20.0));
+
+        let points = [[-1.0, 10.0], [3.0, 20.0], [1.5, 13.0]];
+        for [x, y] in points {
+            assert_eq!(td.transform_point((x, y)), direct.transform_point((x, y)));
+        }
     }
 
     #[test]
