@@ -92,9 +92,15 @@ pub enum MathElement {
         /// Glyph outline path in final math-layout coordinates.
         path: Path,
     },
-    /// A filled rule, currently used for fraction bars.
+    /// A filled rule used by composite constructs such as radical overbars.
     Rule {
         /// Rectangle path in final math-layout coordinates.
+        path: Path,
+    },
+    /// Combined geometry for a `\frac{...}{...}` expression.
+    Fraction {
+        /// Numerator, denominator, and rule geometry as one path in final
+        /// math-layout coordinates.
         path: Path,
     },
     /// Accent mark geometry positioned above a base expression.
@@ -135,6 +141,7 @@ impl MathElement {
         match self {
             MathElement::Glyph { path, .. }
             | MathElement::Rule { path }
+            | MathElement::Fraction { path }
             | MathElement::Accent { path, .. }
             | MathElement::Delimiter { path, .. }
             | MathElement::LargeOperator { path, .. }
@@ -159,6 +166,9 @@ impl MathElement {
                 path: path.transformed(transform),
             },
             MathElement::Rule { path } => MathElement::Rule {
+                path: path.transformed(transform),
+            },
+            MathElement::Fraction { path } => MathElement::Fraction {
                 path: path.transformed(transform),
             },
             MathElement::Accent { kind, path } => MathElement::Accent {
@@ -930,12 +940,19 @@ fn layout_fraction(
     let num_baseline = gap + rule_thickness / 2.0 + num.descent;
     let den_baseline = -gap - rule_thickness / 2.0 - den.ascent;
 
-    let mut elements = Vec::new();
-    elements.extend(shift_elements(num.elements, num_x, num_baseline));
-    elements.push(MathElement::Rule {
+    let mut children = Vec::new();
+    children.extend(shift_elements(num.elements, num_x, num_baseline));
+    children.push(MathElement::Rule {
         path: rect_path(0.0, -rule_thickness / 2.0, width, rule_thickness),
     });
-    elements.extend(shift_elements(den.elements, den_x, den_baseline));
+    children.extend(shift_elements(den.elements, den_x, den_baseline));
+    let path = combine_paths(
+        &children
+            .iter()
+            .map(|element| element.path().clone())
+            .collect::<Vec<_>>(),
+    );
+    let elements = vec![MathElement::Fraction { path }];
 
     LayoutBox {
         elements,
@@ -1581,19 +1598,52 @@ mod tests {
     }
 
     #[test]
-    fn fraction_emits_rule_and_centers_parts() {
+    fn fraction_emits_single_combined_element_and_centers_parts() {
         let layout = layout_math("\\frac{a}{b}", &font(), 24.0);
         assert_eq!(
             layout
                 .elements
                 .iter()
-                .filter(|element| matches!(element, MathElement::Rule { .. }))
+                .filter(|element| matches!(element, MathElement::Fraction { .. }))
                 .count(),
             1
         );
+        assert!(
+            layout
+                .elements
+                .iter()
+                .all(|element| !matches!(element, MathElement::Rule { .. }))
+        );
+        assert!(layout.elements[0].path().vertices().len() > 5);
         assert!(layout.ascent > 0.0);
         assert!(layout.descent > 0.0);
         assert!(layout.height() > 24.0);
+    }
+
+    #[test]
+    fn fraction_is_taller_than_either_operand() {
+        let numerator = layout_math("a", &font(), 24.0);
+        let denominator = layout_math("b", &font(), 24.0);
+        let fraction = layout_math("\\frac{a}{b}", &font(), 24.0);
+
+        assert!(fraction.height() > numerator.height());
+        assert!(fraction.height() > denominator.height());
+        assert!(fraction.ascent > numerator.ascent);
+        assert!(fraction.descent > denominator.descent);
+    }
+
+    #[test]
+    fn nested_fraction_remains_single_rendered_subtree() {
+        let layout = layout_math("\\frac{1}{\\frac{x}{y}}", &font(), 24.0);
+        let fraction_count = layout
+            .elements
+            .iter()
+            .filter(|element| matches!(element, MathElement::Fraction { .. }))
+            .count();
+
+        assert_eq!(fraction_count, 1);
+        assert!(layout.height() > layout_math("\\frac{1}{x}", &font(), 24.0).height());
+        assert!(layout.warnings.is_empty());
     }
 
     #[test]
@@ -1731,6 +1781,12 @@ mod tests {
             layout
                 .elements
                 .iter()
+                .any(|element| matches!(element, MathElement::Fraction { .. }))
+        );
+        assert!(
+            layout
+                .elements
+                .iter()
                 .any(|element| matches!(element, MathElement::Rule { .. }))
         );
         assert!(
@@ -1838,7 +1894,7 @@ mod tests {
 
     #[test]
     fn translated_layout_moves_geometry_without_changing_metrics() {
-        let layout = layout_math("\\vec{x}_i", &font(), 24.0);
+        let layout = layout_math("\\frac{\\vec{x}}{y}", &font(), 24.0);
         let before = layout.elements[0].path().get_extents();
         let shifted = layout.translated(12.0, -3.0);
         let after = shifted.elements[0].path().get_extents();
