@@ -507,14 +507,35 @@ plan above stays the *intent* and this section is the *ground truth*).
   escape hatch.
 - **Workflow:** every change on a `meawoppl/*` branch → PR → auto-merge on green CI.
 
-### Status by PR
-- **PR-01 (scaffold/CI/harness)** — ✅ merged (#1). Workspace, CI, toolchain pin, README.
-- **Geometry foundation** (`Affine2D` + `Bbox`, part of PR-03) — 🚧 in flight.
-- **Axis ticker** (locators + formatters, PR-23/24) — 🚧 in flight (pulled earlier than the
-  strict DAG order; it is self-contained and unblocks Axis work).
-- **xtask image-diff harness** (PR-13 substrate) — 🚧 in flight.
-- License files + housekeeping — 🚧 small out-of-DAG correctness PRs.
+### Milestones reached
+- **M0 (scaffolding green)** — ✅ workspace, CI, toolchain pin.
+- **M1 (first pixels)** — ✅ `SkiaRenderer` draws filled/stroked paths to PNG, pixel-verified.
+- **M2 (line on labeled axes → PNG)** — ✅ `Figure`/`Axes` integration; the `sin(x)` example
+  renders a clean matplotlib-style figure (auto-ticked axes, title, labels, frame),
+  **visually verified**.
 
-> Note: the DAG order is a guide, not a straitjacket. Self-contained leaves (ticker, the
-> diff harness) are being pulled forward to maximize parallelism while the critical-path
-> spine (geometry → renderer → artists → axes → figure) proceeds.
+### Merged PRs (#1–#19)
+- **Infra:** #1 scaffold/CI/toolchain, #2 licenses, #3 gitignore+log, #5 `xtask` image-diff.
+- **`rizzma-core`:** #4 `Affine2D`+`Bbox`, #8 `Path`, #10 `color::Rgba`, #12 named colors +
+  `Normalize` family + colormaps (viridis/gray) + `to_rgba_array`.
+- **`rizzma-render`:** #10 `Renderer` trait + `GraphicsContext` + cap/join.
+- **`rizzma-skia`:** #11 `tiny-skia` raster backend → PNG.
+- **`rizzma-text`:** #6 font embed (DejaVu) + metrics, #14 `text_to_path` glyph outlines.
+- **`rizzma-artist`:** #13 `Artist` + `Line2D`, #16 `Patch` hierarchy, #18 `MarkerStyle`.
+- **`rizzma-axis`:** #7 ticker (locators/formatters), #9 scales (lin/log/symlog/logit),
+  #17 renderable `Axis` (spine/ticks/labels/grid).
+- **`rizzma-figure`:** #15 `GridSpec`/`SubplotSpec`, #19 `Figure`+`Axes` (transData,
+  autoscale, draw loop, `save_png`).
+
+### In flight
+- Tier-1 plotting methods on `Axes` (bar/barh/fill_between/step/ref-lines), a scatter
+  `Collection` primitive, and typed `RcParams`.
+
+### Next
+- Scatter (`Axes::scatter` over `Collection` + color mapping), `hist`, `errorbar`,
+  `legend`, `colorbar`; then the `pyplot` façade → **M3 (Tier-1 gallery)**.
+
+> Note: the DAG order is a guide, not a straitjacket. Self-contained leaves are pulled
+> forward to maximize parallelism (often 3–4 worktree-isolated agents at once) while the
+> critical-path spine (geometry → renderer → artists → axes → figure) stays coherent.
+> ~19 PRs landed via squash + green CI with no `main` breakage.
