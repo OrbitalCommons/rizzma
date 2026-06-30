@@ -58,8 +58,8 @@ every push to `main` and published to the `gh-pages` branch (so these images nev
 | `quiver` | `streamplot` | `triplot` |
 | ![tripcolor](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_tripcolor.png) | ![symlog](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_symlog.png) | ![logit](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_logit.png) |
 | `tripcolor` | `symlog` | `logit` |
-| ![dates](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_dates.png) | | |
-| date axis | | |
+| ![dates](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_dates.png) | ![polar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar.png) | |
+| date axis | [`PolarAxes`] | |
 
 Regenerate locally with `cargo run -p rizzma-figure --example gallery` (writes
 `target/gallery_*.png`).
