@@ -23,8 +23,10 @@
 //! | [`Axes::hist`] | [`Axes::fill_between`] | [`Axes::errorbar`] |
 //! | ![imshow](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_imshow.png) | ![legend + colorbar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_legend_colorbar.png) | ![reference lines](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_reflines.png) |
 //! | [`Axes::imshow`] | [`Figure::colorbar`] | [`Axes::axhline`] etc. |
-//! | ![stem](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stem.png) | ![stairs](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stairs.png) | |
-//! | [`Axes::stem`] | [`Axes::stairs`] | |
+//! | ![stem](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stem.png) | ![stairs](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stairs.png) | ![stackplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stackplot.png) |
+//! | [`Axes::stem`] | [`Axes::stairs`] | [`Axes::stackplot`] |
+//! | ![broken_barh](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_broken_barh.png) | | |
+//! | [`Axes::broken_barh`] | | |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
@@ -34,6 +36,7 @@ mod figure;
 mod gridspec;
 mod legend;
 mod plotting;
+mod plotting_area;
 mod plotting_image;
 mod plotting_stats;
 mod plotting_steps;
