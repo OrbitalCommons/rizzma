@@ -205,6 +205,28 @@ impl Figure {
         std::fs::write(path, self.to_svg())
     }
 
+    /// Render the figure to a PDF document and return the encoded bytes.
+    ///
+    /// Drives the *same* [`Figure::draw`] path used for PNG and SVG output, but
+    /// against an [`rizzma_pdf::PdfRenderer`], so one scene renders to PNG (skia),
+    /// SVG, or PDF unchanged.
+    #[must_use]
+    pub fn to_pdf(&self) -> Vec<u8> {
+        let (w, h) = self.size_px();
+        let mut renderer = rizzma_pdf::PdfRenderer::new(w, h, self.dpi);
+        self.draw(&mut renderer);
+        renderer.finish()
+    }
+
+    /// Render the figure and write it to `path` as a PDF file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`std::io::Error`] if writing the file fails.
+    pub fn save_pdf<P: AsRef<std::path::Path>>(&self, path: P) -> std::io::Result<()> {
+        std::fs::write(path, self.to_pdf())
+    }
+
     /// Forward-map a data point in axes `axes_index` to a **top-down canvas
     /// pixel** `(px, py)` (the same pixel space [`Figure::render`] produces, with
     /// `py` measured from the top-left corner).
@@ -335,6 +357,26 @@ mod tests {
         assert!(svg.contains("<svg"), "missing <svg root: {svg}");
         assert!(svg.contains("</svg>"), "missing </svg> close");
         assert!(svg.contains("<path"), "missing at least one <path");
+    }
+
+    #[test]
+    fn to_pdf_emits_valid_document() {
+        let mut fig = Figure::new(2.0, 2.0).with_dpi(100.0);
+        let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+        ax.plot(&[0.0, 1.0, 2.0], &[0.0, 1.0, 0.0]);
+
+        let pdf = fig.to_pdf();
+        assert!(pdf.starts_with(b"%PDF"), "missing PDF header");
+        assert!(
+            pdf.ends_with(b"%%EOF\n") || pdf.ends_with(b"%%EOF"),
+            "missing %%EOF"
+        );
+        // The same scene that yields SVG <path>s must produce a non-empty PDF.
+        assert!(
+            pdf.len() > 200,
+            "PDF unexpectedly small: {} bytes",
+            pdf.len()
+        );
     }
 
     #[test]
