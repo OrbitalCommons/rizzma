@@ -776,6 +776,11 @@ version = "0.0.0"
 [[package]]
 name = "rizzma-artist"
 version = "0.0.0"
+dependencies = [
+ "rizzma-core",
+ "rizzma-render",
+ "rizzma-skia",
+]
 
 [[package]]
 name = "rizzma-axis"
