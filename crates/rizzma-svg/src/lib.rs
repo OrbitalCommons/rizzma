@@ -399,6 +399,23 @@ mod tests {
     use super::*;
     use rizzma_core::Bbox;
 
+    fn render_svg(svg: &str, width: u32, height: u32) -> resvg::tiny_skia::Pixmap {
+        let tree =
+            resvg::usvg::Tree::from_str(svg, &resvg::usvg::Options::default()).expect("svg parses");
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height).expect("pixmap allocates");
+        resvg::render(
+            &tree,
+            resvg::tiny_skia::Transform::default(),
+            &mut pixmap.as_mut(),
+        );
+        pixmap
+    }
+
+    fn pixel(pixmap: &resvg::tiny_skia::Pixmap, x: u32, y: u32) -> [u8; 4] {
+        let p = pixmap.pixel(x, y).expect("pixel in bounds");
+        [p.red(), p.green(), p.blue(), p.alpha()]
+    }
+
     #[test]
     fn filled_rectangle_emits_path_and_fill() {
         let mut r = SvgRenderer::new(100.0, 100.0, 72.0);
@@ -574,5 +591,17 @@ mod tests {
             !svg.contains("<image "),
             "bad buffer should be ignored: {svg}"
         );
+    }
+
+    #[test]
+    fn draw_image_rasterizes_at_y_flipped_position() {
+        let mut r = SvgRenderer::new(6.0, 6.0, 72.0);
+        let rgba = vec![255, 0, 0, 255];
+        r.draw_image(&GraphicsContext::new(), 2.0, 1.0, &rgba, 1, 1);
+
+        let pixmap = render_svg(&r.finish(), 6, 6);
+
+        assert_eq!(pixel(&pixmap, 2, 4), [255, 0, 0, 255]);
+        assert_eq!(pixel(&pixmap, 2, 1), [0, 0, 0, 0]);
     }
 }
