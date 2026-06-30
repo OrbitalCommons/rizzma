@@ -10,7 +10,9 @@
 //! groups, superscripts/subscripts, `\frac{...}{...}`, `\sqrt{...}`,
 //! `\text{...}`, `\left...\right` delimiters, large operators, and a table of
 //! common named symbols and accents. Unsupported commands are preserved as
-//! literal fallback text and reported as structured warnings.
+//! literal fallback text and reported as structured warnings. The
+//! [`richtext`] module combines plain text spans and math spans into reusable
+//! label geometry for axes, titles, and other text artists.
 //!
 //! This is intentionally a scoped approximation: it uses the embedded DejaVu
 //! Sans face for wasm-clean, deterministic glyph geometry, so it does not yet
@@ -18,6 +20,10 @@
 //! assembly, or publication-grade TeX spacing.
 //!
 //! Build-order home: Phase 10 of `design/04-implementation-plan.md`.
+
+pub mod richtext;
+
+pub use richtext::{RichText, layout_rich_text};
 
 use rizzma_core::{Affine2D, Path};
 use rizzma_text::{FontSource, TextSpan, TextSpanKind};

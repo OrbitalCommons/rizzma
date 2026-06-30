@@ -924,6 +924,7 @@ version = "0.0.0"
 dependencies = [
  "chrono",
  "rizzma-core",
+ "rizzma-mathtext",
  "rizzma-render",
  "rizzma-skia",
  "rizzma-text",
