@@ -118,6 +118,12 @@ impl Figure {
         &self.axes
     }
 
+    /// A mutable slice of this figure's axes, for restyling or adding artists to
+    /// an existing axes after creation.
+    pub fn axes_mut(&mut self) -> &mut [Axes] {
+        &mut self.axes
+    }
+
     /// Draw the whole figure into `renderer`: fill the canvas with the
     /// background color, then draw each axes.
     pub fn draw(&self, renderer: &mut dyn Renderer) {

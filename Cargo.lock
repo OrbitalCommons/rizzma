@@ -829,6 +829,11 @@ version = "0.0.0"
 [[package]]
 name = "rizzma-pyplot"
 version = "0.0.0"
+dependencies = [
+ "rizzma-core",
+ "rizzma-figure",
+ "rizzma-skia",
+]
 
 [[package]]
 name = "rizzma-render"
