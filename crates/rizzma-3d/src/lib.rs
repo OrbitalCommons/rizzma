@@ -358,13 +358,15 @@ impl Axes3D {
     fn collect_drawables(&self, width: f64, height: f64) -> Vec<Drawable> {
         let mut items: Vec<Drawable> = Vec::new();
 
-        // Wireframe box: 12 edges of the data cube, projected. The box is biased
-        // behind the data so the spiral always reads in front of its cage.
+        // Wireframe box: 12 edges of the data cube, projected. Each edge is
+        // depth-sorted with the rest of the scene by its midpoint depth, so the
+        // near edges of the cage draw in front of the data and the far edges
+        // behind it (a flat "always behind" bias makes the cube look detached).
         for (a, b) in cube_edges(&self.xr, &self.yr, &self.zr) {
             let (ax, ay, ad) = self.project(a[0], a[1], a[2], width, height);
             let (bx, by, bd) = self.project(b[0], b[1], b[2], width, height);
             items.push(Drawable {
-                depth: 0.5 * (ad + bd) - 1e6,
+                depth: 0.5 * (ad + bd),
                 kind: DrawKind::Line {
                     points: vec![[ax, ay], [bx, by]],
                     color: BOX_COLOR,
