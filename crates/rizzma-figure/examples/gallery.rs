@@ -323,5 +323,66 @@ fn main() {
         fig.save_png("target/gallery_ecdf.png").unwrap();
     }
 
+    // 23. matshow
+    {
+        let mut fig = Figure::new(5.0, 3.8);
+        let (nr, nc) = (8usize, 8usize);
+        let mut data = vec![0.0; nr * nc];
+        for r in 0..nr {
+            for c in 0..nc {
+                data[r * nc + c] = (r as f64 - c as f64).abs();
+            }
+        }
+        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        ax.matshow(&data, nr, nc);
+        ax.set_title("matshow");
+        fig.save_png("target/gallery_matshow.png").unwrap();
+    }
+
+    // 24. spy
+    {
+        let mut fig = Figure::new(5.0, 3.8);
+        let (nr, nc) = (16usize, 16usize);
+        let mut data = vec![0.0; nr * nc];
+        // A banded sparsity pattern: main diagonal plus two off-diagonals.
+        for r in 0..nr {
+            for c in 0..nc {
+                if r == c || r.abs_diff(c) == 3 {
+                    data[r * nc + c] = 1.0;
+                }
+            }
+        }
+        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        ax.spy(&data, nr, nc);
+        ax.set_title("spy");
+        fig.save_png("target/gallery_spy.png").unwrap();
+    }
+
+    // 25. hist2d
+    {
+        let mut fig = Figure::new(5.0, 3.8);
+        let mut seed = 0x9E3779B97F4A7C15u64;
+        let mut next = || {
+            seed ^= seed >> 12;
+            seed ^= seed << 25;
+            seed ^= seed >> 27;
+            ((seed.wrapping_mul(0x2545F4914F6CDD1D) >> 11) as f64) / ((1u64 << 53) as f64)
+        };
+        // A correlated blob (sum-of-uniforms ≈ gaussian) for a clear 2D density.
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+        for _ in 0..2000 {
+            let gx = (next() + next() + next() + next()) / 4.0;
+            let gy = (next() + next() + next() + next()) / 4.0;
+            let a = gx * 4.0 - 2.0;
+            x.push(a);
+            y.push(0.6 * a + (gy * 2.0 - 1.0));
+        }
+        let ax = fig.add_axes(0.14, 0.14, 0.78, 0.76);
+        ax.hist2d(&x, &y, 30);
+        ax.set_title("hist2d");
+        fig.save_png("target/gallery_hist2d.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

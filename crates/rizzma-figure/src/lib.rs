@@ -29,8 +29,10 @@
 //! | [`Axes::broken_barh`] | [`Axes::pcolormesh`] | [`Axes::boxplot`] |
 //! | ![mathtext](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_mathtext.png) | ![contour](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_contour.png) | ![eventplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_eventplot.png) |
 //! | mathtext title ([`richtext`]) | [`Axes::contour`] | [`Axes::eventplot`] |
-//! | ![fill_betweenx](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_fill_betweenx.png) | ![ecdf](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_ecdf.png) | |
-//! | [`Axes::fill_betweenx`] | [`Axes::ecdf`] | |
+//! | ![fill_betweenx](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_fill_betweenx.png) | ![ecdf](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_ecdf.png) | ![matshow](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_matshow.png) |
+//! | [`Axes::fill_betweenx`] | [`Axes::ecdf`] | [`Axes::matshow`] |
+//! | ![spy](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_spy.png) | ![hist2d](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_hist2d.png) | |
+//! | [`Axes::spy`] | [`Axes::hist2d`] | |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
@@ -44,6 +46,7 @@ mod plotting_area;
 mod plotting_box;
 mod plotting_contour;
 mod plotting_image;
+mod plotting_matrix;
 mod plotting_mesh;
 mod plotting_misc;
 mod plotting_stats;
