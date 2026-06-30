@@ -443,16 +443,46 @@ pub fn ylim(lo: f64, hi: f64) {
     });
 }
 
-/// Render the current figure to `path` as a PNG.
+/// An error from [`savefig`]: either PNG encoding or filesystem I/O failed.
+#[derive(Debug)]
+pub enum SaveError {
+    /// PNG encoding failed.
+    Png(PngError),
+    /// Writing the SVG/PDF file failed.
+    Io(std::io::Error),
+}
+
+impl std::fmt::Display for SaveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SaveError::Png(e) => write!(f, "PNG encoding failed: {e}"),
+            SaveError::Io(e) => write!(f, "writing figure file failed: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for SaveError {}
+
+/// Render the current figure to `path`, choosing the format from the file
+/// extension: `.svg` → SVG, `.pdf` → PDF, anything else → PNG.
 ///
-/// Always renders a PNG via [`Figure::save_png`]; the `path` extension is kept
-/// as given. An interactive vector/SVG backend is a later refinement.
+/// Mirrors matplotlib's `plt.savefig`, which infers the backend from the
+/// filename.
 ///
 /// # Errors
 ///
-/// Returns the underlying PNG encoding/IO error if rendering or writing fails.
-pub fn savefig<P: AsRef<Path>>(path: P) -> Result<(), PngError> {
-    with_figure(|fig| fig.save_png(path))
+/// Returns [`SaveError`] if rendering or writing the file fails.
+pub fn savefig<P: AsRef<Path>>(path: P) -> Result<(), SaveError> {
+    let path = path.as_ref();
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase);
+    with_figure(|fig| match ext.as_deref() {
+        Some("svg") => fig.save_svg(path).map_err(SaveError::Io),
+        Some("pdf") => fig.save_pdf(path).map_err(SaveError::Io),
+        _ => fig.save_png(path).map_err(SaveError::Png),
+    })
 }
 
 /// Display the current figure.
@@ -506,6 +536,38 @@ mod tests {
         savefig(&path).expect("savefig succeeds");
         let meta = std::fs::metadata(&path).expect("file exists");
         assert!(meta.len() > 0, "PNG should be non-empty");
+        close();
+    }
+
+    #[test]
+    fn savefig_picks_format_from_extension() {
+        figure();
+        plot(&[0.0, 1.0, 2.0], &[0.0, 1.0, 0.0]);
+
+        let svg = target_path("pyplot_ext.svg");
+        savefig(&svg).expect("svg savefig succeeds");
+        assert!(
+            std::fs::read_to_string(&svg)
+                .expect("svg file")
+                .contains("<svg"),
+            "expected an SVG document"
+        );
+
+        let pdf = target_path("pyplot_ext.pdf");
+        savefig(&pdf).expect("pdf savefig succeeds");
+        assert!(
+            std::fs::read(&pdf).expect("pdf file").starts_with(b"%PDF"),
+            "expected a PDF document"
+        );
+
+        let png = target_path("pyplot_ext.png");
+        savefig(&png).expect("png savefig succeeds");
+        assert!(
+            std::fs::read(&png)
+                .expect("png file")
+                .starts_with(&[0x89, b'P', b'N', b'G']),
+            "expected a PNG document"
+        );
         close();
     }
 
