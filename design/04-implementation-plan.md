@@ -532,31 +532,40 @@ plan above stays the *intent* and this section is the *ground truth*).
   through the `pyplot` façade. Verified visually: a viridis spiral scatter, a histogram, a
   bar chart with `axhline`, and a two-line plot with legend + colorbar — all matplotlib-quality.
 - **M4 (write once, render anywhere)** — 🟡 partial: the **SVG backend** (`rizzma-svg`) is a
-  second `Renderer`, and `Figure::save_svg` exports the *same* scene to PNG (skia) and SVG.
-  Remaining: the wasm `<canvas>` backend + DOM events.
+  second `Renderer`, `Figure::save_svg` exports the *same* scene to PNG (skia) and SVG,
+  and `rizzma-wasm` can render a figure to straight RGBA and blit it into browser
+  `<canvas>` `ImageData`. Remaining: DOM events, the wasm demo page/size budget, and
+  cross-backend equivalence tests.
 
-### Merged PRs (#1–#27)
-- **Infra:** #1 scaffold/CI/toolchain, #2 licenses, #3/#20 log, #5 `xtask` image-diff.
+### Merged PRs (#1–#41)
+- **Infra/docs:** #1 scaffold/CI/toolchain, #2 licenses, #3/#20/#28/#32 log updates,
+  #5 `xtask` image-diff, #33 gallery publishing + doc-link CI, #34 TeX rendering path
+  split, #38 `AGENTS.md` coordination rules, #39 wasm32 workspace check.
 - **`rizzma-core`:** #4 `Affine2D`+`Bbox`, #8 `Path`, #10 `color::Rgba`, #12 named colors +
   `Normalize` + colormaps (viridis/gray) + `to_rgba_array`, #22 typed `RcParams` (serde).
 - **`rizzma-render`:** #10 `Renderer` trait + `GraphicsContext`.
-- **`rizzma-skia`:** #11 `tiny-skia` raster backend → PNG.
-- **`rizzma-svg`:** #24 SVG vector backend (2nd `Renderer`).
+- **`rizzma-skia`:** #11 `tiny-skia` raster backend → PNG, #29 `draw_image` raster blit.
+- **`rizzma-svg`:** #24 SVG vector backend (2nd `Renderer`), #36 embedded raster
+  `draw_image` via PNG data URIs.
 - **`rizzma-text`:** #6 font embed (DejaVu) + metrics, #14 `text_to_path` glyph outlines.
-- **`rizzma-artist`:** #13 `Artist`+`Line2D`, #16 `Patch`, #18 `MarkerStyle`, #21 `Collection`.
+- **`rizzma-artist`:** #13 `Artist`+`Line2D`, #16 `Patch`, #18 `MarkerStyle`,
+  #21 `Collection`, #37 builder setter cleanup, #41 scatter marker sizing in device units.
 - **`rizzma-axis`:** #7 ticker, #9 scales (lin/log/symlog/logit), #17 renderable `Axis`.
 - **`rizzma-figure`:** #15 `GridSpec`, #19 `Figure`+`Axes`, #23 Tier-1 methods, #25 scatter/
   hist/errorbar, #27 legend/colorbar/`save_svg`, #30 prop-cycle, #31 `imshow`.
-- **`rizzma-skia`:** #29 `draw_image` (raster blit).
 - **`rizzma-pyplot`:** #26 stateful façade (`plot`/`scatter`/`bar`/`hist`/`savefig`/…).
+- **`rizzma-wasm`:** #40 render-to-straight-RGBA core plus wasm-only Canvas `ImageData`
+  blit entry points.
 
 ### Known gaps / cleanups queued
-- ✅ ~~`Axes::plot` prop-cycle~~ (done #30) and ~~skia `draw_image`~~ (done #29).
-- `Patch` `zorder`/`visible` setters shadow the `Artist` trait getters (sharp edge).
+- ✅ ~~`Axes::plot` prop-cycle~~ (done #30), ~~skia `draw_image`~~ (done #29),
+  ~~SVG `draw_image`~~ (done #36), ~~artist builder setter shadowing~~ (done #37),
+  ~~scatter marker size in data units~~ (done #41).
 - skia `draw_text` is still a TODO stub (text renders as glyph paths today, which is fine).
-- SVG `draw_image` is still a TODO stub; raster `draw_image` is implemented in skia.
 - Arbitrary `clip_path` is still deferred; only rectangular clipping is implemented.
-- `scatter_mapped` default marker size is oversized for dense data (markers merge into a band).
+- Cross-backend equivalence is not yet automated: PNG vs SVG-rasterized vs wasm canvas
+  output still needs a shared scene diff.
+- wasm DOM events, demo page, size/perf budget, and headless wasm smoke are still queued.
 - Per-method `///` rustdoc examples + embedded gallery images still to backfill (see below).
 
 ### Documentation pattern: a rendered example per graphic type
@@ -594,9 +603,9 @@ that adds the method (Definition-of-Done addition).
 > `check-gallery-links` + `cargo doc -D warnings` will fail otherwise.
 
 ### Next
-- M4: wasm `<canvas>` backend + demo.
-- Quality: SVG `draw_image`/`<image>` support, native `draw_text`, arbitrary `clip_path`.
-- Tier-2: log-scale axes (`loglog`/`semilog*`), `imshow`, `pcolormesh`, `contour`, `boxplot`,
+- M4: DOM event bridge, wasm demo page, size/perf budget, and cross-backend equivalence tests.
+- Quality: native `draw_text`, arbitrary `clip_path`, renderer/backend parity checks.
+- Tier-2: log-scale axes (`loglog`/`semilog*`), `pcolormesh`, `contour`, `boxplot`,
   `pie`. Then raw-TeX/frontend passthrough, mathtext fallback, optional native TeX export,
   dates-on-axes, polar, PDF, 3D.
 - Backfill per-method rustdoc examples + embedded images per the pattern above.
@@ -604,4 +613,4 @@ that adds the method (Definition-of-Done addition).
 > Note: the DAG order is a guide, not a straitjacket. Self-contained leaves are pulled
 > forward to maximize parallelism (often 3–4 worktree-isolated agents at once) while the
 > critical-path spine (geometry → renderer → artists → axes → figure) stays coherent.
-> ~19 PRs landed via squash + green CI with no `main` breakage.
+> ~34 PRs landed via squash + green CI with no `main` breakage.
