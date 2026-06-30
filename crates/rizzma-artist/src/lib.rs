@@ -7,16 +7,18 @@
 //! [`visibility`](Artist::visible), and optional data-space
 //! [`extents`](Artist::data_extents) for future autoscaling.
 //!
-//! `hatch` and the batched `Collection` family are deferred to follow-up work;
-//! this crate currently ships the trait plus `Line2D`, the `Patch` shape
-//! hierarchy, point [`MarkerStyle`]s, and a small [`draw_artists`] scene helper.
+//! `hatch` is deferred to follow-up work; this crate currently ships the trait
+//! plus `Line2D`, the `Patch` shape hierarchy, point [`MarkerStyle`]s, the
+//! batched scatter [`Collection`], and a small [`draw_artists`] scene helper.
 //!
 //! Build-order home: Phase 5 of `design/04-implementation-plan.md`.
 
+mod collection;
 mod line;
 mod marker;
 mod patch;
 
+pub use collection::Collection;
 pub use line::Line2D;
 pub use marker::MarkerStyle;
 pub use patch::Patch;
