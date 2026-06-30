@@ -25,15 +25,49 @@
         font-size: 0.9rem;
         opacity: 0.8;
       }
+      #readout {
+        font-family: ui-monospace, monospace;
+        font-size: 1rem;
+        min-height: 1.2em;
+      }
     </style>
   </head>
   <body>
     <canvas id="plot" width="640" height="480"></canvas>
-    <p class="caption">Rendered by <code>rizzma-wasm</code> (tiny-skia &rarr; ImageData).</p>
+    <p id="readout">&mdash;</p>
+    <p class="caption">Rendered by <code>rizzma-wasm</code> (tiny-skia &rarr; ImageData). Hover for data coordinates.</p>
     <script type="module">
-      import init, { draw_sample_to_canvas } from "./pkg/rizzma_wasm.js";
+      import init, { WasmFigure } from "./pkg/rizzma_wasm.js";
       await init();
-      draw_sample_to_canvas("plot");
+
+      const fig = WasmFigure.sample();
+      const canvas = document.getElementById("plot");
+      const readout = document.getElementById("readout");
+
+      // Match the canvas backing store to the figure's pixel size.
+      const [w, h] = fig.size;
+      canvas.width = w;
+      canvas.height = h;
+      fig.render("plot");
+
+      canvas.addEventListener("mousemove", (e) => {
+        // Map the DOM event to top-down canvas-pixel coordinates, accounting
+        // for any CSS scaling of the element vs. its backing store.
+        const rect = canvas.getBoundingClientRect();
+        const px = (e.clientX - rect.left) * (canvas.width / rect.width);
+        const py = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+        const data = fig.data_at(px, py);
+        if (data === undefined) {
+          readout.textContent = "—";
+        } else {
+          readout.textContent = `x=${data[0].toFixed(2)}, y=${data[1].toFixed(2)}`;
+        }
+      });
+
+      canvas.addEventListener("mouseleave", () => {
+        readout.textContent = "—";
+      });
     </script>
   </body>
 </html>
