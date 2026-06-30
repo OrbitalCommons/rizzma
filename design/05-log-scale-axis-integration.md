@@ -68,10 +68,28 @@ Recommended implementation detail:
 
 - Introduce an `AxisScale`/`ScaleSpec` enum at the `Axes` layer first, not in
   `rizzma-core`.
+- Implement the draw-time non-affine mapper as a standalone object, even while it stays
+  private to `rizzma-figure`:
+
+  ```rust
+  struct DataToScaled {
+      x: ScaleSpec,
+      y: ScaleSpec,
+  }
+
+  impl DataToScaled {
+      fn map_point(&self, x: f64, y: f64) -> [f64; 2];
+      fn map_path(&self, path: &Path) -> Path;
+  }
+  ```
+
+  `Axes::draw` applies this mapper to raw data-space geometry, then passes the resulting
+  scaled-data path through the scaled-domain [`Affine2D`]. Linear scales must be exact
+  identity mappings. Do not bake scaled coordinates into artists at construction time:
+  autoscale, explicit limits, and public data APIs stay in raw data units.
 - Add private helpers:
   - `scale_x(value)`, `scale_y(value)`, and inverse equivalents.
   - `scaled_limits(raw_xlim, raw_ylim)`.
-  - path/point conversion helpers used only inside `Axes::draw`.
 - Keep the public `set_xlim`/`set_ylim` contract in raw data units.
 - Add `set_xscale_log(base)`, `set_yscale_log(base)`, then convenience wrappers
   `semilogx`, `semilogy`, and `loglog` can call `plot` after setting scales.
@@ -116,6 +134,11 @@ matplotlib invariant that non-affine work happens before backend rendering.
 Do not change `rizzma-render::Renderer`, `rizzma-artist::Artist`, or `rizzma-core` for
 this step.
 
+The concrete seam for the first implementation is `DataToScaled`. If a later projection
+or polar implementation forces Option B, promoting that mapper into a richer transform
+object should be a relocation of the same mapping logic, not a rewrite of artist
+construction or data-limit semantics.
+
 ## Tick And Label Semantics
 
 - Locators operate on raw data limits and produce raw data tick values.
@@ -127,6 +150,9 @@ this step.
   - tick value `v` is formatted as raw `v`;
   - tick position is `scale(v)`;
   - normalized position is computed against scaled limits.
+- `Axes` should precompute a tick model such as `{ raw_value, scaled_pos, label }` and pass
+  that to `Axis::draw`. `Axis` should remain a renderer of prepared tick positions and
+  labels, not a holder of scale state or scale callbacks.
 - Grid lines and reference lines follow the same rule: raw semantic value, scaled
   display position.
 
@@ -140,6 +166,9 @@ this step.
   around `[1, 1000]` is visually dominated by the upper endpoint.
 - Reversed ranges should work by preserving raw limit order while computing scaled limits
   in the same order.
+- Keep the current linear `effective_limits` helper unchanged. Add a separate
+  scale-aware helper for scaled limits/margins so the linear draw path can remain
+  byte-identical.
 
 ## Artist Categories
 
@@ -149,8 +178,9 @@ this step.
   units as today.
 - Quad meshes: transform every grid coordinate. This supports log pcolormesh without
   changing `QuadMesh`.
-- Images: first implementation can transform the image extent corners for monotonic
-  rectilinear log axes. True nonlinear image resampling is deferred.
+- Images: out of scope for the first implementation. Document that images on log axes are
+  unsupported until a follow-up defines monotonic extent mapping and/or nonlinear image
+  resampling.
 - Spans/reference lines: construct raw endpoint geometry as today, then scale the
   relevant coordinates before draw.
 - Text/title/richtext: unchanged for this step; tick-label richtext integration belongs
@@ -173,17 +203,26 @@ pixels -> inverse affine -> inverse scale -> raw data
 `Figure::data_at_pixel` and `Figure::pixel_to_data` must use the same scaled-limits path
 as `Axes::draw`, not a parallel reconstruction.
 
-## Open Questions
+## Resolved Design Decisions
 
-- Where should the per-axis scale state live: directly on `Axes`, or inside the existing
-  `Axis` values with accessors from `Axes`?
-- Should `Axis::draw` receive raw limits plus a scale callback, or should `Axes` precompute
-  scaled tick positions and pass a richer tick model?
-- Should log margins be applied by `Axes::effective_limits` directly, or by a
-  scale-aware `effective_scaled_limits` helper that leaves the existing linear helper
-  untouched?
-- What should the first image behavior be on log axes: transform extent only, or reject
-  with a documented limitation until nonlinear image resampling exists?
+- Scale state lives on `Axes` as x/y `ScaleSpec` values. Keep it out of `Axis` and
+  `rizzma-core` for the first integration.
+- `Axes` precomputes scaled tick positions and labels, then passes a richer prepared-tick
+  model to `Axis::draw`.
+- Add a separate scaled-limit helper; do not change the linear `effective_limits` path.
+- Images on log axes are out of scope for PR 1 and should be documented as unsupported
+  until a dedicated follow-up.
+
+## Regression Guards
+
+- Linear scale must be an exact identity. Existing linear figures should render
+  byte-identically after the log-axis plumbing lands.
+- Add an image-diff regression check using `xtask image-diff` on at least one existing
+  linear gallery figure before and after the implementation, or an equivalent checked-in
+  test that proves the linear output did not move.
+- Equal aspect on log axes must not silently use raw data-units-per-pixel. Either compute
+  aspect from scaled limits in PR 1, or explicitly reject/document `aspect_equal + log`
+  as unsupported until a follow-up.
 
 ## First Implementation PR Boundary
 
@@ -191,11 +230,13 @@ A safe first implementation PR should include:
 
 - `Axes` x/y scale state and public log-scale setters.
 - scaled-limit and coordinate inversion helpers.
-- line/scatter/path-like artist scaling.
+- private `DataToScaled` mapper with `map_point` and `map_path`.
+- line/scatter/path-like artist scaling through `DataToScaled` at draw time.
 - x/y `Axis` tick placement using raw values but scaled positions.
 - `semilogx`, `semilogy`, and `loglog` wrappers.
 - tests for line geometry, tick positions/labels, reversed ranges, non-positive log limits,
-  and pixel-to-data round-trip.
+  pixel-to-data round-trip, and linear no-pixel-change behavior.
 
-Leave images, pcolormesh, spans, and broader symlog/logit polish for follow-ups unless the
-first implementation naturally covers them without broadening the seam.
+Leave images, pcolormesh, spans, equal-aspect polish, and broader symlog/logit behavior for
+follow-ups unless the first implementation naturally covers them without broadening the
+seam.
