@@ -14,7 +14,8 @@
 
 use rizzma_artist::{Artist, Collection, Line2D, Patch};
 use rizzma_axis::axis::{Axis, AxisSide};
-use rizzma_core::{Affine2D, Bbox, Path, color::Rgba};
+use rizzma_core::color::{DEFAULT_COLOR_CYCLE, Rgba};
+use rizzma_core::{Affine2D, Bbox, Path};
 use rizzma_render::{GraphicsContext, Renderer};
 use rizzma_text::FontSource;
 
@@ -133,10 +134,63 @@ impl Axes {
         }
     }
 
+    /// Fallback color (`tab10` C0 blue) used when a cycle hex fails to parse,
+    /// which cannot happen for the built-in [`DEFAULT_COLOR_CYCLE`].
+    const FALLBACK_CYCLE_COLOR: Rgba = Rgba::new(0.121_568_63, 0.466_666_67, 0.705_882_35, 1.0);
+
+    /// Resolve the property-cycle color at `index` (modulo the cycle length)
+    /// from the core [`DEFAULT_COLOR_CYCLE`] (matplotlib's `tab10`), without
+    /// advancing the per-axes cycle position.
+    ///
+    /// `cycle_color(0)` is C0 (`#1f77b4`).
+    #[must_use]
+    pub fn cycle_color(&self, index: usize) -> Rgba {
+        let hex = DEFAULT_COLOR_CYCLE[index % DEFAULT_COLOR_CYCLE.len()];
+        Rgba::from_hex(hex).unwrap_or(Self::FALLBACK_CYCLE_COLOR)
+    }
+
+    /// Return the next property-cycle color and advance the per-axes cycle
+    /// position by one.
+    ///
+    /// Successive calls yield C0, C1, C2, … (`#1f77b4`, `#ff7f0e`, `#2ca02c`,
+    /// …), wrapping after the ten `tab10` entries. Reset with
+    /// [`set_prop_cycle_reset`](Axes::set_prop_cycle_reset).
+    pub fn next_cycle_color(&mut self) -> Rgba {
+        let color = self.cycle_color(self.prop_cycle_index);
+        self.prop_cycle_index += 1;
+        color
+    }
+
+    /// Reset the property-cycle position back to the start, so the next cycled
+    /// color is C0 (`#1f77b4`) again.
+    pub fn set_prop_cycle_reset(&mut self) -> &mut Self {
+        self.prop_cycle_index = 0;
+        self
+    }
+
     /// Plot `y` against `x` as a new [`Line2D`], returning a mutable reference
     /// to the pushed line for further styling.
+    ///
+    /// The line is created with the next property-cycle color (C0, C1, C2, …
+    /// across successive calls), advancing the per-axes cycle. To pick a
+    /// specific color instead, use [`plot_with_color`](Axes::plot_with_color),
+    /// or overwrite the returned handle, e.g.
+    /// `*ax.plot(x, y) = Line2D::new(x, y).with_color(c)`.
     pub fn plot(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
-        self.lines.push(Line2D::new(x.to_vec(), y.to_vec()));
+        let color = self.next_cycle_color();
+        self.lines
+            .push(Line2D::new(x.to_vec(), y.to_vec()).with_color(color));
+        self.lines.last_mut().expect("just pushed a line")
+    }
+
+    /// Plot `y` against `x` as a new [`Line2D`] with an explicit `color`,
+    /// returning a mutable reference to the pushed line.
+    ///
+    /// Unlike [`plot`](Axes::plot), this does not consult or advance the
+    /// property cycle: the given color always wins.
+    pub fn plot_with_color(&mut self, x: &[f64], y: &[f64], color: Rgba) -> &mut Line2D {
+        self.lines
+            .push(Line2D::new(x.to_vec(), y.to_vec()).with_color(color));
         self.lines.last_mut().expect("just pushed a line")
     }
 
@@ -478,5 +532,87 @@ mod tests {
         axes.set_xlim(3.0, 3.0);
         let (xlim, _) = axes.effective_limits();
         assert!(xlim.1 > xlim.0, "range should be widened: {xlim:?}");
+    }
+
+    /// A [`Renderer`] that records the stroke color of each `draw_path` call,
+    /// used to read back a [`Line2D`]'s effective stroke color.
+    #[derive(Default)]
+    struct StrokeRecorder {
+        strokes: Vec<Option<Rgba>>,
+    }
+
+    impl Renderer for StrokeRecorder {
+        fn draw_path(
+            &mut self,
+            gc: &GraphicsContext,
+            _path: &Path,
+            _transform: &Affine2D,
+            _fill: Option<Rgba>,
+        ) {
+            self.strokes.push(gc.stroke);
+        }
+
+        fn canvas_size(&self) -> (f64, f64) {
+            (100.0, 100.0)
+        }
+    }
+
+    /// Draw `line` through a [`StrokeRecorder`] and return its stroke color.
+    fn line_stroke(line: &Line2D) -> Rgba {
+        let mut r = StrokeRecorder::default();
+        line.draw(&mut r, &Affine2D::identity());
+        r.strokes[0].expect("line strokes with a color")
+    }
+
+    #[test]
+    fn successive_plots_advance_the_color_cycle() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.plot(&[0.0, 1.0], &[0.0, 1.0]);
+        axes.plot(&[0.0, 1.0], &[1.0, 0.0]);
+
+        // C0 = #1f77b4 (tab10 blue), C1 = #ff7f0e (tab10 orange).
+        assert_eq!(
+            line_stroke(&axes.lines[0]),
+            Rgba::from_hex("#1f77b4").unwrap()
+        );
+        assert_eq!(
+            line_stroke(&axes.lines[1]),
+            Rgba::from_hex("#ff7f0e").unwrap()
+        );
+    }
+
+    #[test]
+    fn explicit_override_on_returned_line_wins() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        let x = vec![0.0, 1.0];
+        let y = vec![0.0, 1.0];
+        // Overwrite the cycled handle with an explicitly colored line.
+        *axes.plot(&x, &y) = Line2D::new(x.clone(), y.clone()).with_color(Rgba::RED);
+        assert_eq!(line_stroke(&axes.lines[0]), Rgba::RED);
+    }
+
+    #[test]
+    fn plot_with_color_does_not_advance_the_cycle() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.plot_with_color(&[0.0, 1.0], &[0.0, 1.0], Rgba::RED);
+        // The cycle is untouched, so the next plot is still C0.
+        axes.plot(&[0.0, 1.0], &[1.0, 0.0]);
+        assert_eq!(line_stroke(&axes.lines[0]), Rgba::RED);
+        assert_eq!(
+            line_stroke(&axes.lines[1]),
+            Rgba::from_hex("#1f77b4").unwrap()
+        );
+    }
+
+    #[test]
+    fn reset_returns_cycle_to_start() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.plot(&[0.0, 1.0], &[0.0, 1.0]);
+        axes.set_prop_cycle_reset();
+        axes.plot(&[0.0, 1.0], &[1.0, 0.0]);
+        assert_eq!(
+            line_stroke(&axes.lines[1]),
+            Rgba::from_hex("#1f77b4").unwrap()
+        );
     }
 }

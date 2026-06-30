@@ -7,7 +7,7 @@
 //! coordinate/limit machinery.
 
 use rizzma_artist::{Line2D, Patch};
-use rizzma_core::color::{DEFAULT_COLOR_CYCLE, Rgba};
+use rizzma_core::color::Rgba;
 
 use crate::Axes;
 use crate::axes::{SpanLine, SpanOrientation, SpanRect};
@@ -20,15 +20,6 @@ const DEFAULT_BARH_HEIGHT: f64 = 0.8;
 const FILL_ALPHA: f64 = 0.4;
 /// Default fill opacity for [`axhspan`](Axes::axhspan)/[`axvspan`](Axes::axvspan).
 const SPAN_ALPHA: f64 = 0.5;
-/// Fallback bar face color when the property cycle cannot be resolved.
-const FALLBACK_BAR_FACE: Rgba = Rgba::new(0.121_568_63, 0.466_666_67, 0.705_882_35, 1.0);
-
-/// Resolve the cycle color at `index` from [`DEFAULT_COLOR_CYCLE`], falling back
-/// to a fixed blue if the hex cannot be parsed.
-fn cycle_color(index: usize) -> Rgba {
-    let hex = DEFAULT_COLOR_CYCLE[index % DEFAULT_COLOR_CYCLE.len()];
-    Rgba::from_hex(hex).unwrap_or(FALLBACK_BAR_FACE)
-}
 
 /// Expand `(x, y)` into a `"pre"` staircase polyline.
 ///
@@ -69,8 +60,7 @@ impl Axes {
     /// height` vertically. The face color advances the property cycle once and
     /// the edge is black.
     pub fn bar_with(&mut self, x: &[f64], height: &[f64], width: f64, bottom: f64) {
-        let face = cycle_color(self.prop_cycle_index);
-        self.prop_cycle_index += 1;
+        let face = self.next_cycle_color();
         for (&xc, &h) in x.iter().zip(height.iter()) {
             let patch = Patch::rectangle(xc - width / 2.0, bottom, width, h)
                 .facecolor(Some(face))
@@ -94,8 +84,7 @@ impl Axes {
     /// Each rectangle spans `left ..= left + width` horizontally and
     /// `y - height/2 ..= y + height/2` vertically.
     pub fn barh_with(&mut self, y: &[f64], width: &[f64], height: f64, left: f64) {
-        let face = cycle_color(self.prop_cycle_index);
-        self.prop_cycle_index += 1;
+        let face = self.next_cycle_color();
         for (&yc, &w) in y.iter().zip(width.iter()) {
             let patch = Patch::rectangle(left, yc - height / 2.0, w, height)
                 .facecolor(Some(face))
@@ -122,7 +111,9 @@ impl Axes {
         for i in (0..n).rev() {
             points.push([x[i], y2[i]]);
         }
-        let face = cycle_color(self.prop_cycle_index).with_alpha(FILL_ALPHA);
+        let face = self
+            .cycle_color(self.prop_cycle_index)
+            .with_alpha(FILL_ALPHA);
         let patch = Patch::polygon(&points)
             .facecolor(Some(face))
             .edgecolor(None);
