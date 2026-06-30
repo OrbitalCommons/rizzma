@@ -504,5 +504,25 @@ fn main() {
         fig.save_png("target/gallery_quiver.png").unwrap();
     }
 
+    // 32. streamplot (rotational field u = -y, v = x: concentric circles)
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let coords = linspace(-3.0, 3.0, 25);
+        let nx = coords.len();
+        let ny = coords.len();
+        let mut u = vec![0.0; nx * ny];
+        let mut v = vec![0.0; nx * ny];
+        for j in 0..ny {
+            for i in 0..nx {
+                u[j * nx + i] = -coords[j];
+                v[j * nx + i] = coords[i];
+            }
+        }
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.streamplot(&coords, &coords, &u, &v);
+        ax.set_title("streamplot");
+        fig.save_png("target/gallery_streamplot.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

@@ -35,8 +35,8 @@
 //! | [`Axes::spy`] | [`Axes::hist2d`] | [`Axes::pie`] |
 //! | ![violinplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_violinplot.png) | ![hexbin](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_hexbin.png) | ![grouped_bar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_grouped_bar.png) |
 //! | [`Axes::violinplot`] | [`Axes::hexbin`] | [`Axes::grouped_bar`] |
-//! | ![loglog](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_loglog.png) | ![quiver](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_quiver.png) | |
-//! | [`Axes::loglog`] | [`Axes::quiver`] | |
+//! | ![loglog](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_loglog.png) | ![quiver](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_quiver.png) | ![streamplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_streamplot.png) |
+//! | [`Axes::loglog`] | [`Axes::quiver`] | [`Axes::streamplot`] |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
@@ -59,6 +59,7 @@ mod plotting_pie;
 mod plotting_quiver;
 mod plotting_stats;
 mod plotting_steps;
+mod plotting_stream;
 mod plotting_violin;
 pub mod richtext;
 mod subplotspec;
