@@ -17,6 +17,7 @@ mod figure;
 mod gridspec;
 mod legend;
 mod plotting;
+mod plotting_image;
 mod plotting_stats;
 mod subplotspec;
 

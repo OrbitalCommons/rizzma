@@ -12,7 +12,7 @@
 //! backend applies its own Y-flip. The data-to-pixel mapping is built by
 //! [`Axes::trans_data`].
 
-use rizzma_artist::{Artist, Collection, Line2D, Patch};
+use rizzma_artist::{Artist, AxesImage, Collection, Line2D, Patch};
 use rizzma_axis::axis::{Axis, AxisSide};
 use rizzma_core::color::{DEFAULT_COLOR_CYCLE, Rgba};
 use rizzma_core::{Affine2D, Bbox, Path};
@@ -49,6 +49,8 @@ pub struct Axes {
     pub(crate) patches: Vec<Patch>,
     /// Scatter [`Collection`] artists, drawn in ascending zorder.
     pub(crate) collections: Vec<Collection>,
+    /// Colormapped raster images, drawn beneath the other artists.
+    pub(crate) images: Vec<AxesImage>,
     /// The bottom (x) axis.
     xaxis: Axis,
     /// The left (y) axis.
@@ -123,6 +125,7 @@ impl Axes {
             lines: Vec::new(),
             patches: Vec::new(),
             collections: Vec::new(),
+            images: Vec::new(),
             xaxis: Axis::new(AxisSide::Bottom),
             yaxis: Axis::new(AxisSide::Left),
             title: None,
@@ -264,7 +267,12 @@ impl Axes {
         let line_extents = self.lines.iter().filter_map(Artist::data_extents);
         let patch_extents = self.patches.iter().filter_map(Artist::data_extents);
         let collection_extents = self.collections.iter().filter_map(Artist::data_extents);
-        for e in line_extents.chain(patch_extents).chain(collection_extents) {
+        let image_extents = self.images.iter().filter_map(Artist::data_extents);
+        for e in line_extents
+            .chain(patch_extents)
+            .chain(collection_extents)
+            .chain(image_extents)
+        {
             acc = Some(match acc {
                 Some(a) => a.union(&e),
                 None => e,
@@ -344,7 +352,16 @@ impl Axes {
         let (xlim, ylim) = self.effective_limits();
         let td = self.trans_data(&axes_px, xlim, ylim);
 
-        // 3a. Draw full-span shaded bands (axhspan/axvspan) beneath the artists,
+        // 3a. Draw colormapped images first (lowest zorder), beneath every
+        // other artist, mapping their data-space extent through the data
+        // transform.
+        for image in &self.images {
+            if image.visible() {
+                image.draw(renderer, &td);
+            }
+        }
+
+        // 3b. Draw full-span shaded bands (axhspan/axvspan) beneath the artists,
         // resolving their open extent against the effective limits.
         for span in &self.span_rects {
             let rect = match span.orientation {
