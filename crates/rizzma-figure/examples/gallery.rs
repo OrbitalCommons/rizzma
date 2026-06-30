@@ -394,5 +394,35 @@ fn main() {
         fig.save_png("target/gallery_pie.png").unwrap();
     }
 
+    // 27. violinplot
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        // Four deterministic groups with distinct shapes: a tight cluster, a
+        // wide spread, a bimodal set, and a right-skewed set. Built from
+        // closed-form sine/quadratic perturbations so there is no RNG.
+        let tight: Vec<f64> = (0..60)
+            .map(|k| 5.0 + 0.6 * (k as f64 * 0.7).sin())
+            .collect();
+        let wide: Vec<f64> = (0..60)
+            .map(|k| 5.0 + 3.0 * (k as f64 * 0.21).sin())
+            .collect();
+        let bimodal: Vec<f64> = (0..60)
+            .map(|k| {
+                let lobe = if k % 2 == 0 { 3.0 } else { 7.0 };
+                lobe + 0.8 * (k as f64 * 0.5).sin()
+            })
+            .collect();
+        let skewed: Vec<f64> = (0..60)
+            .map(|k| {
+                let t = k as f64 / 59.0;
+                3.0 + 6.0 * t * t
+            })
+            .collect();
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.violinplot(&[&tight, &wide, &bimodal, &skewed], None);
+        ax.set_title("violinplot");
+        fig.save_png("target/gallery_violinplot.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

@@ -33,6 +33,8 @@
 //! | [`Axes::fill_betweenx`] | [`Axes::ecdf`] | [`Axes::matshow`] |
 //! | ![spy](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_spy.png) | ![hist2d](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_hist2d.png) | ![pie](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_pie.png) |
 //! | [`Axes::spy`] | [`Axes::hist2d`] | [`Axes::pie`] |
+//! | ![violinplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_violinplot.png) | | |
+//! | [`Axes::violinplot`] | | |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
@@ -52,6 +54,7 @@ mod plotting_misc;
 mod plotting_pie;
 mod plotting_stats;
 mod plotting_steps;
+mod plotting_violin;
 pub mod richtext;
 mod subplotspec;
 
