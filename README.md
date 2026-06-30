@@ -1,5 +1,18 @@
 # rizzma
 
+[![Crates.io](https://img.shields.io/crates/v/rizzma.svg)](https://crates.io/crates/rizzma)
+[![Docs.rs](https://docs.rs/rizzma/badge.svg)](https://docs.rs/rizzma)
+[![Downloads](https://img.shields.io/crates/d/rizzma.svg)](https://crates.io/crates/rizzma)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
+[![Rust 1.96+](https://img.shields.io/badge/rust-1.96%2B-orange.svg)](rust-toolchain.toml)
+[![Edition 2024](https://img.shields.io/badge/edition-2024-93450a.svg)](Cargo.toml)
+[![CI](https://github.com/OrbitalCommons/rizzma/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OrbitalCommons/rizzma/actions/workflows/ci.yml)
+[![Gallery](https://github.com/OrbitalCommons/rizzma/actions/workflows/gallery.yml/badge.svg?branch=main)](https://github.com/OrbitalCommons/rizzma/actions/workflows/gallery.yml)
+[![Publish](https://github.com/OrbitalCommons/rizzma/actions/workflows/publish.yml/badge.svg?branch=main)](https://github.com/OrbitalCommons/rizzma/actions/workflows/publish.yml)
+[![WASM](https://img.shields.io/badge/wasm-first-654ff0.svg)](crates/rizzma-wasm)
+[![Renderer](https://img.shields.io/badge/renderers-PNG%20%7C%20SVG%20%7C%20Canvas-007d8a.svg)](crates)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-ff8300.svg)](AGENTS.md)
+
 A Rust reimplementation of the good parts of **matplotlib / pyplot**, with first-class
 **WebAssembly** support.
 
