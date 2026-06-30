@@ -168,6 +168,82 @@ impl Locator for AutoDateLocator {
     }
 }
 
+/// Automatic minor tick locator for date axes.
+///
+/// This is the minor-tick companion to [`AutoDateLocator`]. It inspects the
+/// major locator's selected frequency and chooses one finer subdivision: months
+/// between yearly majors, days between monthly majors, hours between daily
+/// majors, minutes between hourly majors, and seconds between minute majors.
+/// Ticks coincident with the major locator are removed.
+#[derive(Clone, Debug)]
+pub struct AutoDateMinorLocator {
+    major: AutoDateLocator,
+}
+
+impl AutoDateMinorLocator {
+    /// Construct a minor locator using [`AutoDateLocator`]'s default density.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            major: AutoDateLocator::new(),
+        }
+    }
+
+    /// Construct a minor locator paired with a major locator target density.
+    #[must_use]
+    pub fn with_maxticks(maxticks: usize) -> Self {
+        Self {
+            major: AutoDateLocator::with_maxticks(maxticks),
+        }
+    }
+
+    /// Construct a minor locator from an explicit major locator.
+    #[must_use]
+    pub fn from_major(major: AutoDateLocator) -> Self {
+        Self { major }
+    }
+}
+
+impl Default for AutoDateMinorLocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Locator for AutoDateMinorLocator {
+    fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
+        if !vmin.is_finite() || !vmax.is_finite() {
+            return Vec::new();
+        }
+        let (lo, hi, reversed) = ordered(vmin, vmax);
+        let (major_frequency, major_interval) = self.major.select_interval(lo, hi);
+        let Some((minor_frequency, minor_interval)) =
+            minor_interval(major_frequency, major_interval)
+        else {
+            return Vec::new();
+        };
+
+        let mut ticks = match minor_frequency {
+            DateFrequency::Year => year_ticks(lo, hi, minor_interval),
+            DateFrequency::Month => month_ticks(lo, hi, minor_interval),
+            DateFrequency::Day => fixed_day_ticks(lo, hi, minor_interval as f64),
+            DateFrequency::Hour => fixed_second_ticks(lo, hi, i64::from(minor_interval) * 3_600),
+            DateFrequency::Minute => fixed_second_ticks(lo, hi, i64::from(minor_interval) * 60),
+            DateFrequency::Second => fixed_second_ticks(lo, hi, i64::from(minor_interval)),
+        };
+        let major_ticks = self.major.tick_values(lo, hi);
+        ticks.retain(|tick| !major_ticks.iter().any(|major| same_tick(*tick, *major)));
+        if reversed {
+            ticks.reverse();
+        }
+        ticks
+    }
+
+    fn view_limits(&self, vmin: f64, vmax: f64) -> (f64, f64) {
+        self.major.view_limits(vmin, vmax)
+    }
+}
+
 /// `strftime`-based date formatter.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DateFormatter {
@@ -299,6 +375,57 @@ fn push_if_in_range(ticks: &mut Vec<f64>, tick: f64, lo: f64, hi: f64) {
     }
 }
 
+fn same_tick(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 1e-10
+}
+
+fn minor_interval(frequency: DateFrequency, interval: i32) -> Option<(DateFrequency, i32)> {
+    match frequency {
+        DateFrequency::Year => {
+            if interval <= 1 {
+                Some((DateFrequency::Month, 1))
+            } else {
+                Some((DateFrequency::Year, 1))
+            }
+        }
+        DateFrequency::Month => {
+            if interval <= 1 {
+                Some((DateFrequency::Day, 7))
+            } else {
+                Some((DateFrequency::Month, 1))
+            }
+        }
+        DateFrequency::Day => {
+            if interval <= 1 {
+                Some((DateFrequency::Hour, 6))
+            } else {
+                Some((DateFrequency::Day, 1))
+            }
+        }
+        DateFrequency::Hour => {
+            if interval <= 1 {
+                Some((DateFrequency::Minute, 15))
+            } else {
+                Some((DateFrequency::Hour, 1))
+            }
+        }
+        DateFrequency::Minute => {
+            if interval <= 1 {
+                Some((DateFrequency::Second, 15))
+            } else {
+                Some((DateFrequency::Minute, 1))
+            }
+        }
+        DateFrequency::Second => {
+            if interval > 1 {
+                Some((DateFrequency::Second, 1))
+            } else {
+                None
+            }
+        }
+    }
+}
+
 fn date_time(
     year: i32,
     month: u32,
@@ -406,6 +533,55 @@ mod tests {
         let end = date2num(dt(2026, 1, 5, 0, 0, 0));
         let ticks = locator.tick_values(end, start);
 
+        assert!(ticks.windows(2).all(|window| window[0] > window[1]));
+    }
+
+    #[test]
+    fn auto_minor_locator_adds_months_between_years() {
+        let locator = AutoDateMinorLocator::new();
+        let start = date2num(dt(2026, 1, 1, 0, 0, 0));
+        let end = date2num(dt(2028, 1, 1, 0, 0, 0));
+        let labels: Vec<_> = locator
+            .tick_values(start, end)
+            .into_iter()
+            .map(num2date)
+            .map(|dt| (dt.year(), dt.month(), dt.day()))
+            .collect();
+
+        assert!(labels.contains(&(2026, 2, 1)));
+        assert!(labels.contains(&(2027, 12, 1)));
+        assert!(!labels.contains(&(2026, 1, 1)));
+        assert!(!labels.contains(&(2027, 1, 1)));
+        assert!(!labels.contains(&(2028, 1, 1)));
+    }
+
+    #[test]
+    fn auto_minor_locator_adds_days_between_months() {
+        let locator = AutoDateMinorLocator::new();
+        let start = date2num(dt(2026, 1, 1, 0, 0, 0));
+        let end = date2num(dt(2026, 3, 1, 0, 0, 0));
+        let labels: Vec<_> = locator
+            .tick_values(start, end)
+            .into_iter()
+            .map(num2date)
+            .map(|dt| (dt.year(), dt.month(), dt.day()))
+            .collect();
+
+        assert!(labels.contains(&(2026, 1, 8)));
+        assert!(labels.contains(&(2026, 2, 5)));
+        assert!(!labels.contains(&(2026, 1, 1)));
+        assert!(!labels.contains(&(2026, 2, 1)));
+        assert!(!labels.contains(&(2026, 3, 1)));
+    }
+
+    #[test]
+    fn auto_minor_locator_handles_reversed_ranges() {
+        let locator = AutoDateMinorLocator::with_maxticks(7);
+        let start = date2num(dt(2026, 6, 30, 0, 0, 0));
+        let end = date2num(dt(2026, 6, 30, 12, 0, 0));
+        let ticks = locator.tick_values(end, start);
+
+        assert!(!ticks.is_empty());
         assert!(ticks.windows(2).all(|window| window[0] > window[1]));
     }
 
