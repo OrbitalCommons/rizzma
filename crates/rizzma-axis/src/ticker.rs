@@ -38,6 +38,8 @@
 //! - [`LogFormatterMathtext`] — labels large logarithmic powers as mathtext.
 //! - [`SymlogFormatter`] — labels symmetric-log ticks across zero.
 //! - [`LogitFormatter`] — labels probability ticks on a logit scale.
+//! - [`EngFormatter`] — labels values with SI engineering prefixes.
+//! - [`PercentFormatter`] — labels values as percentages.
 //! - [`NullFormatter`] — always the empty string.
 //! - [`FixedFormatter`] — fixed strings indexed by position.
 //! - [`FuncFormatter`] — a user-supplied boxed closure.
@@ -1317,6 +1319,172 @@ impl Formatter for LogitFormatter {
     }
 }
 
+/// Format values in engineering notation with SI prefixes.
+///
+/// Exponents are multiples of three, clamped to the standard SI prefix range
+/// from yocto (`y`) through yotta (`Y`). The micro prefix is rendered as ASCII
+/// `u` to keep labels backend- and font-safe.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EngFormatter {
+    unit: String,
+    places: Option<usize>,
+    separator: String,
+}
+
+impl EngFormatter {
+    /// Construct an engineering formatter with no unit suffix.
+    pub fn new() -> Self {
+        Self {
+            unit: String::new(),
+            places: None,
+            separator: String::new(),
+        }
+    }
+
+    /// Return a copy with a unit suffix, such as `"Hz"` or `"V"`.
+    #[must_use]
+    pub fn with_unit(mut self, unit: impl Into<String>) -> Self {
+        self.unit = unit.into();
+        self
+    }
+
+    /// Return a copy with a fixed number of decimal places.
+    #[must_use]
+    pub fn with_places(mut self, places: usize) -> Self {
+        self.places = Some(places);
+        self
+    }
+
+    /// Return a copy with a separator between the number and prefix/unit.
+    #[must_use]
+    pub fn with_separator(mut self, separator: impl Into<String>) -> Self {
+        self.separator = separator.into();
+        self
+    }
+
+    fn prefix(exponent: i32) -> &'static str {
+        match exponent {
+            -24 => "y",
+            -21 => "z",
+            -18 => "a",
+            -15 => "f",
+            -12 => "p",
+            -9 => "n",
+            -6 => "u",
+            -3 => "m",
+            0 => "",
+            3 => "k",
+            6 => "M",
+            9 => "G",
+            12 => "T",
+            15 => "P",
+            18 => "E",
+            21 => "Z",
+            24 => "Y",
+            _ => "",
+        }
+    }
+}
+
+impl Default for EngFormatter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Formatter for EngFormatter {
+    fn format(&self, value: f64, _pos: Option<usize>) -> String {
+        if !value.is_finite() {
+            return String::new();
+        }
+        if value == 0.0 {
+            let suffix = format!("{}{}", Self::prefix(0), self.unit);
+            return if suffix.is_empty() {
+                "0".to_owned()
+            } else {
+                format!("0{}{}", self.separator, suffix)
+            };
+        }
+
+        let exponent = ((value.abs().log10().floor() as i32).div_euclid(3) * 3).clamp(-24, 24);
+        let scaled = value / 10f64.powi(exponent);
+        let number = if let Some(places) = self.places {
+            format!("{scaled:.places$}")
+        } else {
+            format_decimal(scaled)
+        };
+        let suffix = format!("{}{}", Self::prefix(exponent), self.unit);
+        if suffix.is_empty() {
+            number
+        } else {
+            format!("{number}{}{}", self.separator, suffix)
+        }
+    }
+}
+
+/// Format values as percentages.
+///
+/// `xmax` is the data value corresponding to 100 percent, matching
+/// matplotlib's `PercentFormatter` convention.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PercentFormatter {
+    xmax: f64,
+    decimals: usize,
+    symbol: String,
+}
+
+impl PercentFormatter {
+    /// Construct a formatter where `100.0` maps to `100%`.
+    pub fn new() -> Self {
+        Self::with_xmax(100.0)
+    }
+
+    /// Construct a formatter with a custom value for 100 percent.
+    ///
+    /// `xmax` must be finite and non-zero.
+    pub fn with_xmax(xmax: f64) -> Self {
+        assert!(
+            xmax.is_finite() && xmax != 0.0,
+            "percent formatter xmax must be finite and non-zero"
+        );
+        Self {
+            xmax,
+            decimals: 0,
+            symbol: "%".to_owned(),
+        }
+    }
+
+    /// Return a copy with a fixed number of decimal places.
+    #[must_use]
+    pub fn with_decimals(mut self, decimals: usize) -> Self {
+        self.decimals = decimals;
+        self
+    }
+
+    /// Return a copy with a custom percent symbol suffix.
+    #[must_use]
+    pub fn with_symbol(mut self, symbol: impl Into<String>) -> Self {
+        self.symbol = symbol.into();
+        self
+    }
+}
+
+impl Default for PercentFormatter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Formatter for PercentFormatter {
+    fn format(&self, value: f64, _pos: Option<usize>) -> String {
+        if !value.is_finite() {
+            return String::new();
+        }
+        let percent = value / self.xmax * 100.0;
+        format!("{:.*}{}", self.decimals, percent, self.symbol)
+    }
+}
+
 fn format_decimal(value: f64) -> String {
     if (value - value.round()).abs() < 1e-10 {
         format!("{:.0}", value)
@@ -1714,6 +1882,45 @@ mod tests {
         assert_eq!(formatter.format(0.9, None), "0.9");
         assert_eq!(formatter.format(0.99, None), "1-10^{-2}");
         assert_eq!(formatter.format(0.2, None), "");
+    }
+
+    #[test]
+    fn eng_formatter_uses_si_prefixes() {
+        let formatter = EngFormatter::new();
+
+        assert_eq!(formatter.format(1_000.0, None), "1k");
+        assert_eq!(formatter.format(1_500_000.0, None), "1.5M");
+        assert_eq!(formatter.format(0.001, None), "1m");
+        assert_eq!(formatter.format(0.000_001, None), "1u");
+        assert_eq!(formatter.format(-2_000.0, None), "-2k");
+        assert_eq!(formatter.format(0.0, None), "0");
+    }
+
+    #[test]
+    fn eng_formatter_supports_units_separator_and_places() {
+        let formatter = EngFormatter::new()
+            .with_unit("Hz")
+            .with_separator(" ")
+            .with_places(2);
+
+        assert_eq!(formatter.format(12_300.0, None), "12.30 kHz");
+        assert_eq!(formatter.format(0.0, None), "0 Hz");
+    }
+
+    #[test]
+    fn percent_formatter_defaults_to_xmax_100() {
+        let formatter = PercentFormatter::new();
+
+        assert_eq!(formatter.format(25.0, None), "25%");
+        assert_eq!(formatter.format(100.0, None), "100%");
+    }
+
+    #[test]
+    fn percent_formatter_supports_fractional_xmax_and_decimals() {
+        let formatter = PercentFormatter::with_xmax(1.0).with_decimals(1);
+
+        assert_eq!(formatter.format(0.125, None), "12.5%");
+        assert_eq!(formatter.format(1.0, None), "100.0%");
     }
 
     #[test]
