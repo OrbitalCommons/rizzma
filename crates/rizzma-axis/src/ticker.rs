@@ -25,6 +25,7 @@
 //! - [`LogLocator`] — logarithmic ticks at powers of a base, optionally with
 //!   subticks.
 //! - [`SymlogLocator`] — symmetric-log ticks with a linear region around zero.
+//! - [`LogitLocator`] — probability ticks clustered toward zero and one.
 //! - [`NullLocator`] — no ticks.
 //!
 //! # Formatters
@@ -36,6 +37,7 @@
 //! - [`LogFormatter`] — labels logarithmic major ticks.
 //! - [`LogFormatterMathtext`] — labels large logarithmic powers as mathtext.
 //! - [`SymlogFormatter`] — labels symmetric-log ticks across zero.
+//! - [`LogitFormatter`] — labels probability ticks on a logit scale.
 //! - [`NullFormatter`] — always the empty string.
 //! - [`FixedFormatter`] — fixed strings indexed by position.
 //! - [`FuncFormatter`] — a user-supplied boxed closure.
@@ -849,6 +851,98 @@ impl Locator for SymlogLocator {
     }
 }
 
+/// Place ticks on a logit/probability axis.
+///
+/// Major ticks are powers of ten approaching zero, mirrored powers approaching
+/// one, plus `0.5` when it lies in the view range. This covers the common
+/// probability-axis labels without depending on any concrete Axes integration.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LogitLocator {
+    max_exponent: i32,
+}
+
+impl LogitLocator {
+    /// Construct a logit locator with powers through `1e-6`.
+    pub fn new() -> Self {
+        Self::with_max_exponent(6)
+    }
+
+    /// Construct a logit locator with powers through `10^-max_exponent`.
+    ///
+    /// `max_exponent` is clamped to at least 1.
+    pub fn with_max_exponent(max_exponent: i32) -> Self {
+        LogitLocator {
+            max_exponent: max_exponent.max(1),
+        }
+    }
+
+    /// Return the largest generated power exponent.
+    #[must_use]
+    pub fn max_exponent(&self) -> i32 {
+        self.max_exponent
+    }
+}
+
+impl Default for LogitLocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Locator for LogitLocator {
+    fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
+        if !vmin.is_finite() || !vmax.is_finite() || vmin <= 0.0 || vmax >= 1.0 {
+            return Vec::new();
+        }
+
+        let (lo, hi, reversed) = if vmin <= vmax {
+            (vmin, vmax, false)
+        } else {
+            (vmax, vmin, true)
+        };
+        let mut ticks = Vec::new();
+
+        for exponent in (1..=self.max_exponent).rev() {
+            let p = 10f64.powi(-exponent);
+            if p >= lo * (1.0 - 1e-12) && p <= hi * (1.0 + 1e-12) {
+                ticks.push(p);
+            }
+        }
+        if 0.5 >= lo && 0.5 <= hi {
+            ticks.push(0.5);
+        }
+        for exponent in 1..=self.max_exponent {
+            let p = 1.0 - 10f64.powi(-exponent);
+            if p >= lo * (1.0 - 1e-12) && p <= hi * (1.0 + 1e-12) {
+                ticks.push(p);
+            }
+        }
+
+        ticks.sort_by(|a, b| a.partial_cmp(b).expect("finite ticks are comparable"));
+        ticks.dedup_by(|a, b| (*a - *b).abs() <= 1e-12);
+        if reversed {
+            ticks.reverse();
+        }
+        ticks
+    }
+
+    fn view_limits(&self, vmin: f64, vmax: f64) -> (f64, f64) {
+        let lower = 10f64.powi(-self.max_exponent);
+        let upper = 1.0 - lower;
+        if !vmin.is_finite() || !vmax.is_finite() {
+            return (lower, upper);
+        }
+        let (lo, hi, reversed) = if vmin <= vmax {
+            (vmin, vmax, false)
+        } else {
+            (vmax, vmin, true)
+        };
+        let lo = lo.clamp(lower, upper);
+        let hi = hi.clamp(lower, upper);
+        if reversed { (hi, lo) } else { (lo, hi) }
+    }
+}
+
 /// Place no ticks at all.
 ///
 /// Port of matplotlib's `NullLocator`.
@@ -1128,6 +1222,98 @@ impl Formatter for SymlogFormatter {
         let sign = if value.is_sign_negative() { "-" } else { "" };
         let label = LogFormatter::new(self.base).format_exponent(exponent, false);
         format!("{sign}{label}")
+    }
+}
+
+/// Format logit/probability tick values.
+///
+/// Exact powers of ten near zero are labelled as decimals for `0.1` and as
+/// `10^{-n}` for smaller probabilities. Mirrored ticks near one are labelled
+/// as decimals for `0.9` and `1-10^{-n}` closer to one. Off-lattice values
+/// return an empty label.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LogitFormatter {
+    max_exponent: i32,
+}
+
+impl LogitFormatter {
+    /// Construct a logit formatter with powers through `1e-6`.
+    pub fn new() -> Self {
+        Self::with_max_exponent(6)
+    }
+
+    /// Construct a logit formatter with powers through `10^-max_exponent`.
+    ///
+    /// `max_exponent` is clamped to at least 1.
+    pub fn with_max_exponent(max_exponent: i32) -> Self {
+        LogitFormatter {
+            max_exponent: max_exponent.max(1),
+        }
+    }
+
+    fn lower_exponent(&self, value: f64) -> Option<i32> {
+        if !value.is_finite() || value <= 0.0 || value >= 0.5 {
+            return None;
+        }
+        let exponent = -value.log10().round() as i32;
+        if exponent < 1 || exponent > self.max_exponent {
+            return None;
+        }
+        let tick = 10f64.powi(-exponent);
+        if ((value - tick) / tick).abs() <= 1e-10 {
+            Some(exponent)
+        } else {
+            None
+        }
+    }
+
+    fn upper_exponent(&self, value: f64) -> Option<i32> {
+        if !value.is_finite() || value <= 0.5 || value >= 1.0 {
+            return None;
+        }
+        let q = 1.0 - value;
+        let exponent = -q.log10().round() as i32;
+        if exponent < 1 || exponent > self.max_exponent {
+            return None;
+        }
+        let tick = 10f64.powi(-exponent);
+        if ((q - tick) / tick).abs() <= 1e-10 {
+            Some(exponent)
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for LogitFormatter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Formatter for LogitFormatter {
+    fn format(&self, value: f64, _pos: Option<usize>) -> String {
+        if !value.is_finite() {
+            return String::new();
+        }
+        if (value - 0.5).abs() <= 1e-12 {
+            return "1/2".to_owned();
+        }
+        if let Some(exponent) = self.lower_exponent(value) {
+            return if exponent == 1 {
+                "0.1".to_owned()
+            } else {
+                format!("10^{{-{exponent}}}")
+            };
+        }
+        if let Some(exponent) = self.upper_exponent(value) {
+            return if exponent == 1 {
+                "0.9".to_owned()
+            } else {
+                format!("1-10^{{-{exponent}}}")
+            };
+        }
+        String::new()
     }
 }
 
@@ -1484,6 +1670,50 @@ mod tests {
         assert_eq!(formatter.format(2.0, None), "2");
         assert_eq!(formatter.format(20.0, None), "20");
         assert_eq!(formatter.format(40.0, None), "");
+    }
+
+    #[test]
+    fn logit_locator_clusters_toward_zero_and_one() {
+        let locs = LogitLocator::with_max_exponent(3).tick_values(0.001, 0.999);
+
+        assert_ticks(&locs, &[0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999]);
+    }
+
+    #[test]
+    fn logit_locator_handles_reversed_ranges() {
+        let locs = LogitLocator::with_max_exponent(2).tick_values(0.99, 0.01);
+
+        assert_ticks(&locs, &[0.99, 0.9, 0.5, 0.1, 0.01]);
+    }
+
+    #[test]
+    fn logit_locator_rejects_outside_probability_domain() {
+        assert!(LogitLocator::new().tick_values(0.0, 0.99).is_empty());
+        assert!(LogitLocator::new().tick_values(0.01, 1.0).is_empty());
+        assert!(
+            LogitLocator::new()
+                .tick_values(0.01, f64::INFINITY)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn logit_locator_view_limits_clamp_to_open_interval() {
+        let (lo, hi) = LogitLocator::with_max_exponent(4).view_limits(-1.0, 2.0);
+
+        assert_eq!((lo, hi), (1e-4, 1.0 - 1e-4));
+    }
+
+    #[test]
+    fn logit_formatter_labels_probability_lattice() {
+        let formatter = LogitFormatter::with_max_exponent(4);
+
+        assert_eq!(formatter.format(0.1, None), "0.1");
+        assert_eq!(formatter.format(0.01, None), "10^{-2}");
+        assert_eq!(formatter.format(0.5, None), "1/2");
+        assert_eq!(formatter.format(0.9, None), "0.9");
+        assert_eq!(formatter.format(0.99, None), "1-10^{-2}");
+        assert_eq!(formatter.format(0.2, None), "");
     }
 
     #[test]
