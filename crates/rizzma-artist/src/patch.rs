@@ -189,14 +189,14 @@ impl Patch {
 
     /// Set the stacking order, returning `self` for chaining.
     #[must_use]
-    pub fn zorder(mut self, zorder: f64) -> Self {
+    pub fn with_zorder(mut self, zorder: f64) -> Self {
         self.zorder = zorder;
         self
     }
 
     /// Set whether the patch is drawn, returning `self` for chaining.
     #[must_use]
-    pub fn visible(mut self, visible: bool) -> Self {
+    pub fn with_visible(mut self, visible: bool) -> Self {
         self.visible = visible;
         self
     }
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn invisible_patch_draws_nothing() {
-        let patch = Patch::rectangle(0.0, 0.0, 1.0, 1.0).visible(false);
+        let patch = Patch::rectangle(0.0, 0.0, 1.0, 1.0).with_visible(false);
         let mut r = MockRenderer::default();
         patch.draw(&mut r, &Affine2D::identity());
         assert!(r.calls.is_empty());
@@ -306,9 +306,13 @@ mod tests {
     #[test]
     fn default_zorder_is_one() {
         let patch = Patch::rectangle(0.0, 0.0, 1.0, 1.0);
-        // The inherent `zorder` setter shadows the trait getter, so the trait
-        // method is called explicitly here.
-        assert_eq!(Artist::zorder(&patch), 1.0);
+        assert_eq!(patch.zorder(), 1.0);
+    }
+
+    #[test]
+    fn with_zorder_sets_trait_zorder() {
+        let patch = Patch::rectangle(0.0, 0.0, 1.0, 1.0).with_zorder(7.0);
+        assert_eq!(patch.zorder(), 7.0);
     }
 
     #[test]
