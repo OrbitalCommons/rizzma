@@ -330,12 +330,12 @@ impl Axis {
         font: &FontSource,
     ) {
         let gc = GraphicsContext::new();
-        for (i, &t) in ticks.iter().enumerate() {
-            let text = self.formatter.format(t, Some(i));
+        let labels = self.formatter.format_ticks(ticks);
+        for (&t, text) in ticks.iter().zip(labels.iter()) {
             if text.is_empty() {
                 continue;
             }
-            let rich = layout_rich_text(font, &text, self.label_size);
+            let rich = layout_rich_text(font, text, self.label_size);
             let p = self.data_to_pixel(t, axes_bbox, vmin, vmax);
             let origin = self.label_origin(axes_bbox, p, rich.width, rich.ascent);
             let shift = Affine2D::from_translation(origin[0], origin[1]);

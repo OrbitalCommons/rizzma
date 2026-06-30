@@ -41,6 +41,8 @@
 //! | [`Axes::triplot`] | [`Axes::tripcolor`] | [`Axes::symlogy`] |
 //! | ![logit](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_logit.png) | | |
 //! | [`Axes::logity`] | | |
+//! | ![dates](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_dates.png) | | |
+//! | [`Axes::set_xaxis_date`] | | |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 

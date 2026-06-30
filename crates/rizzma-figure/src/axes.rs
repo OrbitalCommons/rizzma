@@ -16,6 +16,7 @@ use rizzma_artist::{Artist, AxesImage, Collection, Line2D, Patch, QuadMesh};
 use std::borrow::Cow;
 
 use rizzma_axis::axis::{Axis, AxisSide};
+use rizzma_axis::dates::{AutoDateLocator, ConciseDateFormatter};
 use rizzma_axis::scale::{LinearScale, LogScale, LogitScale, Scale, SymlogScale};
 use rizzma_axis::ticker::{
     AutoLocator, LogFormatterMathtext, LogLocator, LogitFormatterMathtext, LogitLocator,
@@ -496,6 +497,34 @@ impl Axes {
             .set_scale(Box::new(LinearScale::new()))
             .set_locator(Box::new(AutoLocator::new()))
             .set_formatter(Box::new(ScalarFormatter::new()));
+        self
+    }
+
+    /// Use date ticks and concise date labels on the x-axis.
+    ///
+    /// Data values remain numeric days since the Unix epoch, as produced by
+    /// [`rizzma_axis::dates::date2num`]. The axis scale stays linear; only the
+    /// locator and formatter are replaced.
+    pub fn set_xaxis_date(&mut self) -> &mut Self {
+        self.xscale = ScaleSpec::Linear;
+        self.xaxis
+            .set_scale(Box::new(LinearScale::new()))
+            .set_locator(Box::new(AutoDateLocator::new()))
+            .set_formatter(Box::new(ConciseDateFormatter::new()));
+        self
+    }
+
+    /// Use date ticks and concise date labels on the y-axis.
+    ///
+    /// Data values remain numeric days since the Unix epoch, as produced by
+    /// [`rizzma_axis::dates::date2num`]. The axis scale stays linear; only the
+    /// locator and formatter are replaced.
+    pub fn set_yaxis_date(&mut self) -> &mut Self {
+        self.yscale = ScaleSpec::Linear;
+        self.yaxis
+            .set_scale(Box::new(LinearScale::new()))
+            .set_locator(Box::new(AutoDateLocator::new()))
+            .set_formatter(Box::new(ConciseDateFormatter::new()));
         self
     }
 
@@ -1422,6 +1451,18 @@ mod tests {
         y_axes.logity(&[1.0, 2.0, 3.0], &[0.01, 0.5, 0.99]);
         assert_eq!(y_axes.xscale, ScaleSpec::Linear);
         assert_eq!(y_axes.yscale, ScaleSpec::Logit);
+    }
+
+    #[test]
+    fn date_axis_setters_keep_linear_scale() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.set_xaxis_date();
+        assert_eq!(axes.xscale, ScaleSpec::Linear);
+        assert_eq!(axes.yscale, ScaleSpec::Linear);
+
+        axes.set_yscale_log(10.0).set_yaxis_date();
+        assert_eq!(axes.xscale, ScaleSpec::Linear);
+        assert_eq!(axes.yscale, ScaleSpec::Linear);
     }
 
     #[derive(Default)]

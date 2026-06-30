@@ -76,6 +76,18 @@ pub trait Locator {
 pub trait Formatter {
     /// Return the label for `value` at the optional position index `pos`.
     fn format(&self, value: f64, pos: Option<usize>) -> String;
+
+    /// Return labels for a whole tick vector.
+    ///
+    /// Most formatters can format each value independently. Context-aware
+    /// formatters, such as concise date labels, override this method.
+    fn format_ticks(&self, values: &[f64]) -> Vec<String> {
+        values
+            .iter()
+            .enumerate()
+            .map(|(i, &value)| self.format(value, Some(i)))
+            .collect()
+    }
 }
 
 /// Python-style floor division (`a // b`).

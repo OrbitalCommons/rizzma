@@ -296,6 +296,10 @@ impl Formatter for ConciseDateFormatter {
             dt.format("%H:%M:%S").to_string()
         }
     }
+
+    fn format_ticks(&self, values: &[f64]) -> Vec<String> {
+        ConciseDateFormatter::format_ticks(self, values)
+    }
 }
 
 fn epoch() -> NaiveDateTime {
@@ -606,6 +610,25 @@ mod tests {
         assert_eq!(
             formatter.format_ticks(&ticks),
             ["2026-01-01", "Feb", "02", "06:00"]
+        );
+    }
+
+    #[test]
+    fn concise_formatter_trait_batch_uses_tick_context() {
+        let formatter: &dyn Formatter = &ConciseDateFormatter::new();
+        let ticks = [
+            date2num(dt(2026, 1, 1, 0, 0, 0)),
+            date2num(dt(2026, 2, 1, 0, 0, 0)),
+            date2num(dt(2026, 2, 2, 0, 0, 0)),
+        ];
+
+        assert_eq!(
+            formatter.format_ticks(&ticks),
+            [
+                "2026-01-01".to_string(),
+                "Feb".to_string(),
+                "02".to_string()
+            ]
         );
     }
 }

@@ -3,6 +3,8 @@
 
 use std::f64::consts::{PI, TAU};
 
+use chrono::NaiveDate;
+use rizzma_axis::dates::date2num;
 use rizzma_core::color::Rgba;
 use rizzma_figure::Figure;
 
@@ -10,6 +12,15 @@ fn linspace(a: f64, b: f64, n: usize) -> Vec<f64> {
     (0..n)
         .map(|i| a + (b - a) * i as f64 / (n - 1) as f64)
         .collect()
+}
+
+fn date_num(year: i32, month: u32, day: u32) -> f64 {
+    date2num(
+        NaiveDate::from_ymd_opt(year, month, day)
+            .expect("gallery date is valid")
+            .and_hms_opt(0, 0, 0)
+            .expect("midnight is valid"),
+    )
 }
 
 fn main() {
@@ -600,6 +611,28 @@ fn main() {
         ax.set_xlabel("x");
         ax.set_ylabel("P(x)");
         fig.save_png("target/gallery_logit.png").unwrap();
+    }
+
+    // 37. date axis (numeric date values with concise tick labels)
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let x = [
+            date_num(2026, 1, 1),
+            date_num(2026, 2, 1),
+            date_num(2026, 3, 1),
+            date_num(2026, 4, 1),
+            date_num(2026, 5, 1),
+            date_num(2026, 6, 1),
+        ];
+        let y = [2.0, 2.8, 2.4, 3.5, 3.2, 4.1];
+        let ax = fig.add_axes(0.17, 0.20, 0.76, 0.68);
+        ax.plot(&x, &y);
+        ax.set_xaxis_date();
+        ax.set_xlim(date_num(2026, 1, 1), date_num(2026, 6, 1));
+        ax.set_title("date axis");
+        ax.set_xlabel("2026");
+        ax.set_ylabel("value");
+        fig.save_png("target/gallery_dates.png").unwrap();
     }
 
     println!("wrote target/gallery_*.png");
