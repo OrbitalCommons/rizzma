@@ -33,8 +33,10 @@ every push to `main` and published to the `gh-pages` branch (so these images nev
 | `stairs` | `stackplot` | `broken_barh` |
 | ![pcolormesh](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_pcolormesh.png) | ![boxplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_boxplot.png) | ![mathtext](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_mathtext.png) |
 | `pcolormesh` | `boxplot` | mathtext title |
-| ![contour](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_contour.png) | | |
-| `contour` | | |
+| ![contour](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_contour.png) | ![eventplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_eventplot.png) | ![fill_betweenx](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_fill_betweenx.png) |
+| `contour` | `eventplot` | `fill_betweenx` |
+| ![ecdf](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_ecdf.png) | | |
+| `ecdf` | | |
 
 Regenerate locally with `cargo run -p rizzma-figure --example gallery` (writes
 `target/gallery_*.png`).
