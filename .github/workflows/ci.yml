@@ -39,6 +39,11 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-features
 
+      - name: Wasm check
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo check --workspace --exclude xtask --target wasm32-unknown-unknown
+
       # Doc consistency: render the gallery, then verify every `gallery_*.png`
       # referenced in the README / doc comments is actually produced by the
       # gallery example (catches typo'd or stale image URLs).
