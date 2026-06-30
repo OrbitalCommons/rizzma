@@ -457,5 +457,18 @@ fn main() {
         fig.save_png("target/gallery_hexbin.png").unwrap();
     }
 
+    // 28. grouped_bar
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        // Three series across four groups, with visibly distinct heights.
+        let s0 = [3.0, 6.0, 4.0, 7.0];
+        let s1 = [5.0, 2.0, 8.0, 3.0];
+        let s2 = [4.0, 5.0, 2.0, 6.0];
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.grouped_bar(&[&s0, &s1, &s2]);
+        ax.set_title("grouped_bar");
+        fig.save_png("target/gallery_grouped_bar.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

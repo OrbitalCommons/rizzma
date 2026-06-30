@@ -39,8 +39,8 @@ every push to `main` and published to the `gh-pages` branch (so these images nev
 | `ecdf` | `matshow` | `spy` |
 | ![hist2d](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_hist2d.png) | ![pie](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_pie.png) | ![violinplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_violinplot.png) |
 | `hist2d` | `pie` | `violinplot` |
-| ![hexbin](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_hexbin.png) | | |
-| `hexbin` | | |
+| ![hexbin](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_hexbin.png) | ![grouped_bar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_grouped_bar.png) | |
+| `hexbin` | `grouped_bar` | |
 
 Regenerate locally with `cargo run -p rizzma-figure --example gallery` (writes
 `target/gallery_*.png`).
