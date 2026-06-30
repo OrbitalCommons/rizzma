@@ -18,6 +18,7 @@
 
 use std::fmt::Write as _;
 
+use base64::Engine as _;
 pub use rizzma_core::{Affine2D, Path, color::Rgba};
 
 use rizzma_core::PathSegment;
@@ -249,6 +250,28 @@ fn fmt_f(v: f64) -> String {
     s
 }
 
+/// Encode straight RGBA8 pixels as a PNG byte vector.
+///
+/// Returns `None` for an invalid buffer shape or an encoder error. The renderer
+/// treats that as a no-op so a malformed image cannot corrupt the SVG document.
+fn encode_rgba_png(rgba: &[u8], width: usize, height: usize) -> Option<Vec<u8>> {
+    if width == 0 || height == 0 || rgba.len() != width.checked_mul(height)?.checked_mul(4)? {
+        return None;
+    }
+    let (Ok(w), Ok(h)) = (u32::try_from(width), u32::try_from(height)) else {
+        return None;
+    };
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, w, h);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().ok()?;
+        writer.write_image_data(rgba).ok()?;
+    }
+    Some(bytes)
+}
+
 impl Renderer for SvgRenderer {
     fn draw_path(
         &mut self,
@@ -325,9 +348,50 @@ impl Renderer for SvgRenderer {
         true
     }
 
-    // draw_image / draw_text use the trait defaults for now: higher layers draw
-    // text as paths, so no native SVG `<text>` is emitted yet.
-    // TODO: emit `<image>` for raster blits and optional native `<text>`.
+    fn draw_image(
+        &mut self,
+        gc: &GraphicsContext,
+        x: f64,
+        y: f64,
+        rgba: &[u8],
+        width: usize,
+        height: usize,
+    ) {
+        let Some(png) = encode_rgba_png(rgba, width, height) else {
+            return;
+        };
+        let encoded = base64::engine::general_purpose::STANDARD.encode(png);
+        let img_h = height as f64;
+        let top = self.height - y - img_h;
+        let mut attrs = String::new();
+        let _ = write!(
+            attrs,
+            "x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" href=\"data:image/png;base64,{encoded}\"",
+            fmt_f(x),
+            fmt_f(top),
+            fmt_f(width as f64),
+            fmt_f(img_h)
+        );
+        if let Some(alpha) = gc.alpha {
+            let opacity = alpha.clamp(0.0, 1.0);
+            if opacity < 1.0 {
+                let _ = write!(attrs, " opacity=\"{}\"", fmt_f(opacity));
+            }
+        }
+
+        if let Some(clip_id) = self.push_clip_def(gc) {
+            let _ = write!(
+                self.body,
+                "<g clip-path=\"url(#{clip_id})\"><image {attrs}/></g>"
+            );
+        } else {
+            let _ = write!(self.body, "<image {attrs}/>");
+        }
+    }
+
+    // draw_text uses the trait default for now: higher layers draw text as
+    // paths, so no native SVG `<text>` is emitted yet.
+    // TODO: emit optional native `<text>`.
 }
 
 #[cfg(test)]
@@ -454,5 +518,61 @@ mod tests {
         assert!(r.flipy());
         assert_eq!(r.canvas_size(), (10.0, 20.0));
         assert_eq!(r.points_to_pixels(3.0), 6.0);
+    }
+
+    #[test]
+    fn draw_image_embeds_png_data_uri_with_y_flip() {
+        let mut r = SvgRenderer::new(100.0, 100.0, 72.0);
+        let rgba = vec![
+            255, 0, 0, 255, 0, 255, 0, 255, // top row
+            0, 0, 255, 255, 255, 255, 0, 255, // bottom row
+        ];
+        r.draw_image(&GraphicsContext::new(), 10.0, 20.0, &rgba, 2, 2);
+        let svg = r.finish();
+
+        assert!(svg.contains("<image "), "missing image: {svg}");
+        assert!(
+            svg.contains("href=\"data:image/png;base64,"),
+            "missing PNG data URI: {svg}"
+        );
+        assert!(svg.contains("x=\"10\""), "wrong x: {svg}");
+        assert!(svg.contains("y=\"78\""), "wrong y-flip: {svg}");
+        assert!(svg.contains("width=\"2\""), "wrong width: {svg}");
+        assert!(svg.contains("height=\"2\""), "wrong height: {svg}");
+    }
+
+    #[test]
+    fn draw_image_honors_alpha_and_clip_rect() {
+        let mut r = SvgRenderer::new(20.0, 20.0, 72.0);
+        let rgba = vec![255, 0, 0, 255];
+        let gc = GraphicsContext {
+            alpha: Some(0.5),
+            clip_rect: Some(Bbox::from_extents(1.0, 2.0, 3.0, 4.0)),
+            ..GraphicsContext::new()
+        };
+        r.draw_image(&gc, 1.0, 2.0, &rgba, 1, 1);
+        let svg = r.finish();
+
+        assert!(svg.contains("opacity=\"0.5\""), "missing opacity: {svg}");
+        assert!(
+            svg.contains("<clipPath id=\"clip0\""),
+            "missing clipPath: {svg}"
+        );
+        assert!(
+            svg.contains("<g clip-path=\"url(#clip0)\"><image "),
+            "image should be clipped: {svg}"
+        );
+    }
+
+    #[test]
+    fn draw_image_rejects_bad_buffer_shape() {
+        let mut r = SvgRenderer::new(20.0, 20.0, 72.0);
+        r.draw_image(&GraphicsContext::new(), 0.0, 0.0, &[255, 0, 0], 1, 1);
+        let svg = r.finish();
+
+        assert!(
+            !svg.contains("<image "),
+            "bad buffer should be ignored: {svg}"
+        );
     }
 }
