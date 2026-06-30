@@ -4,3 +4,9 @@
 //! the transform graph, and color/colormaps/normalization.
 //!
 //! Build-order home: Phases 0–2 of `design/04-implementation-plan.md`.
+
+pub mod affine;
+pub mod bbox;
+
+pub use affine::Affine2D;
+pub use bbox::Bbox;
