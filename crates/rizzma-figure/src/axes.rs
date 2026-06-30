@@ -65,6 +65,9 @@ pub struct Axes {
     /// Full-span shaded rectangles, resolved against the effective limits at
     /// draw time (see [`Axes::axhspan`]/[`Axes::axvspan`]).
     pub(crate) span_rects: Vec<SpanRect>,
+    /// Legend entries, drawn as a boxed key in the upper-right corner (see
+    /// [`Axes::legend`]). Empty means no legend.
+    pub(crate) legend: Vec<crate::legend::LegendEntry>,
 }
 
 /// Orientation of a full-span reference line or shaded band.
@@ -126,6 +129,7 @@ impl Axes {
             prop_cycle_index: 0,
             span_lines: Vec::new(),
             span_rects: Vec::new(),
+            legend: Vec::new(),
         }
     }
 
@@ -345,6 +349,9 @@ impl Axes {
         // 6. Draw the axes spines.
         self.xaxis.draw(renderer, &axes_px, xlim, font);
         self.yaxis.draw(renderer, &axes_px, ylim, font);
+
+        // 6a. Draw the legend box inside the upper-right of the axes.
+        self.draw_legend(renderer, &axes_px, font);
 
         // 7. Draw the title, centered above the axes.
         if let Some(title) = &self.title

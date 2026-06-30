@@ -815,6 +815,7 @@ dependencies = [
  "rizzma-core",
  "rizzma-render",
  "rizzma-skia",
+ "rizzma-svg",
  "rizzma-text",
 ]
 
