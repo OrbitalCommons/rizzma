@@ -11,4 +11,5 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+rizzma-core = { version = "0.0.0", path = "../rizzma-core" }
 ttf-parser = "0.25.1"
