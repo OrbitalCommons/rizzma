@@ -33,6 +33,7 @@
 //!
 //! - [`ScalarFormatter`] — picks significant figures from the tick spacing.
 //! - [`LogFormatter`] — labels logarithmic major ticks.
+//! - [`LogFormatterMathtext`] — labels large logarithmic powers as mathtext.
 //! - [`NullFormatter`] — always the empty string.
 //! - [`FixedFormatter`] — fixed strings indexed by position.
 //! - [`FuncFormatter`] — a user-supplied boxed closure.
@@ -842,6 +843,22 @@ impl LogFormatter {
             None
         }
     }
+
+    fn format_exponent(&self, exponent: i32, mathtext: bool) -> String {
+        let plain_label = (self.base == 10.0 && (-3..=4).contains(&exponent))
+            || (self.base == 2.0 && (-3..=6).contains(&exponent));
+        let value = self.base.powi(exponent);
+        if plain_label {
+            format_decimal(value)
+        } else {
+            let label = format!("{}^{{{}}}", format_decimal(self.base), exponent);
+            if mathtext {
+                format!("${label}$")
+            } else {
+                label
+            }
+        }
+    }
 }
 
 impl Default for LogFormatter {
@@ -857,14 +874,45 @@ impl Formatter for LogFormatter {
             return String::new();
         };
 
-        let plain_label = (self.base == 10.0 && (-3..=4).contains(&exponent))
-            || (self.base == 2.0 && (-3..=6).contains(&exponent));
-        let value = self.base.powi(exponent);
-        if plain_label {
-            format_decimal(value)
-        } else {
-            format!("{}^{{{}}}", format_decimal(self.base), exponent)
+        self.format_exponent(exponent, false)
+    }
+}
+
+/// Format logarithmic major ticks with mathtext for exponent labels.
+///
+/// This formatter preserves [`LogFormatter`]'s compact decimal labels for
+/// nearby powers, hides non-decade minor ticks, and wraps large exponent labels
+/// in `$...$` so higher-level rich-text rendering can draw real superscripts.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LogFormatterMathtext {
+    inner: LogFormatter,
+}
+
+impl LogFormatterMathtext {
+    /// Construct a mathtext log formatter for the given base.
+    ///
+    /// `base` must be finite and greater than one.
+    pub fn new(base: f64) -> Self {
+        Self {
+            inner: LogFormatter::new(base),
         }
+    }
+}
+
+impl Default for LogFormatterMathtext {
+    /// Default base-10 mathtext log formatter.
+    fn default() -> Self {
+        Self::new(10.0)
+    }
+}
+
+impl Formatter for LogFormatterMathtext {
+    fn format(&self, value: f64, _pos: Option<usize>) -> String {
+        let Some(exponent) = self.inner.exponent(value) else {
+            return String::new();
+        };
+
+        self.inner.format_exponent(exponent, true)
     }
 }
 
@@ -1151,6 +1199,23 @@ mod tests {
         assert_eq!(formatter.format(8.0, None), "8");
         assert_eq!(formatter.format(128.0, None), "2^{7}");
         assert_eq!(formatter.format(3.0, None), "");
+    }
+
+    #[test]
+    fn log_formatter_mathtext_wraps_exponent_labels() {
+        let formatter = LogFormatterMathtext::new(10.0);
+
+        assert_eq!(formatter.format(10.0, None), "10");
+        assert_eq!(formatter.format(1e6, None), "$10^{6}$");
+        assert_eq!(formatter.format(2.0, None), "");
+    }
+
+    #[test]
+    fn log_formatter_mathtext_honors_base2() {
+        let formatter = LogFormatterMathtext::new(2.0);
+
+        assert_eq!(formatter.format(8.0, None), "8");
+        assert_eq!(formatter.format(128.0, None), "$2^{7}$");
     }
 
     #[test]
