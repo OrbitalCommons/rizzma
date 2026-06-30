@@ -785,6 +785,12 @@ dependencies = [
 [[package]]
 name = "rizzma-axis"
 version = "0.0.0"
+dependencies = [
+ "rizzma-core",
+ "rizzma-render",
+ "rizzma-skia",
+ "rizzma-text",
+]
 
 [[package]]
 name = "rizzma-core"
