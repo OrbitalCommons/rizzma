@@ -29,8 +29,8 @@ every push to `main` and published to the `gh-pages` branch (so these images nev
 | `step` | `errorbar` | reference lines / spans |
 | ![imshow](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_imshow.png) | ![legend + colorbar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_legend_colorbar.png) | ![stem](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stem.png) |
 | `imshow` | `legend` + `colorbar` | `stem` |
-| ![stairs](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stairs.png) | | |
-| `stairs` | | |
+| ![stairs](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stairs.png) | ![stackplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stackplot.png) | ![broken_barh](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_broken_barh.png) |
+| `stairs` | `stackplot` | `broken_barh` |
 
 Regenerate locally with `cargo run -p rizzma-figure --example gallery` (writes
 `target/gallery_*.png`).
