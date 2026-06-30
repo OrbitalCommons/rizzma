@@ -521,7 +521,8 @@ plan above stays the *intent* and this section is the *ground truth*).
   protected with required CI check `fmt + clippy + test`, linear history, non-strict
   (so independent crate PRs can auto-merge in parallel). Admin bypass retained as an
   escape hatch.
-- **Workflow:** every change on a `meawoppl/*` branch → PR → auto-merge on green CI.
+- **Workflow:** every change on a `meawoppl/*` branch → PR → auto-merge on green
+  required checks (`fmt + clippy + test`, plus focused guard jobs such as wasm size).
 
 ### Milestones reached
 - **M0 (scaffolding green)** — ✅ workspace, CI, toolchain pin.
@@ -531,14 +532,17 @@ plan above stays the *intent* and this section is the *ground truth*).
   `hist`/`fill_between`/`step`/`errorbar`/reference-lines + `legend` + `colorbar`, driven
   through the `pyplot` façade. Verified visually: a viridis spiral scatter, a histogram, a
   bar chart with `axhline`, and a two-line plot with legend + colorbar — all matplotlib-quality.
-- **M4 (write once, render anywhere)** — 🟡 partial: the **SVG backend** (`rizzma-svg`) is a
+- **M4 (write once, render anywhere)** — ✅ COMPLETE: the **SVG backend** (`rizzma-svg`) is a
   second `Renderer`, `Figure::save_svg` exports the *same* scene to PNG (skia) and SVG,
   and `rizzma-wasm` can render a figure to straight RGBA and blit it into browser
   `<canvas>` `ImageData`. A browser demo page exists, and host-side PNG-vs-SVG
-  raster parity is covered for a text-free renderer-seam scene. Remaining: DOM events,
-  headless wasm smoke, wasm canvas parity, and the wasm size/perf budget.
+  raster parity is covered for a text-free renderer-seam scene. Figure coordinates can
+  now round-trip between top-down canvas pixels and data coordinates, the wasm demo has a
+  DOM-event hover data readout, and `xtask` can report/enforce wasm artifact size from a
+  dedicated required CI workflow job. Remaining quality work: headless wasm smoke and
+  wasm canvas parity.
 
-### Merged PRs (#1–#45)
+### Merged PRs (#1–#51)
 - **Infra/docs:** #1 scaffold/CI/toolchain, #2 licenses, #3/#20/#28/#32/#42 log updates,
   #5 `xtask` image-diff, #33 gallery publishing + doc-link CI, #34 TeX rendering path
   split, #38 `AGENTS.md` coordination rules, #39 wasm32 workspace check.
@@ -554,10 +558,13 @@ plan above stays the *intent* and this section is the *ground truth*).
 - **`rizzma-axis`:** #7 ticker, #9 scales (lin/log/symlog/logit), #17 renderable `Axis`.
 - **`rizzma-figure`:** #15 `GridSpec`, #19 `Figure`+`Axes`, #23 Tier-1 methods, #25 scatter/
   hist/errorbar, #27 legend/colorbar/`save_svg`, #30 prop-cycle, #31 `imshow`,
-  #43 PNG-vs-SVG raster parity test for a renderer-seam scene.
+  #43 PNG-vs-SVG raster parity test for a renderer-seam scene, #47 pixel↔data
+  coordinate inversion helpers for interaction, #51 `stem`/`stairs` Tier-2 plots.
 - **`rizzma-pyplot`:** #26 stateful façade (`plot`/`scatter`/`bar`/`hist`/`savefig`/…).
 - **`rizzma-wasm`:** #40 render-to-straight-RGBA core plus wasm-only Canvas `ImageData`
-  blit entry points, #45 browser demo page.
+  blit entry points, #45 browser demo page, #49 DOM event readout demo.
+- **`xtask`:** #48 wasm artifact size reporting/budget helper, #50 dedicated required CI
+  budget job for the release wasm artifact.
 
 ### Known gaps / cleanups queued
 - ✅ ~~`Axes::plot` prop-cycle~~ (done #30), ~~skia `draw_image`~~ (done #29),
@@ -567,7 +574,7 @@ plan above stays the *intent* and this section is the *ground truth*).
 - Arbitrary `clip_path` is still deferred; only rectangular clipping is implemented.
 - Cross-backend equivalence is partly automated: PNG vs SVG-rasterized has a shared-scene
   diff, but wasm canvas output is not yet in that harness.
-- wasm DOM events, headless wasm smoke, and size/perf budget are still queued.
+- headless wasm smoke and wasm canvas parity are still queued.
 - Per-method `///` rustdoc examples + embedded gallery images still to backfill (see below).
 
 ### Documentation pattern: a rendered example per graphic type
@@ -605,7 +612,7 @@ that adds the method (Definition-of-Done addition).
 > `check-gallery-links` + `cargo doc -D warnings` will fail otherwise.
 
 ### Next
-- M4: DOM event bridge, headless wasm smoke, wasm canvas parity, and size/perf budget.
+- M4 quality: headless wasm smoke and wasm canvas parity.
 - Quality: native `draw_text`, arbitrary `clip_path`, renderer/backend parity checks.
 - Tier-2: log-scale axes (`loglog`/`semilog*`), `pcolormesh`, `contour`, `boxplot`,
   `pie`. Then raw-TeX/frontend passthrough, mathtext fallback, optional native TeX export,
@@ -615,4 +622,4 @@ that adds the method (Definition-of-Done addition).
 > Note: the DAG order is a guide, not a straitjacket. Self-contained leaves are pulled
 > forward to maximize parallelism (often 3–4 worktree-isolated agents at once) while the
 > critical-path spine (geometry → renderer → artists → axes → figure) stays coherent.
-> ~38 PRs landed via squash + green CI with no `main` breakage.
+> ~40 PRs landed via squash + green CI with no `main` breakage.
