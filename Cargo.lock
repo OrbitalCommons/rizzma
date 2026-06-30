@@ -849,6 +849,10 @@ dependencies = [
 [[package]]
 name = "rizzma-svg"
 version = "0.0.0"
+dependencies = [
+ "rizzma-core",
+ "rizzma-render",
+]
 
 [[package]]
 name = "rizzma-text"
