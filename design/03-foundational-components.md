@@ -451,7 +451,7 @@ native dep); the biggest effort is replacing the pyparsing grammar with a Rust p
 `_mathtext_data` tables. A minimal subset (super/subscripts, common symbols, fractions)
 covers most real plots.
 
-### 4.5 usetex path: `dviread.py`, `_type1font.py`
+### 4.5 External TeX / usetex path: `dviread.py`, `_type1font.py`
 
 When `text.usetex=True`, matplotlib shells out to a real LaTeX + dvipng/dvips, then:
 
@@ -459,9 +459,24 @@ When `text.usetex=True`, matplotlib shells out to a real LaTeX + dvipng/dvips, t
 - `_type1font.py` parses **Type 1** PostScript fonts (decrypt eexec, parse charstrings)
   to embed/subset them.
 
-**Porting note:** usetex requires an external LaTeX install — *impossible in wasm* and a
-heavy dependency natively. rizzma should treat usetex as out-of-scope and lean on the
-internal mathtext engine for math.
+**Porting note:** rizzma should not bundle a TeX distribution or make external LaTeX a
+hard dependency. External LaTeX is never default, never viable in wasm, and never on the
+critical path for deterministic cross-backend output. Instead, math text should fork by
+renderer/export target:
+
+- **Frontend renderers** that already understand TeX, including Agent Portal, should
+  preserve raw TeX/math spans and let the host typeset them. Raw TeX is the
+  source/passthrough representation plus warning context, not the portable render IR.
+- **Portable pixel/vector export** should flow through the internal mathtext box/glue
+  tree, which is the deterministic backend-independent render IR for supported math.
+- **Optional native TeX export** may opt into a native TeX backend when `latex`,
+  `dvipng`, `dvisvgm`, or equivalent binaries are present, feature-gated and off by
+  default.
+- If those binaries are missing, export should emit a structured warning and preserve or
+  raw-render the TeX source rather than failing the whole figure.
+
+The internal mathtext engine is the portable default for common `$...$` expressions;
+external TeX is a convenience export path, not the core model.
 
 ### 4.6 Dependency note
 
@@ -1231,8 +1246,9 @@ Legend for **wasm constraints**: 🟢 works in wasm as-is · 🟡 works with car
 | 4a | **Fonts (discovery/match)** | findfont scoring | **`fontdb`** / **`font-kit`** (native FS); bundled list (wasm) | font discovery: native only; wasm = bundle | 🔴 FS discovery in wasm — must embed fonts. |
 | 4b | **Glyph raster/metrics** (ft2font) | rasterize glyphs, metrics, kerning | **`cosmic-text`** (shaping+layout) / **`ab_glyph`** / **`fontdue`** / **`swash`** | cosmic-text (best for layout+shaping) | 🟢 pure-Rust, no FreeType needed. |
 | 4c | **Text layout** | line breaking, align, rotate | **`cosmic-text`** + our anchoring/rotation | cosmic-text + ours | 🟢 |
-| 4d | **mathtext** | TeX-like math layout | **build ourselves** (port the box-and-glue engine, scoped) | build ourselves (later) | 🟡 needs a math font embedded. |
-| 4e | **usetex / dviread / type1** | external LaTeX | — | **drop** (out of scope) | 🔴 no LaTeX in wasm. |
+| 4d | **raw TeX spans** | preserve math/TeX source and fallback warnings through frontend-capable renderers | build ourselves as text-span metadata | source/passthrough representation | 🟢 Agent Portal/HTML-style frontends can typeset directly. |
+| 4e | **mathtext** | TeX-like math layout | **build ourselves** (port the box-and-glue engine, scoped) | portable render IR/default fallback | 🟡 needs a math font embedded. |
+| 4f | **optional TeX export backend** | external LaTeX for pixel/vector output | runtime binary discovery + cache (`latex`/`dvipng`/`dvisvgm` or equivalent) | optional feature-gated export path | 🔴 not viable in wasm; warn + mathtext/raw-TeX fallback when unavailable. |
 | 5 | **Artist primitives** (lines/patches/markers/collections/container) | shared drawables | **build ourselves** over lyon/kurbo + the renderer trait | build ourselves | 🟢 |
 | 6a | **Locators/Formatters** (ticker) | nice-number ticks, log/date ticks | **build ourselves** (port MaxNLocator etc.) | build ourselves | 🟢 |
 | 6b | **Scales/transforms** (log/symlog/logit) | nonlinear axis transforms | **build ourselves** (math from std) | build ourselves | 🟢 |
@@ -1259,7 +1275,10 @@ Legend for **wasm constraints**: 🟢 works in wasm as-is · 🟡 works with car
    web). (§4.1)
 2. **No FreeType by default.** Use a pure-Rust rasterizer (`cosmic-text`/`ab_glyph`) — a
    *win*, since it removes the C dependency entirely. (§4.2)
-3. **No LaTeX / external processes.** Drop usetex; rely on an in-house mathtext. (§4.5)
+3. **No hard LaTeX dependency.** Preserve raw TeX spans for frontend renderers; make
+   mathtext the deterministic portable render path; keep native TeX export optional,
+   feature-gated, and off the critical path. Warn and fall back when binaries are absent.
+   (§4.5)
 4. **Raster vs canvas vs vector.** Define the `Renderer` trait first, then provide
    tiny-skia (raster→PNG), a web canvas impl, and an SVG emitter as interchangeable
    backends — exactly matplotlib's `RendererBase` split. (§7)
@@ -1299,7 +1318,8 @@ Build bottom-up along the DAG (§11). Each step is usable/testable before the ne
 6. **Fonts & text.** Embed a font, wire **cosmic-text/ab_glyph** for metrics +
    rasterization, build the `Text` artist (multiline layout, align, rotation,
    `get_window_extent`), and implement `draw_text`/`get_text_width_height_descent` on the
-   renderer. (mathtext deferred — stub `$...$` to plain text first.)
+   renderer. (Math text forks here: preserve raw TeX spans for frontend renderers,
+   build the portable mathtext fallback first, and optionally add native TeX export later.)
 
 7. **Artist primitives.** `Artist` base (transform, zorder, visibility, stale flag),
    then `Line2D`, `MarkerStyle`, the `Patch` hierarchy (Rectangle/Circle/Polygon/Wedge/

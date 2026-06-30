@@ -37,7 +37,10 @@
   core, then expand outward along the tiered backlog in doc 02.
 
 ### Non-goals (explicitly out of scope, at least initially)
-- `usetex` / external LaTeX / `dviread` / Type-1 fonts (doc 03 §4e) — **dropped**.
+- Bundling a TeX distribution or making external LaTeX a hard dependency. TeX-backed
+  rendering is an optional native/export path with a graceful fallback.
+- External LaTeX is never default, never required in wasm, and never on the critical
+  path for deterministic cross-backend output.
 - GUI toolkit backends (Qt/Tk/GTK/wx/macosx). The only interactive target is wasm canvas.
 - 1:1 API compatibility with every matplotlib kwarg. We reimplement the *good parts* and
   the *common* kwargs, not the 20-year long tail.
@@ -49,6 +52,15 @@
   `wasm32-unknown-unknown` or be cfg-gated out of the wasm build.
 - The C/C++ kernels matplotlib relies on (Agg, FreeType, `_path`, qhull) are replaced by
   Rust crates per the doc 03 §12 mapping — **no C dependencies** in the default build.
+- Math/TeX rendering has **forked implementation paths**:
+  - raw TeX spans preserve the source expression and fallback-warning context;
+  - rich frontend targets, including Agent Portal, may pass raw TeX/math spans through
+    so the host renderer can typeset them directly;
+  - the portable render path is `rizzma-mathtext`, whose box/glue layout tree is the
+    deterministic backend-independent render IR for supported math;
+  - pixel/vector export targets may use an optional, feature-gated TeX backend when the
+    required binaries are available; when unavailable or unsupported, rizzma emits a
+    warning and falls back to mathtext or raw TeX instead of failing the figure.
 
 ---
 
@@ -144,7 +156,7 @@ This is the backbone that lets us claim "matplotlib parity," so it lands early (
 | **M2** | Hello-world plot | `plot([...])` on **labeled linear axes with auto ticks** → PNG (the spine of the whole library) | PR-27–PR-30 |
 | **M3** | Tier-1 gallery | `plot/scatter/bar/hist/errorbar/fill_between/imshow` + `legend/colorbar/title` reproducible vs matplotlib goldens, driven through the **pyplot façade** | PR-33–PR-42 |
 | **M4** | Write once, render anywhere | The *same* figure renders identically to **PNG, SVG, and browser `<canvas>`**, with DOM interactivity | PR-43–PR-46 |
-| **M5** | Breadth | Tier-2/3 plots (log/contour/pcolormesh/box/pie/quiver/polar), mathtext, PDF | PR-47–PR-59 |
+| **M5** | Breadth | Tier-2/3 plots (log/contour/pcolormesh/box/pie/quiver/polar), TeX/math rendering, PDF | PR-47–PR-59 |
 | **M6** | 3D | mplot3d-equivalent surface/scatter/wireframe with painter's-algorithm depth sort | PR-60 |
 
 Critical path to a usable library is **M0 → M1 → M2 → M3 → M4**. Everything in M5/M6 is
@@ -199,6 +211,7 @@ acceptance signal.
 | **PR-14** | Font source: embed DejaVu Sans + math font; pluggable loader (native `fontdb` / embedded-for-wasm) | M | PR-02 | font resolves on native+wasm; `findfont`-style weighted match |
 | **PR-15** | Text layout & metrics via `cosmic-text`: width/height/descent, multiline, h/v align, rotation | L | PR-14 | `get_text_width_height_descent` parity within tolerance; multiline anchored correctly |
 | **PR-16** | `draw_text` on renderer (glyph-outline→`draw_path` path, raster blit option) + `Text` artist | M | PR-12, PR-15 | rendered label golden-matches; rotated text correct |
+| **PR-16a** | Math text policy + raw-TeX span model: classify plain text/math/raw TeX, preserve source + fallback warnings through frontend-capable renderers | M | PR-16 | Agent Portal/HTML-style output can emit TeX spans unchanged; renderers have an explicit unsupported-math warning path |
 
 ### Phase 5 — Artist primitives
 
@@ -272,7 +285,8 @@ acceptance signal.
 | **PR-51** | `pie` + `Wedge` + equal-aspect | S | PR-20 | 2 |
 | **PR-52** | `stem`/`eventplot`/`stackplot`/`stairs`/`broken_barh`/`ecdf` | M | PR-33, PR-21 | 2 |
 | **PR-53** | `hexbin` | S | PR-21 | 2 |
-| **PR-54** | `rizzma-mathtext` (TeX-subset box-and-glue engine; `$...$`) | L | PR-16 | — |
+| **PR-54a** | `rizzma-mathtext` portable fallback (TeX-subset box-and-glue engine; `$...$`) | L | PR-16a | common inline math renders deterministically without external binaries; unsupported constructs fall back to raw TeX with warning |
+| **PR-54b** | Optional native TeX export backend (`latex`/`dvipng`/`dvisvgm` or equivalent discovery + cache; feature-gated/off by default) | M | PR-54a | pixel/SVG exports may use real TeX when explicitly enabled and binaries exist; missing binaries produce a structured warning + mathtext/raw-TeX fallback |
 | **PR-55** | `quiver`/`quiverkey`/`barbs`/`streamplot` (ODE integrator) | L | PR-21 | 3 |
 | **PR-56** | Triangulation (`spade`) + `tricontour`/`tricontourf`/`tripcolor`/`triplot` | L | PR-49 | 3 |
 | **PR-57** | Polar projection (`PolarAxes`/`PolarTransform`) | L | PR-30, PR-22 | 3 |
@@ -439,7 +453,9 @@ graph TD
   P27[PR-27 Axis] --> P47
   P22 --> P57[PR-57 polar]
   P30[PR-30 Axes] --> P57
-  P16[PR-16 text] --> P54[PR-54 mathtext]
+  P16[PR-16 text] --> P16A[PR-16a raw-TeX spans]
+  P16A --> P54A[PR-54a mathtext fallback]
+  P54A --> P54B[PR-54b optional TeX backend]
   P49 --> P56[PR-56 triangulation/tri*]
   P11[PR-11 Renderer] --> P58[PR-58 PDF]
   P33[PR-33 plot] --> P59[PR-59 spectral/DSP]
@@ -459,7 +475,7 @@ graph TD
 | R4 | **wasm font story** — no FS discovery; bundle bloats `.wasm` | Medium | Embed one sans + one math font only; make font source pluggable (`fetch` on web); size budget gate in PR-46 |
 | R5 | **Locator/date parity** — matplotlib's tick algorithms have many float-fudge edge cases (doc 03 ticker/dates reports) | Medium | Port the exact epsilons/floor-division semantics; reuse matplotlib's own test vectors verbatim |
 | R6 | **Scope creep into the long tail** — chasing every kwarg | Medium | Hard tier discipline from doc 02; Phase 10 PRs ship the *common* signature, not every option |
-| R7 | **mathtext underestimate** — the box-and-glue engine is large | Medium | Stub `$...$`→plain text until PR-54; isolate in its own crate; embed a math font lazily |
+| R7 | **math/TeX split complexity** — frontend passthrough, portable mathtext, and optional native TeX can drift | Medium | Keep raw TeX as source/passthrough metadata and mathtext's box tree as the canonical portable render IR; golden-test mathtext output, not external LaTeX; native TeX stays feature-gated/off by default and warns/falls back when unavailable |
 | R8 | **3D is an iceberg** — depth sorting, lighting, autoscale | High (if attempted early) | Gate entirely behind M6; split PR-60 into ≥4 PRs; treat as optional product surface |
 | R9 | **Constrained layout solver** — Cassowary crate maturity | Low/Med | tight_layout (PR-31) ships first and covers most needs; constrained_layout (PR-32) is independent and deferrable |
 
@@ -467,13 +483,13 @@ graph TD
 
 ## 10. Effort estimate & sequencing summary
 
-- **60 PRs** across **11 phases** and **6 milestones**.
+- **62 PRs** across **11 phases** and **6 milestones**.
 - **Critical path to M3 (Tier-1, usable):** ~28 PRs (Phases 0–8 minus the parallelizable
   leaves). With the parallel tracks (geometry / color / text / primitives / axis), the
   *chain depth* is ~14 PRs — that's the real wall-clock floor.
 - **M4 (wasm)** adds 4 PRs forking off the renderer seam — can begin the moment PR-12
   lands (in parallel with all of Phases 5–8).
-- **M5 (breadth)** is ~13 mostly-leaf PRs, fully parallelizable across contributors.
+- **M5 (breadth)** is ~14 mostly-leaf PRs, fully parallelizable across contributors.
 - **M6 (3D)** is one XL epic to be split into ≥4 PRs.
 
 **Recommended execution order:** drive the **critical path to M2 single-threaded** (it's
@@ -538,6 +554,8 @@ plan above stays the *intent* and this section is the *ground truth*).
 - ✅ ~~`Axes::plot` prop-cycle~~ (done #30) and ~~skia `draw_image`~~ (done #29).
 - `Patch` `zorder`/`visible` setters shadow the `Artist` trait getters (sharp edge).
 - skia `draw_text` is still a TODO stub (text renders as glyph paths today, which is fine).
+- SVG `draw_image` is still a TODO stub; raster `draw_image` is implemented in skia.
+- Arbitrary `clip_path` is still deferred; only rectangular clipping is implemented.
 - `scatter_mapped` default marker size is oversized for dense data (markers merge into a band).
 - Per-method `///` rustdoc examples + embedded gallery images still to backfill (see below).
 
@@ -576,9 +594,11 @@ that adds the method (Definition-of-Done addition).
 > `check-gallery-links` + `cargo doc -D warnings` will fail otherwise.
 
 ### Next
-- M4: wasm `<canvas>` backend + demo. Quality: prop-cycle in `plot`, `draw_image` (→ `imshow`).
+- M4: wasm `<canvas>` backend + demo.
+- Quality: SVG `draw_image`/`<image>` support, native `draw_text`, arbitrary `clip_path`.
 - Tier-2: log-scale axes (`loglog`/`semilog*`), `imshow`, `pcolormesh`, `contour`, `boxplot`,
-  `pie`. Then `mathtext`, dates-on-axes, polar, PDF, 3D.
+  `pie`. Then raw-TeX/frontend passthrough, mathtext fallback, optional native TeX export,
+  dates-on-axes, polar, PDF, 3D.
 - Backfill per-method rustdoc examples + embedded images per the pattern above.
 
 > Note: the DAG order is a guide, not a straitjacket. Self-contained leaves are pulled
