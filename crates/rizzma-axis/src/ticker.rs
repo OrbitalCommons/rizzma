@@ -37,6 +37,7 @@
 //! - [`LogFormatter`] — labels logarithmic major ticks.
 //! - [`LogFormatterMathtext`] — labels large logarithmic powers as mathtext.
 //! - [`SymlogFormatter`] — labels symmetric-log ticks across zero.
+//! - [`SymlogFormatterMathtext`] — labels large symmetric-log powers as mathtext.
 //! - [`LogitFormatter`] — labels probability ticks on a logit scale.
 //! - [`EngFormatter`] — labels values with SI engineering prefixes.
 //! - [`PercentFormatter`] — labels values as percentages.
@@ -1227,6 +1228,63 @@ impl Formatter for SymlogFormatter {
     }
 }
 
+/// Format symmetric-log tick values with mathtext for exponent labels.
+///
+/// This formatter preserves [`SymlogFormatter`]'s decimal labels in the linear
+/// region and near logarithmic tails, hides off-lattice tail ticks, and wraps
+/// large signed power labels in `$...$` so rich-text rendering can draw real
+/// superscripts.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SymlogFormatterMathtext {
+    inner: SymlogFormatter,
+}
+
+impl SymlogFormatterMathtext {
+    /// Construct a mathtext symlog formatter.
+    ///
+    /// `base` must be finite and greater than one; `linthresh` must be finite
+    /// and positive.
+    pub fn new(base: f64, linthresh: f64) -> Self {
+        Self {
+            inner: SymlogFormatter::new(base, linthresh),
+        }
+    }
+}
+
+impl Default for SymlogFormatterMathtext {
+    /// Default base-10 formatter with `linthresh = 1`.
+    fn default() -> Self {
+        Self::new(10.0, 1.0)
+    }
+}
+
+impl Formatter for SymlogFormatterMathtext {
+    fn format(&self, value: f64, _pos: Option<usize>) -> String {
+        if !value.is_finite() {
+            return String::new();
+        }
+        if value.abs() <= self.inner.linthresh * (1.0 + 1e-12) {
+            return format_decimal(if value.abs() < 1e-12 { 0.0 } else { value });
+        }
+
+        let Some(exponent) = self.inner.tail_exponent(value) else {
+            return String::new();
+        };
+        if (self.inner.linthresh - 1.0).abs() > 1e-12 {
+            return format_decimal(value);
+        }
+
+        let label = LogFormatter::new(self.inner.base).format_exponent(exponent, true);
+        if value.is_sign_negative() && label.starts_with('$') && label.ends_with('$') {
+            format!("$-{}$", &label[1..label.len() - 1])
+        } else if value.is_sign_negative() {
+            format!("-{label}")
+        } else {
+            label
+        }
+    }
+}
+
 /// Format logit/probability tick values.
 ///
 /// Exact powers of ten near zero are labelled as decimals for `0.1` and as
@@ -1834,6 +1892,28 @@ mod tests {
     #[test]
     fn symlog_formatter_nonunit_linthresh_uses_decimal_tail_labels() {
         let formatter = SymlogFormatter::new(10.0, 2.0);
+
+        assert_eq!(formatter.format(2.0, None), "2");
+        assert_eq!(formatter.format(20.0, None), "20");
+        assert_eq!(formatter.format(40.0, None), "");
+    }
+
+    #[test]
+    fn symlog_formatter_mathtext_wraps_large_tail_labels() {
+        let formatter = SymlogFormatterMathtext::new(10.0, 1.0);
+
+        assert_eq!(formatter.format(-1.0, None), "-1");
+        assert_eq!(formatter.format(0.0, None), "0");
+        assert_eq!(formatter.format(1.0, None), "1");
+        assert_eq!(formatter.format(100.0, None), "100");
+        assert_eq!(formatter.format(1e6, None), "$10^{6}$");
+        assert_eq!(formatter.format(-1e6, None), "$-10^{6}$");
+        assert_eq!(formatter.format(20.0, None), "");
+    }
+
+    #[test]
+    fn symlog_formatter_mathtext_nonunit_linthresh_uses_decimal_tail_labels() {
+        let formatter = SymlogFormatterMathtext::new(10.0, 2.0);
 
         assert_eq!(formatter.format(2.0, None), "2");
         assert_eq!(formatter.format(20.0, None), "20");

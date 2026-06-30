@@ -571,5 +571,22 @@ fn main() {
         fig.save_png("target/gallery_tripcolor.png").unwrap();
     }
 
+    // 35. symlog (cubic spanning negative, zero, and positive tails)
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let x = linspace(-100.0, 100.0, 161);
+        let y: Vec<f64> = x.iter().map(|v| v * v * v).collect();
+        let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
+        ax.plot(&x, &y);
+        ax.set_xscale_symlog(10.0, 1.0)
+            .set_yscale_symlog(10.0, 1.0)
+            .set_xlim(-100.0, 100.0)
+            .set_ylim(-1_000_000.0, 1_000_000.0);
+        ax.set_title("symlog");
+        ax.set_xlabel("x");
+        ax.set_ylabel("$x^3$");
+        fig.save_png("target/gallery_symlog.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
