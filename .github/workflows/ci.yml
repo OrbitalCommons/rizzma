@@ -13,6 +13,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  WASM_SIZE_MAX_BYTES: 2621440
 
 jobs:
   test:
@@ -58,3 +59,26 @@ jobs:
         run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
+
+  wasm-size:
+    name: wasm size budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rustup honors rust-toolchain.toml, installing the pinned stable
+      # toolchain automatically.
+      - name: Show toolchain
+        run: |
+          rustup show active-toolchain
+          cargo --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Check wasm size budget
+        run: |
+          cargo build -p rizzma-wasm --target wasm32-unknown-unknown --release
+          cargo xtask wasm-size target/wasm32-unknown-unknown/release/rizzma_wasm.wasm --max-bytes "$WASM_SIZE_MAX_BYTES"
