@@ -1,0 +1,15 @@
+[package]
+name = "rizzma-pdf"
+description = "PDF vector backend: implements Renderer by serializing primitives to a single-page PDF content stream."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rizzma-core = { version = "0.0.0", path = "../rizzma-core" }
+rizzma-render = { version = "0.0.0", path = "../rizzma-render" }
+
+[lints]
+workspace = true

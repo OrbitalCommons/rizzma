@@ -962,6 +962,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rizzma-pdf"
+version = "0.0.0"
+dependencies = [
+ "rizzma-core",
+ "rizzma-render",
+]
+
+[[package]]
 name = "rizzma-plot"
 version = "0.0.0"
 
