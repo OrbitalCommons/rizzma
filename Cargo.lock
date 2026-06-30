@@ -903,7 +903,7 @@ dependencies = [
 
 [[package]]
 name = "rizzma"
-version = "0.0.1"
+version = "0.0.2"
 
 [[package]]
 name = "rizzma-3d"
