@@ -22,6 +22,8 @@
 //! - [`MultipleLocator`] — ticks at integer multiples of a base.
 //! - [`LinearLocator`] — evenly spaced ticks via linspace.
 //! - [`FixedLocator`] — a fixed set of positions (optionally subsampled).
+//! - [`LogLocator`] — logarithmic ticks at powers of a base, optionally with
+//!   subticks.
 //! - [`NullLocator`] — no ticks.
 //!
 //! # Formatters
@@ -30,6 +32,7 @@
 //! label string. Implemented formatters:
 //!
 //! - [`ScalarFormatter`] — picks significant figures from the tick spacing.
+//! - [`LogFormatter`] — labels logarithmic major ticks.
 //! - [`NullFormatter`] — always the empty string.
 //! - [`FixedFormatter`] — fixed strings indexed by position.
 //! - [`FuncFormatter`] — a user-supplied boxed closure.
@@ -576,6 +579,134 @@ impl Locator for FixedLocator {
     }
 }
 
+/// Place ticks on a logarithmic axis.
+///
+/// Major ticks are powers of `base`. Minor ticks can be requested by setting
+/// `subs` to multiples within each decade, for example `[2, 3, ..., 9]` for
+/// the usual base-10 minor ticks. The default locator produces major ticks
+/// only; [`LogLocator::minor`] constructs the common minor-tick locator.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LogLocator {
+    base: f64,
+    subs: Vec<f64>,
+}
+
+impl LogLocator {
+    /// Construct a major-tick log locator with the given base.
+    ///
+    /// `base` must be finite and greater than one.
+    pub fn new(base: f64) -> Self {
+        Self::with_subs(base, vec![1.0])
+    }
+
+    /// Construct a log locator with explicit subtick multiples.
+    ///
+    /// Values in `subs` are retained only when finite and in `[1, base)`;
+    /// duplicates are removed after sorting. Use `[1.0]` for major ticks.
+    pub fn with_subs(base: f64, subs: Vec<f64>) -> Self {
+        assert!(
+            base.is_finite() && base > 1.0,
+            "log locator base must be finite and > 1"
+        );
+        let mut subs: Vec<f64> = subs
+            .into_iter()
+            .filter(|s| s.is_finite() && *s >= 1.0 && *s < base)
+            .collect();
+        subs.sort_by(|a, b| a.partial_cmp(b).expect("finite subs are comparable"));
+        subs.dedup_by(|a, b| (*a - *b).abs() < 1e-12);
+        if subs.is_empty() {
+            subs.push(1.0);
+        }
+        LogLocator { base, subs }
+    }
+
+    /// Construct the common minor-tick locator.
+    ///
+    /// For base 10 this yields subticks at `2..=9` times each decade.
+    pub fn minor(base: f64) -> Self {
+        let upper = base.floor() as i32;
+        let subs = if upper > 2 {
+            (2..upper).map(f64::from).collect()
+        } else {
+            Vec::new()
+        };
+        Self::with_subs(base, subs)
+    }
+
+    /// Return this locator's base.
+    #[must_use]
+    pub fn base(&self) -> f64 {
+        self.base
+    }
+
+    /// Return this locator's decade multiples.
+    #[must_use]
+    pub fn subs(&self) -> &[f64] {
+        &self.subs
+    }
+}
+
+impl Default for LogLocator {
+    /// Default base-10 major locator.
+    fn default() -> Self {
+        Self::new(10.0)
+    }
+}
+
+impl Locator for LogLocator {
+    fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
+        if !vmin.is_finite() || !vmax.is_finite() || vmin <= 0.0 || vmax <= 0.0 {
+            return Vec::new();
+        }
+
+        let (lo, hi) = if vmin <= vmax {
+            (vmin, vmax)
+        } else {
+            (vmax, vmin)
+        };
+        let log_base = self.base.ln();
+        let start = (lo.ln() / log_base).floor() as i32;
+        let end = (hi.ln() / log_base).ceil() as i32;
+        let mut ticks = Vec::new();
+
+        for exponent in start..=end {
+            let decade = self.base.powi(exponent);
+            for &sub in &self.subs {
+                let tick = sub * decade;
+                if tick >= lo * (1.0 - 1e-12) && tick <= hi * (1.0 + 1e-12) {
+                    ticks.push(tick);
+                }
+            }
+        }
+
+        ticks.sort_by(|a, b| a.partial_cmp(b).expect("finite ticks are comparable"));
+        ticks.dedup_by(|a, b| (*a - *b).abs() <= 1e-12 * a.abs().max(b.abs()).max(1.0));
+        if vmin > vmax {
+            ticks.reverse();
+        }
+        ticks
+    }
+
+    fn view_limits(&self, vmin: f64, vmax: f64) -> (f64, f64) {
+        if !vmin.is_finite() || !vmax.is_finite() || vmin <= 0.0 || vmax <= 0.0 {
+            return (1.0, self.base);
+        }
+        let (lo, hi, reversed) = if vmin <= vmax {
+            (vmin, vmax, false)
+        } else {
+            (vmax, vmin, true)
+        };
+        let log_base = self.base.ln();
+        let lower = self.base.powi((lo.ln() / log_base).floor() as i32);
+        let upper = self.base.powi((hi.ln() / log_base).ceil() as i32);
+        if reversed {
+            (upper, lower)
+        } else {
+            (lower, upper)
+        }
+    }
+}
+
 /// Place no ticks at all.
 ///
 /// Port of matplotlib's `NullLocator`.
@@ -673,6 +804,82 @@ impl Formatter for ScalarFormatter {
         // Matplotlib rounds tiny values to exactly zero before formatting.
         let v = if value.abs() < 1e-8 { 0.0 } else { value };
         format!("{:.*}", self.decimals, v)
+    }
+}
+
+/// Format logarithmic major tick values.
+///
+/// Exact powers of `base` are labelled. Non-decade values (typically minor
+/// ticks) produce an empty label by default, matching matplotlib's default
+/// minor tick behaviour.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LogFormatter {
+    base: f64,
+}
+
+impl LogFormatter {
+    /// Construct a formatter for the given base.
+    ///
+    /// `base` must be finite and greater than one.
+    pub fn new(base: f64) -> Self {
+        assert!(
+            base.is_finite() && base > 1.0,
+            "log formatter base must be finite and > 1"
+        );
+        LogFormatter { base }
+    }
+
+    fn exponent(&self, value: f64) -> Option<i32> {
+        if !value.is_finite() || value <= 0.0 {
+            return None;
+        }
+        let exponent = (value.ln() / self.base.ln()).round();
+        let decade = self.base.powf(exponent);
+        let rel = ((value - decade) / decade).abs();
+        if rel <= 1e-10 {
+            Some(exponent as i32)
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for LogFormatter {
+    /// Default base-10 log formatter.
+    fn default() -> Self {
+        Self::new(10.0)
+    }
+}
+
+impl Formatter for LogFormatter {
+    fn format(&self, value: f64, _pos: Option<usize>) -> String {
+        let Some(exponent) = self.exponent(value) else {
+            return String::new();
+        };
+
+        let plain_label = (self.base == 10.0 && (-3..=4).contains(&exponent))
+            || (self.base == 2.0 && (-3..=6).contains(&exponent));
+        let value = self.base.powi(exponent);
+        if plain_label {
+            format_decimal(value)
+        } else {
+            format!("{}^{{{}}}", format_decimal(self.base), exponent)
+        }
+    }
+}
+
+fn format_decimal(value: f64) -> String {
+    if (value - value.round()).abs() < 1e-10 {
+        format!("{:.0}", value)
+    } else {
+        let mut text = format!("{value:.12}");
+        while text.contains('.') && text.ends_with('0') {
+            text.pop();
+        }
+        if text.ends_with('.') {
+            text.pop();
+        }
+        text
     }
 }
 
@@ -883,6 +1090,67 @@ mod tests {
             locs.contains(&0.0),
             "expected the zero-containing subset: {locs:?}"
         );
+    }
+
+    #[test]
+    fn log_locator_base10_decades() {
+        let locs = LogLocator::new(10.0).tick_values(1.0, 1000.0);
+        assert_ticks(&locs, &[1.0, 10.0, 100.0, 1000.0]);
+    }
+
+    #[test]
+    fn log_locator_minor_subticks_present() {
+        let locs = LogLocator::minor(10.0).tick_values(1.0, 20.0);
+
+        assert!(locs.contains(&2.0));
+        assert!(locs.contains(&9.0));
+        assert!(locs.contains(&20.0));
+        assert!(!locs.contains(&1.0));
+        assert!(!locs.contains(&10.0));
+    }
+
+    #[test]
+    fn log_locator_base2_decades() {
+        let locs = LogLocator::new(2.0).tick_values(1.0, 32.0);
+        assert_ticks(&locs, &[1.0, 2.0, 4.0, 8.0, 16.0, 32.0]);
+    }
+
+    #[test]
+    fn log_locator_rejects_nonpositive_or_nonfinite_domain() {
+        assert!(LogLocator::new(10.0).tick_values(-1.0, 100.0).is_empty());
+        assert!(
+            LogLocator::new(10.0)
+                .tick_values(1.0, f64::INFINITY)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn log_locator_view_limits_snap_to_decades() {
+        let (lo, hi) = LogLocator::new(10.0).view_limits(3.0, 88.0);
+        assert_eq!((lo, hi), (1.0, 100.0));
+    }
+
+    #[test]
+    fn log_formatter_labels_major_ticks_and_hides_minor_ticks() {
+        let formatter = LogFormatter::new(10.0);
+
+        assert_eq!(formatter.format(1.0, None), "1");
+        assert_eq!(formatter.format(10.0, None), "10");
+        assert_eq!(formatter.format(100.0, None), "100");
+        assert_eq!(formatter.format(1000.0, None), "1000");
+        assert_eq!(formatter.format(2.0, None), "");
+        assert_eq!(formatter.format(1e6, None), "10^{6}");
+    }
+
+    #[test]
+    fn log_formatter_base2_labels_powers() {
+        let formatter = LogFormatter::new(2.0);
+
+        assert_eq!(formatter.format(1.0, None), "1");
+        assert_eq!(formatter.format(8.0, None), "8");
+        assert_eq!(formatter.format(128.0, None), "2^{7}");
+        assert_eq!(formatter.format(3.0, None), "");
     }
 
     #[test]
