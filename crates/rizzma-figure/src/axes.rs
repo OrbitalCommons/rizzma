@@ -323,6 +323,36 @@ impl Axes {
             .translate(axes_px.xmin(), axes_px.ymin())
     }
 
+    /// Resolve this axes' pixel rectangle and the linear data-to-display
+    /// transform for a figure of size `fig_w_px` × `fig_h_px`.
+    ///
+    /// This reproduces the exact forward path used at the top of
+    /// [`Axes::draw`]: the figure-fraction [`position`](Axes::position) is
+    /// resolved against the figure size to a pixel [`Bbox`], the effective
+    /// `(xlim, ylim)` come from [`effective_limits`](Axes::effective_limits),
+    /// and the returned [`Affine2D`] is the same `trans_data` used to draw the
+    /// artists. The transform maps data coordinates into **y-up** display
+    /// pixels (no backend Y-flip applied here).
+    ///
+    /// Both [`Axes::draw`] and the figure-level coordinate-inversion helpers
+    /// call this so they cannot drift apart.
+    #[must_use]
+    pub(crate) fn pixel_rect_and_trans_data(
+        &self,
+        fig_w_px: f64,
+        fig_h_px: f64,
+    ) -> (Bbox, Affine2D) {
+        let axes_px = Bbox::from_extents(
+            self.position.xmin() * fig_w_px,
+            self.position.ymin() * fig_h_px,
+            self.position.xmax() * fig_w_px,
+            self.position.ymax() * fig_h_px,
+        );
+        let (xlim, ylim) = self.effective_limits();
+        let td = self.trans_data(&axes_px, xlim, ylim);
+        (axes_px, td)
+    }
+
     /// Draw the axes (background, artists, frame, axis spines, and title) into
     /// `renderer`.
     ///
@@ -336,21 +366,15 @@ impl Axes {
         fig_h_px: f64,
         font: &FontSource,
     ) {
-        let axes_px = Bbox::from_extents(
-            self.position.xmin() * fig_w_px,
-            self.position.ymin() * fig_h_px,
-            self.position.xmax() * fig_w_px,
-            self.position.ymax() * fig_h_px,
-        );
+        // 1. Resolve the pixel rectangle and the data transform via the shared
+        // forward path (also used by `Figure`'s coordinate inversion).
+        let (axes_px, td) = self.pixel_rect_and_trans_data(fig_w_px, fig_h_px);
+        let (xlim, ylim) = self.effective_limits();
 
         // 2. Fill the axes background.
         let rect = rect_path(&axes_px);
         let fill_gc = GraphicsContext::new();
         renderer.draw_path(&fill_gc, &rect, &Affine2D::identity(), Some(self.facecolor));
-
-        // 3. Resolve limits and build the data transform.
-        let (xlim, ylim) = self.effective_limits();
-        let td = self.trans_data(&axes_px, xlim, ylim);
 
         // 3a. Draw colormapped images first (lowest zorder), beneath every
         // other artist, mapping their data-space extent through the data
