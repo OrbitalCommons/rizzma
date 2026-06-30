@@ -55,6 +55,10 @@ pub struct Axes {
     pub(crate) images: Vec<AxesImage>,
     /// Colormapped quad meshes (`pcolormesh`), drawn beneath the other artists.
     pub(crate) meshes: Vec<QuadMesh>,
+    /// Extra data extents folded into autoscaling that have no owning artist,
+    /// e.g. the grid extent recorded by [`Axes::contour`] so the field is
+    /// fitted even when no contour line crosses it.
+    pub(crate) extra_data_bbox: Option<Bbox>,
     /// The bottom (x) axis.
     xaxis: Axis,
     /// The left (y) axis.
@@ -131,6 +135,7 @@ impl Axes {
             collections: Vec::new(),
             images: Vec::new(),
             meshes: Vec::new(),
+            extra_data_bbox: None,
             xaxis: Axis::new(AxisSide::Bottom),
             yaxis: Axis::new(AxisSide::Left),
             title: None,
@@ -214,6 +219,17 @@ impl Axes {
         self.patches.last_mut().expect("just pushed a patch")
     }
 
+    /// Fold the rectangle `[xmin, xmax] x [ymin, ymax]` into autoscaling without
+    /// an owning artist (used by [`contour`](Axes::contour) to record the grid
+    /// extent even when no contour line crosses the field).
+    pub(crate) fn include_data_bbox(&mut self, xmin: f64, ymin: f64, xmax: f64, ymax: f64) {
+        let bbox = Bbox::from_extents(xmin, ymin, xmax, ymax);
+        self.extra_data_bbox = Some(match self.extra_data_bbox {
+            Some(b) => b.union(&bbox),
+            None => bbox,
+        });
+    }
+
     /// Set explicit x limits `(min, max)`, disabling x autoscaling.
     pub fn set_xlim(&mut self, min: f64, max: f64) -> &mut Self {
         self.xlim = Some((min, max));
@@ -279,6 +295,7 @@ impl Axes {
             .chain(collection_extents)
             .chain(image_extents)
             .chain(mesh_extents)
+            .chain(self.extra_data_bbox)
         {
             acc = Some(match acc {
                 Some(a) => a.union(&e),
