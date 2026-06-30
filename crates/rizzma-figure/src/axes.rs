@@ -43,9 +43,9 @@ pub struct Axes {
     /// Background fill color of the axes region.
     facecolor: Rgba,
     /// Line artists, drawn in ascending zorder.
-    lines: Vec<Line2D>,
+    pub(crate) lines: Vec<Line2D>,
     /// Patch artists, drawn in ascending zorder.
-    patches: Vec<Patch>,
+    pub(crate) patches: Vec<Patch>,
     /// The bottom (x) axis.
     xaxis: Axis,
     /// The left (y) axis.
@@ -54,6 +54,52 @@ pub struct Axes {
     title: Option<String>,
     /// Whether to stroke the axes frame (border rectangle).
     frame: bool,
+    /// Index into the property color cycle, advanced as cycled colors are
+    /// consumed (e.g. by [`Axes::bar`]).
+    pub(crate) prop_cycle_index: usize,
+    /// Full-span reference lines, resolved against the effective limits at draw
+    /// time (see [`Axes::axhline`]/[`Axes::axvline`]).
+    pub(crate) span_lines: Vec<SpanLine>,
+    /// Full-span shaded rectangles, resolved against the effective limits at
+    /// draw time (see [`Axes::axhspan`]/[`Axes::axvspan`]).
+    pub(crate) span_rects: Vec<SpanRect>,
+}
+
+/// Orientation of a full-span reference line or shaded band.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SpanOrientation {
+    /// Constant value along the y-axis, spanning the full x range.
+    Horizontal,
+    /// Constant value along the x-axis, spanning the full y range.
+    Vertical,
+}
+
+/// A full-span reference line at a constant data value, drawn spanning the
+/// resolved effective limits of the opposite axis.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SpanLine {
+    /// Whether the line is horizontal (`y == value`) or vertical (`x == value`).
+    pub(crate) orientation: SpanOrientation,
+    /// The constant data coordinate the line sits at.
+    pub(crate) value: f64,
+    /// Stroke color.
+    pub(crate) color: Rgba,
+    /// Stroke width in points.
+    pub(crate) linewidth: f64,
+}
+
+/// A full-span shaded band between two data values, drawn spanning the resolved
+/// effective limits of the opposite axis.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SpanRect {
+    /// Whether the band runs across x (horizontal) or across y (vertical).
+    pub(crate) orientation: SpanOrientation,
+    /// Lower bound of the band in data coordinates.
+    pub(crate) lo: f64,
+    /// Upper bound of the band in data coordinates.
+    pub(crate) hi: f64,
+    /// Fill color.
+    pub(crate) facecolor: Rgba,
 }
 
 impl Axes {
@@ -74,6 +120,9 @@ impl Axes {
             yaxis: Axis::new(AxisSide::Left),
             title: None,
             frame: true,
+            prop_cycle_index: 0,
+            span_lines: Vec::new(),
+            span_rects: Vec::new(),
         }
     }
 
@@ -233,6 +282,20 @@ impl Axes {
         let (xlim, ylim) = self.effective_limits();
         let td = self.trans_data(&axes_px, xlim, ylim);
 
+        // 3a. Draw full-span shaded bands (axhspan/axvspan) beneath the artists,
+        // resolving their open extent against the effective limits.
+        for span in &self.span_rects {
+            let rect = match span.orientation {
+                SpanOrientation::Horizontal => {
+                    rect_path(&Bbox::from_extents(xlim.0, span.lo, xlim.1, span.hi))
+                }
+                SpanOrientation::Vertical => {
+                    rect_path(&Bbox::from_extents(span.lo, ylim.0, span.hi, ylim.1))
+                }
+            };
+            renderer.draw_path(&GraphicsContext::new(), &rect, &td, Some(span.facecolor));
+        }
+
         // 4. Draw artists in ascending zorder.
         // TODO: clip artists to `axes_px` once clip plumbing lands.
         let mut artists: Vec<&dyn Artist> =
@@ -250,6 +313,20 @@ impl Axes {
         });
         for i in order {
             artists[i].draw(renderer, &td);
+        }
+
+        // 4a. Draw full-span reference lines (axhline/axvline) above the
+        // artists, spanning the resolved limits of the opposite axis.
+        for span in &self.span_lines {
+            let points = match span.orientation {
+                SpanOrientation::Horizontal => [[xlim.0, span.value], [xlim.1, span.value]],
+                SpanOrientation::Vertical => [[span.value, ylim.0], [span.value, ylim.1]],
+            };
+            let path = Path::from_polyline(&points);
+            let gc = GraphicsContext::new()
+                .with_stroke(span.color)
+                .with_line_width(span.linewidth);
+            renderer.draw_path(&gc, &path, &td, None);
         }
 
         // 5. Stroke the frame.
