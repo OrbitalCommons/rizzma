@@ -542,7 +542,7 @@ plan above stays the *intent* and this section is the *ground truth*).
   dedicated required CI workflow job. Remaining quality work: headless wasm smoke and
   wasm canvas parity.
 
-### Merged PRs (#1–#58)
+### Merged PRs (#1–#61)
 - **Infra/docs:** #1 scaffold/CI/toolchain, #2 licenses, #3/#20/#28/#32/#42 log updates,
   #5 `xtask` image-diff, #33 gallery publishing + doc-link CI, #34 TeX rendering path
   split, #38 `AGENTS.md` coordination rules, #39 wasm32 workspace check.
@@ -555,7 +555,8 @@ plan above stays the *intent* and this section is the *ground truth*).
 - **`rizzma-text`:** #6 font embed (DejaVu) + metrics, #14 `text_to_path` glyph
   outlines, #53 render-independent math/raw-TeX span model.
 - **`rizzma-mathtext`:** #55 portable box-and-glue mathtext layout engine, #57 accents,
-  expanded symbol coverage, and variant-agnostic geometry placement accessors.
+  expanded symbol coverage, and variant-agnostic geometry placement accessors, #61
+  `\left...\right` delimiter geometry and large operators.
 - **`rizzma-artist`:** #13 `Artist`+`Line2D`, #16 `Patch`, #18 `MarkerStyle`,
   #21 `Collection`, #37 builder setter cleanup, #41 scatter marker sizing in device units,
   #54 `QuadMesh`.
@@ -565,7 +566,7 @@ plan above stays the *intent* and this section is the *ground truth*).
   #43 PNG-vs-SVG raster parity test for a renderer-seam scene, #47 pixel↔data
   coordinate inversion helpers for interaction, #51 `stem`/`stairs` Tier-2 plots,
   #52 `stackplot`/`broken_barh`, #54 `pcolormesh`, #56 `boxplot`, #58 mathtext in
-  `Axes` titles.
+  `Axes` titles, #60 `contour`.
 - **`rizzma-pyplot`:** #26 stateful façade (`plot`/`scatter`/`bar`/`hist`/`savefig`/…).
 - **`rizzma-wasm`:** #40 render-to-straight-RGBA core plus wasm-only Canvas `ImageData`
   blit entry points, #45 browser demo page, #49 DOM event readout demo.
@@ -581,10 +582,11 @@ plan above stays the *intent* and this section is the *ground truth*).
 - Cross-backend equivalence is partly automated: PNG vs SVG-rasterized has a shared-scene
   diff, but wasm canvas output is not yet in that harness.
 - headless wasm smoke and wasm canvas parity are still queued.
-- Portable mathtext now handles common inline expressions, fractions, scripts, accents, and
-  common named symbols through backend-independent glyph/rule/accent paths. Remaining math
-  fidelity work includes stretch delimiters, large/display operators, math italic/metrics,
-  broader TeX-subset coverage, and the optional native-TeX export backend.
+- Portable mathtext now handles common inline expressions, fractions, scripts, accents,
+  `\left...\right` delimiter geometry, large operators, and common named symbols through
+  backend-independent paths. Remaining math fidelity work includes true extensible
+  delimiter assembly, display-mode operator placement, math italic/metrics, broader
+  TeX-subset coverage, and the optional native-TeX export backend.
 - Per-method `///` rustdoc examples + embedded gallery images still to backfill (see below).
 
 ### Documentation pattern: a rendered example per graphic type
@@ -614,8 +616,8 @@ and the embedded image for each, then let CI enforce the link/render consistency
 `errorbar` ☑ · reference-lines/spans ☑ · `imshow` ☑ · `legend`+`colorbar` ☑  *(rendered
 in the gallery; per-method `///` doc examples + per-method embeds still to backfill)* —
 then every Tier-2/3 type (`loglog`/`semilog*`, `pcolormesh`, `contour`, `boxplot`, `pie`,
-`quiver`, `streamplot`, polar, 3D) ships its gallery case + doc example **in the same PR**
-that adds the method (Definition-of-Done addition).
+`quiver`, `streamplot`, polar, 3D) ships its gallery case + doc example **in the same
+PR** that adds the method (Definition-of-Done addition).
 
 > DoD addendum: a PR that adds or changes a plotting method is not done until it adds the
 > matching `gallery.rs` case, a runnable `///` example, and the embedded image URL — CI's
@@ -624,8 +626,8 @@ that adds the method (Definition-of-Done addition).
 ### Next
 - M4 quality: headless wasm smoke and wasm canvas parity.
 - Quality: native `draw_text`, arbitrary `clip_path`, renderer/backend parity checks.
-- Tier-2: log-scale axes (`loglog`/`semilog*`), `contour`, `pie`. Then broader mathtext
-  coverage, optional native TeX export, dates-on-axes, polar, PDF, 3D.
+- Tier-2: log-scale axes (`loglog`/`semilog*`), `pie`. Then broader mathtext coverage,
+  optional native TeX export, dates-on-axes, polar, PDF, 3D.
 - Backfill per-method rustdoc examples + embedded images per the pattern above.
 
 > Note: the DAG order is a guide, not a straitjacket. Self-contained leaves are pulled
