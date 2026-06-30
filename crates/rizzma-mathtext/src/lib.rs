@@ -7,10 +7,10 @@
 //! later step; this crate owns only parsing and layout.
 //!
 //! Supported in this first pass: ordinary symbols, whitespace glue, `{...}`
-//! groups, superscripts/subscripts, `\frac{...}{...}`, `\left...\right`
-//! delimiters, large operators, and a small table of common named symbols and
-//! accents. Unsupported commands are preserved as literal fallback text and
-//! reported as structured warnings.
+//! groups, superscripts/subscripts, `\frac{...}{...}`, `\sqrt{...}`,
+//! `\text{...}`, `\left...\right` delimiters, large operators, and a table of
+//! common named symbols and accents. Unsupported commands are preserved as
+//! literal fallback text and reported as structured warnings.
 //!
 //! This is intentionally a scoped approximation: it uses the embedded DejaVu
 //! Sans face for wasm-clean, deterministic glyph geometry, so it does not yet
@@ -28,6 +28,9 @@ const FRAC_GAP_EM: f64 = 0.18;
 const FRAC_RULE_EM: f64 = 0.04;
 const FRAC_PAD_EM: f64 = 0.12;
 const LARGE_OPERATOR_SCALE: f64 = 1.35;
+const RADICAL_GAP_EM: f64 = 0.10;
+const RADICAL_PAD_EM: f64 = 0.08;
+const RADICAL_RULE_EM: f64 = 0.04;
 const SPACE_EM: f64 = 0.28;
 
 /// A laid-out math expression in y-up coordinates.
@@ -115,6 +118,11 @@ pub enum MathElement {
         /// Operator path in final math-layout coordinates.
         path: Path,
     },
+    /// Radical sign geometry for `\sqrt{...}`.
+    Radical {
+        /// Radical sign path in final math-layout coordinates.
+        path: Path,
+    },
 }
 
 impl MathElement {
@@ -129,7 +137,8 @@ impl MathElement {
             | MathElement::Rule { path }
             | MathElement::Accent { path, .. }
             | MathElement::Delimiter { path, .. }
-            | MathElement::LargeOperator { path, .. } => path,
+            | MathElement::LargeOperator { path, .. }
+            | MathElement::Radical { path } => path,
         }
     }
 
@@ -162,6 +171,9 @@ impl MathElement {
             },
             MathElement::LargeOperator { kind, path } => MathElement::LargeOperator {
                 kind: *kind,
+                path: path.transformed(transform),
+            },
+            MathElement::Radical { path } => MathElement::Radical {
                 path: path.transformed(transform),
             },
         }
@@ -300,6 +312,9 @@ enum Node {
     Fraction {
         numerator: Row,
         denominator: Row,
+    },
+    Radical {
+        body: Row,
     },
     Delimited {
         left: DelimiterKind,
@@ -483,6 +498,14 @@ impl<'a> Parser<'a> {
             return self.parse_fraction(start);
         }
 
+        if name == "sqrt" {
+            return self.parse_radical(start);
+        }
+
+        if name == "text" {
+            return self.parse_text_command(start);
+        }
+
         if name == "left" {
             return self.parse_left_right(start);
         }
@@ -529,6 +552,26 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_radical(&mut self, start: usize) -> Node {
+        let Some(body) =
+            self.parse_required_group(start, "sqrt", MathTextWarningReason::MissingCommandArgument)
+        else {
+            return Node::Text("\\sqrt".to_owned());
+        };
+        self.parse_scripts(Node::Radical { body })
+    }
+
+    fn parse_text_command(&mut self, start: usize) -> Node {
+        let Some(text) = self.parse_required_raw_group(
+            start,
+            "text",
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text("\\text".to_owned());
+        };
+        self.parse_scripts(Node::Text(text))
+    }
+
     fn parse_left_right(&mut self, start: usize) -> Node {
         let Some(left) = self.parse_delimiter_token(start, "left") else {
             return Node::Text("\\left".to_owned());
@@ -573,6 +616,68 @@ impl<'a> Parser<'a> {
             });
             None
         }
+    }
+
+    fn parse_required_raw_group(
+        &mut self,
+        command_start: usize,
+        command: &str,
+        reason: MathTextWarningReason,
+    ) -> Option<String> {
+        if self.peek_char() != Some('{') {
+            self.warnings.push(MathTextWarning {
+                range: Some(command_start..self.pos),
+                reason,
+                source: format!("\\{command}"),
+            });
+            return None;
+        }
+
+        self.pos += 1;
+        let mut depth = 1;
+        let mut text = String::new();
+
+        while self.pos < self.source.len() {
+            let Some(ch) = self.peek_char() else {
+                break;
+            };
+
+            match ch {
+                '\\' => {
+                    self.pos += 1;
+                    if let Some(escaped) = self.peek_char() {
+                        self.pos += escaped.len_utf8();
+                        text.push(escaped);
+                    } else {
+                        text.push('\\');
+                    }
+                }
+                '{' => {
+                    self.pos += 1;
+                    depth += 1;
+                    text.push(ch);
+                }
+                '}' => {
+                    self.pos += 1;
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(text);
+                    }
+                    text.push(ch);
+                }
+                _ => {
+                    self.pos += ch.len_utf8();
+                    text.push(ch);
+                }
+            }
+        }
+
+        self.warnings.push(MathTextWarning {
+            range: Some(self.source.len()..self.source.len()),
+            reason: MathTextWarningReason::UnclosedGroup,
+            source: String::new(),
+        });
+        Some(text)
     }
 
     fn parse_row_until_right(&mut self) -> (Row, Option<DelimiterKind>) {
@@ -771,6 +876,7 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
             numerator,
             denominator,
         } => layout_fraction(numerator, denominator, font, font_size_px),
+        Node::Radical { body } => layout_radical(body, font, font_size_px),
         Node::Delimited { left, body, right } => {
             layout_delimited(*left, body, *right, font, font_size_px)
         }
@@ -855,6 +961,34 @@ fn layout_accent(kind: AccentKind, body: &Row, font: &FontSource, font_size_px: 
         width: base.width,
         ascent: mark_y + mark_height,
         descent: base.descent,
+    }
+}
+
+fn layout_radical(body: &Row, font: &FontSource, font_size_px: f64) -> LayoutBox {
+    let body_box = layout_row(&body.nodes, font, font_size_px);
+    let gap = font_size_px * RADICAL_GAP_EM;
+    let pad = font_size_px * RADICAL_PAD_EM;
+    let rule_thickness = (font_size_px * RADICAL_RULE_EM).max(1.0);
+    let sign_width = font_size_px * 0.45;
+    let top_y = body_box.ascent + gap;
+    let bottom_y = -body_box.descent;
+    let total_height = (top_y - bottom_y).max(font_size_px);
+    let body_x = sign_width + pad;
+
+    let mut elements = Vec::new();
+    elements.push(MathElement::Radical {
+        path: radical_path(0.0, bottom_y, sign_width, total_height, rule_thickness),
+    });
+    elements.push(MathElement::Rule {
+        path: rect_path(body_x, top_y, body_box.width + pad, rule_thickness),
+    });
+    elements.extend(shift_elements(body_box.elements, body_x, 0.0));
+
+    LayoutBox {
+        elements,
+        width: body_x + body_box.width + pad,
+        ascent: top_y + rule_thickness,
+        descent: body_box.descent,
     }
 }
 
@@ -1098,6 +1232,20 @@ fn delimiter_path(
     }
 }
 
+fn radical_path(x: f64, bottom_y: f64, width: f64, height: f64, stroke: f64) -> Path {
+    let y0 = bottom_y + height * 0.36;
+    let y1 = bottom_y + height * 0.18;
+    let y2 = bottom_y;
+    let y3 = bottom_y + height;
+    Path::from_polyline(&[
+        [x, y0],
+        [x + width * 0.22, y0],
+        [x + width * 0.42, y1],
+        [x + width * 0.62, y2],
+        [x + width - stroke * 0.5, y3],
+    ])
+}
+
 fn rect_path(x: f64, y: f64, width: f64, height: f64) -> Path {
     Path::unit_rectangle()
         .transformed(&Affine2D::from_scale(width, height).then(&Affine2D::from_translation(x, y)))
@@ -1110,6 +1258,7 @@ fn flatten_row_text(row: &Row) -> String {
             Node::Text(text) => out.push_str(text),
             Node::Space => out.push(' '),
             Node::Fraction { .. } => out.push_str("\\frac"),
+            Node::Radical { body } => out.push_str(&flatten_row_text(body)),
             Node::Delimited { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Accent { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::LargeOperator { kind } => out.push_str(large_operator_symbol(*kind)),
@@ -1124,6 +1273,7 @@ fn flatten_node_text(node: &Node) -> String {
         Node::Text(text) => text.clone(),
         Node::Space => " ".to_owned(),
         Node::Fraction { .. } => "\\frac".to_owned(),
+        Node::Radical { body } => flatten_row_text(body),
         Node::Delimited { body, .. } => flatten_row_text(body),
         Node::Accent { body, .. } => flatten_row_text(body),
         Node::LargeOperator { kind } => large_operator_symbol(*kind).to_owned(),
@@ -1253,46 +1403,97 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "div" => Some("÷"),
         "pm" => Some("±"),
         "mp" => Some("∓"),
+        "ast" => Some("∗"),
+        "star" => Some("⋆"),
+        "dagger" => Some("†"),
+        "ddagger" => Some("‡"),
+        "oplus" => Some("⊕"),
+        "ominus" => Some("⊖"),
+        "otimes" => Some("⊗"),
+        "oslash" => Some("⊘"),
+        "odot" => Some("⊙"),
         "leq" => Some("≤"),
         "le" => Some("≤"),
         "geq" => Some("≥"),
         "ge" => Some("≥"),
         "neq" => Some("≠"),
         "ne" => Some("≠"),
+        "lt" => Some("<"),
+        "gt" => Some(">"),
+        "ll" => Some("≪"),
+        "gg" => Some("≫"),
         "approx" => Some("≈"),
         "sim" => Some("∼"),
         "simeq" => Some("≃"),
         "equiv" => Some("≡"),
         "propto" => Some("∝"),
+        "cong" => Some("≅"),
+        "asymp" => Some("≍"),
+        "doteq" => Some("≐"),
+        "models" => Some("⊨"),
+        "perp" => Some("⊥"),
+        "mid" => Some("∣"),
+        "parallel" => Some("∥"),
         "infty" => Some("∞"),
         "partial" => Some("∂"),
         "nabla" => Some("∇"),
-        "sqrt" => Some("√"),
         "cdot" => Some("⋅"),
         "bullet" => Some("•"),
         "circ" => Some("∘"),
         "degree" => Some("°"),
         "prime" => Some("′"),
+        "backprime" => Some("‵"),
+        "ell" => Some("ℓ"),
+        "hbar" => Some("ℏ"),
+        "Re" => Some("ℜ"),
+        "Im" => Some("ℑ"),
+        "wp" => Some("℘"),
+        "aleph" => Some("ℵ"),
         "rightarrow" | "to" => Some("→"),
-        "leftarrow" => Some("←"),
+        "leftarrow" | "gets" => Some("←"),
+        "uparrow" => Some("↑"),
+        "downarrow" => Some("↓"),
+        "updownarrow" => Some("↕"),
+        "mapsto" => Some("↦"),
+        "longrightarrow" => Some("⟶"),
+        "longleftarrow" => Some("⟵"),
+        "longleftrightarrow" => Some("⟷"),
+        "hookrightarrow" => Some("↪"),
+        "hookleftarrow" => Some("↩"),
+        "nearrow" => Some("↗"),
+        "searrow" => Some("↘"),
+        "swarrow" => Some("↙"),
+        "nwarrow" => Some("↖"),
         "leftrightarrow" => Some("↔"),
         "Rightarrow" => Some("⇒"),
         "Leftarrow" => Some("⇐"),
         "Leftrightarrow" => Some("⇔"),
+        "Uparrow" => Some("⇑"),
+        "Downarrow" => Some("⇓"),
+        "Updownarrow" => Some("⇕"),
         "in" => Some("∈"),
         "notin" => Some("∉"),
         "subset" => Some("⊂"),
         "subseteq" => Some("⊆"),
+        "nsubseteq" => Some("⊈"),
         "supset" => Some("⊃"),
         "supseteq" => Some("⊇"),
+        "nsupseteq" => Some("⊉"),
+        "setminus" => Some("∖"),
         "cup" => Some("∪"),
         "cap" => Some("∩"),
         "emptyset" => Some("∅"),
+        "varnothing" => Some("∅"),
         "forall" => Some("∀"),
         "exists" => Some("∃"),
+        "nexists" => Some("∄"),
         "land" => Some("∧"),
+        "wedge" => Some("∧"),
         "lor" => Some("∨"),
+        "vee" => Some("∨"),
         "neg" => Some("¬"),
+        "top" => Some("⊤"),
+        "bot" => Some("⊥"),
         _ => None,
     }
 }
@@ -1333,7 +1534,11 @@ mod tests {
 
     #[test]
     fn expanded_symbol_table_maps_common_commands() {
-        let layout = layout_math("\\leq\\approx\\nabla\\rightarrow\\subseteq", &font(), 20.0);
+        let layout = layout_math(
+            "\\leq\\approx\\nabla\\rightarrow\\subseteq\\oplus\\mapsto\\parallel\\aleph",
+            &font(),
+            20.0,
+        );
         let text: String = layout
             .elements
             .iter()
@@ -1342,7 +1547,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(text, "≤≈∇→⊆");
+        assert_eq!(text, "≤≈∇→⊆⊕↦∥ℵ");
         assert!(layout.warnings.is_empty());
     }
 
@@ -1389,6 +1594,77 @@ mod tests {
         assert!(layout.ascent > 0.0);
         assert!(layout.descent > 0.0);
         assert!(layout.height() > 24.0);
+    }
+
+    #[test]
+    fn radical_emits_sign_and_overbar_rule() {
+        let body = layout_math("x+1", &font(), 24.0);
+        let radical = layout_math("\\sqrt{x+1}", &font(), 24.0);
+
+        assert_eq!(
+            radical
+                .elements
+                .iter()
+                .filter(|element| matches!(element, MathElement::Radical { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            radical
+                .elements
+                .iter()
+                .filter(|element| matches!(element, MathElement::Rule { .. }))
+                .count(),
+            1
+        );
+        assert!(radical.width > body.width);
+        assert!(radical.ascent > body.ascent);
+        assert_eq!(radical.descent, body.descent);
+        assert!(radical.warnings.is_empty());
+    }
+
+    #[test]
+    fn radical_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\sqrt+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(
+            layout.elements.iter().any(
+                |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\sqrt")
+            )
+        );
+    }
+
+    #[test]
+    fn text_command_preserves_literal_roman_text() {
+        let layout = layout_math("x\\text{ if y_1 }", &font(), 20.0);
+        let texts: Vec<_> = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(texts, ["x", " if y_1 "]);
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn text_command_allows_nested_braces_and_escapes() {
+        let layout = layout_math("\\text{set \\{A\\} and {B}}", &font(), 20.0);
+        let text = layout.elements.iter().find_map(|element| match element {
+            MathElement::Glyph { text, .. } => Some(text.as_str()),
+            _ => None,
+        });
+
+        assert_eq!(text, Some("set {A} and {B}"));
+        assert!(layout.warnings.is_empty());
     }
 
     #[test]
@@ -1440,7 +1716,11 @@ mod tests {
 
     #[test]
     fn element_path_accessor_covers_all_variants() {
-        let layout = layout_math("\\left(\\hat{\\frac{x}{y}}\\right)+\\sum", &font(), 24.0);
+        let layout = layout_math(
+            "\\left(\\hat{\\sqrt{\\frac{x}{y}}}\\right)+\\sum",
+            &font(),
+            24.0,
+        );
         assert!(
             layout
                 .elements
@@ -1470,6 +1750,12 @@ mod tests {
                 .elements
                 .iter()
                 .any(|element| matches!(element, MathElement::LargeOperator { .. }))
+        );
+        assert!(
+            layout
+                .elements
+                .iter()
+                .any(|element| matches!(element, MathElement::Radical { .. }))
         );
 
         for element in &layout.elements {
