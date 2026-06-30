@@ -23,8 +23,8 @@
 //! | [`Axes::hist`] | [`Axes::fill_between`] | [`Axes::errorbar`] |
 //! | ![imshow](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_imshow.png) | ![legend + colorbar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_legend_colorbar.png) | ![reference lines](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_reflines.png) |
 //! | [`Axes::imshow`] | [`Figure::colorbar`] | [`Axes::axhline`] etc. |
-//! | ![stem](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stem.png) | ![stairs](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stairs.png) | |
-//! | [`Axes::stem`] | [`Axes::stairs`] | |
+//! | ![stem](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stem.png) | ![stairs](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stairs.png) | ![pcolormesh](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_pcolormesh.png) |
+//! | [`Axes::stem`] | [`Axes::stairs`] | [`Axes::pcolormesh`] |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
@@ -35,6 +35,7 @@ mod gridspec;
 mod legend;
 mod plotting;
 mod plotting_image;
+mod plotting_mesh;
 mod plotting_stats;
 mod plotting_steps;
 mod subplotspec;

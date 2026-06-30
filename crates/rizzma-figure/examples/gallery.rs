@@ -200,5 +200,23 @@ fn main() {
         fig.save_png("target/gallery_stairs.png").unwrap();
     }
 
+    // 14. pcolormesh
+    {
+        let mut fig = Figure::new(5.0, 3.8);
+        let (nr, nc) = (20usize, 20usize);
+        let mut c = vec![0.0; nr * nc];
+        for r in 0..nr {
+            for col in 0..nc {
+                let yy = r as f64 / nr as f64 * TAU;
+                let xx = col as f64 / nc as f64 * TAU;
+                c[r * nc + col] = xx.sin() * yy.cos();
+            }
+        }
+        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        ax.pcolormesh(&c, nr, nc);
+        ax.set_title("pcolormesh");
+        fig.save_png("target/gallery_pcolormesh.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
