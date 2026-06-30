@@ -542,7 +542,7 @@ plan above stays the *intent* and this section is the *ground truth*).
   dedicated required CI workflow job. Remaining quality work: headless wasm smoke and
   wasm canvas parity.
 
-### Merged PRs (#1–#61)
+### Merged PRs (#1–#64)
 - **Infra/docs:** #1 scaffold/CI/toolchain, #2 licenses, #3/#20/#28/#32/#42 log updates,
   #5 `xtask` image-diff, #33 gallery publishing + doc-link CI, #34 TeX rendering path
   split, #38 `AGENTS.md` coordination rules, #39 wasm32 workspace check.
@@ -556,7 +556,8 @@ plan above stays the *intent* and this section is the *ground truth*).
   outlines, #53 render-independent math/raw-TeX span model.
 - **`rizzma-mathtext`:** #55 portable box-and-glue mathtext layout engine, #57 accents,
   expanded symbol coverage, and variant-agnostic geometry placement accessors, #61
-  `\left...\right` delimiter geometry and large operators.
+  `\left...\right` delimiter geometry and large operators, #64 radicals, `\text{...}`,
+  and broader named symbol coverage.
 - **`rizzma-artist`:** #13 `Artist`+`Line2D`, #16 `Patch`, #18 `MarkerStyle`,
   #21 `Collection`, #37 builder setter cleanup, #41 scatter marker sizing in device units,
   #54 `QuadMesh`.
@@ -566,7 +567,7 @@ plan above stays the *intent* and this section is the *ground truth*).
   #43 PNG-vs-SVG raster parity test for a renderer-seam scene, #47 pixel↔data
   coordinate inversion helpers for interaction, #51 `stem`/`stairs` Tier-2 plots,
   #52 `stackplot`/`broken_barh`, #54 `pcolormesh`, #56 `boxplot`, #58 mathtext in
-  `Axes` titles, #60 `contour`.
+  `Axes` titles, #60 `contour`, #63 `eventplot`/`fill_betweenx`/`ecdf`.
 - **`rizzma-pyplot`:** #26 stateful façade (`plot`/`scatter`/`bar`/`hist`/`savefig`/…).
 - **`rizzma-wasm`:** #40 render-to-straight-RGBA core plus wasm-only Canvas `ImageData`
   blit entry points, #45 browser demo page, #49 DOM event readout demo.
@@ -583,10 +584,10 @@ plan above stays the *intent* and this section is the *ground truth*).
   diff, but wasm canvas output is not yet in that harness.
 - headless wasm smoke and wasm canvas parity are still queued.
 - Portable mathtext now handles common inline expressions, fractions, scripts, accents,
-  `\left...\right` delimiter geometry, large operators, and common named symbols through
-  backend-independent paths. Remaining math fidelity work includes true extensible
-  delimiter assembly, display-mode operator placement, math italic/metrics, broader
-  TeX-subset coverage, and the optional native-TeX export backend.
+  radicals, `\text{...}`, `\left...\right` delimiter geometry, large operators, and
+  common named symbols through backend-independent paths. Remaining math fidelity work
+  includes true extensible delimiter assembly, display-mode operator placement, math
+  italic/metrics, broader TeX-subset coverage, and the optional native-TeX export backend.
 - Per-method `///` rustdoc examples + embedded gallery images still to backfill (see below).
 
 ### Documentation pattern: a rendered example per graphic type
@@ -613,11 +614,12 @@ the reference-line family, and every Tier-2+ method as it lands) gets:
 **Backlog (per-type doc examples + images).** Add a `gallery.rs` case, the doc example,
 and the embedded image for each, then let CI enforce the link/render consistency:
 `plot` ☑ · `scatter` ☑ · `bar` ☑ · `barh` ☑ · `hist` ☑ · `fill_between` ☑ · `step` ☑ ·
-`errorbar` ☑ · reference-lines/spans ☑ · `imshow` ☑ · `legend`+`colorbar` ☑  *(rendered
-in the gallery; per-method `///` doc examples + per-method embeds still to backfill)* —
-then every Tier-2/3 type (`loglog`/`semilog*`, `pcolormesh`, `contour`, `boxplot`, `pie`,
-`quiver`, `streamplot`, polar, 3D) ships its gallery case + doc example **in the same
-PR** that adds the method (Definition-of-Done addition).
+`errorbar` ☑ · reference-lines/spans ☑ · `imshow` ☑ · `legend`+`colorbar` ☑ ·
+`eventplot` ☑ · `fill_betweenx` ☑ · `ecdf` ☑  *(rendered in the gallery; per-method
+`///` doc examples + per-method embeds still to backfill)* — then every Tier-2/3 type
+(`loglog`/`semilog*`, `pcolormesh`, `contour`, `boxplot`, `pie`, `quiver`, `streamplot`,
+polar, 3D) ships its gallery case + doc example **in the same PR** that adds the method
+(Definition-of-Done addition).
 
 > DoD addendum: a PR that adds or changes a plotting method is not done until it adds the
 > matching `gallery.rs` case, a runnable `///` example, and the embedded image URL — CI's
