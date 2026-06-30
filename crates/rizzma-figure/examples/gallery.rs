@@ -384,5 +384,15 @@ fn main() {
         fig.save_png("target/gallery_hist2d.png").unwrap();
     }
 
+    // 26. pie
+    {
+        // A square figure so the equal-aspect pie reads as a clean circle.
+        let mut fig = Figure::new(4.0, 4.0);
+        let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+        ax.pie(&[35.0, 25.0, 20.0, 15.0, 5.0]);
+        ax.set_title("pie");
+        fig.save_png("target/gallery_pie.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

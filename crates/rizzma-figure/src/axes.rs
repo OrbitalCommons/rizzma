@@ -67,6 +67,14 @@ pub struct Axes {
     title: Option<String>,
     /// Whether to stroke the axes frame (border rectangle).
     frame: bool,
+    /// When `true`, the axes pixel rectangle is shrunk so data units span the
+    /// same number of pixels in x and y (matplotlib's `set_aspect("equal")`).
+    /// See [`Axes::set_aspect_equal`].
+    pub(crate) aspect_equal: bool,
+    /// Whether the frame stroke and the x/y axis spines (ticks, tick labels)
+    /// are drawn. When `false`, only the background, artists, and title appear.
+    /// See [`Axes::set_axis_off`].
+    pub(crate) axis_visible: bool,
     /// Index into the property color cycle, advanced as cycled colors are
     /// consumed (e.g. by [`Axes::bar`]).
     pub(crate) prop_cycle_index: usize,
@@ -140,6 +148,8 @@ impl Axes {
             yaxis: Axis::new(AxisSide::Left),
             title: None,
             frame: true,
+            aspect_equal: false,
+            axis_visible: true,
             prop_cycle_index: 0,
             span_lines: Vec::new(),
             span_rects: Vec::new(),
@@ -274,6 +284,54 @@ impl Axes {
         self
     }
 
+    /// Constrain the axes to an **equal** aspect ratio, so one data unit covers
+    /// the same number of pixels along x and y (matplotlib's
+    /// `set_aspect("equal")`).
+    ///
+    /// The pixel rectangle is computed normally, then the over-long dimension is
+    /// shrunk (centered within the original rect) until
+    /// `xrange / width == yrange / height` for the resolved effective limits.
+    /// This keeps circles round and is applied in the shared forward path, so
+    /// drawing and coordinate inversion stay consistent.
+    ///
+    /// ```
+    /// use rizzma_core::Bbox;
+    /// use rizzma_figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.set_xlim(-1.0, 1.0).set_ylim(-1.0, 1.0);
+    /// ax.set_aspect_equal();
+    /// ```
+    pub fn set_aspect_equal(&mut self) -> &mut Self {
+        self.aspect_equal = true;
+        self
+    }
+
+    /// Hide the axes frame and the x/y spines (ticks and tick labels).
+    ///
+    /// After this, [`draw`](Axes::draw) still paints the background, artists, and
+    /// title, but draws no border rectangle and no tick marks or tick labels —
+    /// matplotlib's `set_axis_off`. Re-enable with [`set_axis_on`](Axes::set_axis_on).
+    ///
+    /// ```
+    /// use rizzma_core::Bbox;
+    /// use rizzma_figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.set_axis_off();
+    /// ```
+    pub fn set_axis_off(&mut self) -> &mut Self {
+        self.axis_visible = false;
+        self
+    }
+
+    /// Show the axes frame and the x/y spines again, undoing
+    /// [`set_axis_off`](Axes::set_axis_off).
+    pub fn set_axis_on(&mut self) -> &mut Self {
+        self.axis_visible = true;
+        self
+    }
+
     /// The figure-fraction position of this axes.
     #[must_use]
     pub fn position(&self) -> Bbox {
@@ -366,13 +424,16 @@ impl Axes {
         fig_w_px: f64,
         fig_h_px: f64,
     ) -> (Bbox, Affine2D) {
-        let axes_px = Bbox::from_extents(
+        let mut axes_px = Bbox::from_extents(
             self.position.xmin() * fig_w_px,
             self.position.ymin() * fig_h_px,
             self.position.xmax() * fig_w_px,
             self.position.ymax() * fig_h_px,
         );
         let (xlim, ylim) = self.effective_limits();
+        if self.aspect_equal {
+            axes_px = equalize_aspect(&axes_px, xlim, ylim);
+        }
         let td = self.trans_data(&axes_px, xlim, ylim);
         (axes_px, td)
     }
@@ -465,17 +526,19 @@ impl Axes {
             renderer.draw_path(&gc, &path, &td, None);
         }
 
-        // 5. Stroke the frame.
-        if self.frame {
+        // 5. Stroke the frame (suppressed when the axis is turned off).
+        if self.frame && self.axis_visible {
             let frame_gc = GraphicsContext::new()
                 .with_stroke(Rgba::BLACK)
                 .with_line_width(0.8);
             renderer.draw_path(&frame_gc, &rect, &Affine2D::identity(), None);
         }
 
-        // 6. Draw the axes spines.
-        self.xaxis.draw(renderer, &axes_px, xlim, font);
-        self.yaxis.draw(renderer, &axes_px, ylim, font);
+        // 6. Draw the axes spines (suppressed when the axis is turned off).
+        if self.axis_visible {
+            self.xaxis.draw(renderer, &axes_px, xlim, font);
+            self.yaxis.draw(renderer, &axes_px, ylim, font);
+        }
 
         // 6a. Draw the legend box inside the upper-right of the axes.
         self.draw_legend(renderer, &axes_px, font);
@@ -513,6 +576,33 @@ fn rect_path(bbox: &Bbox) -> Path {
     let (x0, y0) = (bbox.xmin(), bbox.ymin());
     let (x1, y1) = (bbox.xmax(), bbox.ymax());
     Path::from_polyline(&[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]])
+}
+
+/// Shrink `rect` (centered within itself) so data-units-per-pixel are equal in
+/// x and y for the given effective limits.
+///
+/// The required pixels-per-data-unit is the smaller of the two axes' available
+/// scales; the over-long pixel dimension is reduced to match while staying
+/// centered on the original rectangle. The non-binding dimension is left intact.
+fn equalize_aspect(rect: &Bbox, xlim: (f64, f64), ylim: (f64, f64)) -> Bbox {
+    let xrange = xlim.1 - xlim.0;
+    let yrange = ylim.1 - ylim.0;
+    let (w, h) = (rect.width(), rect.height());
+    // Pixels per data unit currently afforded by each dimension.
+    let scale_x = w / xrange;
+    let scale_y = h / yrange;
+    // Use the tighter scale so the data fits, then size both dimensions to it.
+    let scale = scale_x.min(scale_y);
+    let new_w = xrange * scale;
+    let new_h = yrange * scale;
+    let cx = (rect.xmin() + rect.xmax()) / 2.0;
+    let cy = (rect.ymin() + rect.ymax()) / 2.0;
+    Bbox::from_extents(
+        cx - new_w / 2.0,
+        cy - new_h / 2.0,
+        cx + new_w / 2.0,
+        cy + new_h / 2.0,
+    )
 }
 
 /// Expand `(min, max)` outward by `margin` times the range on each side.
@@ -682,6 +772,53 @@ mod tests {
             line_stroke(&axes.lines[1]),
             Rgba::from_hex("#1f77b4").unwrap()
         );
+    }
+
+    #[test]
+    fn aspect_equal_yields_equal_data_units_per_pixel() {
+        // A wide, non-square axes with equal x/y data ranges: without equal
+        // aspect the x and y pixel scales differ; with it they match.
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.set_xlim(-1.0, 1.0).set_ylim(-1.0, 1.0);
+        let (fig_w, fig_h) = (400.0, 200.0);
+
+        let (_, td_default) = axes.pixel_rect_and_trans_data(fig_w, fig_h);
+        let sx =
+            td_default.transform_point((1.0, 0.0)).0 - td_default.transform_point((0.0, 0.0)).0;
+        let sy =
+            td_default.transform_point((0.0, 1.0)).1 - td_default.transform_point((0.0, 0.0)).1;
+        assert!(
+            (sx - sy).abs() > 1.0,
+            "default (non-equal) scales should differ: sx={sx}, sy={sy}"
+        );
+
+        axes.set_aspect_equal();
+        let (_, td_equal) = axes.pixel_rect_and_trans_data(fig_w, fig_h);
+        let ex = td_equal.transform_point((1.0, 0.0)).0 - td_equal.transform_point((0.0, 0.0)).0;
+        let ey = td_equal.transform_point((0.0, 1.0)).1 - td_equal.transform_point((0.0, 0.0)).1;
+        approx(ex, ey);
+    }
+
+    #[test]
+    fn default_aspect_leaves_rect_unchanged() {
+        // With no equal-aspect request the resolved rect spans the full
+        // figure-fraction position exactly.
+        let axes = Axes::new(Bbox::from_extents(0.1, 0.2, 0.9, 0.8));
+        let (rect, _) = axes.pixel_rect_and_trans_data(400.0, 200.0);
+        approx(rect.xmin(), 40.0);
+        approx(rect.xmax(), 360.0);
+        approx(rect.ymin(), 40.0);
+        approx(rect.ymax(), 160.0);
+    }
+
+    #[test]
+    fn axis_off_then_on_toggles_visibility() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        assert!(axes.axis_visible);
+        axes.set_axis_off();
+        assert!(!axes.axis_visible);
+        axes.set_axis_on();
+        assert!(axes.axis_visible);
     }
 
     #[test]
