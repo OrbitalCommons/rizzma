@@ -27,8 +27,10 @@ every push to `main` and published to the `gh-pages` branch (so these images nev
 | `barh` | `hist` | `fill_between` |
 | ![step](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_step.png) | ![errorbar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_errorbar.png) | ![reference lines](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_reflines.png) |
 | `step` | `errorbar` | reference lines / spans |
-| ![imshow](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_imshow.png) | ![legend + colorbar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_legend_colorbar.png) | |
-| `imshow` | `legend` + `colorbar` | |
+| ![imshow](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_imshow.png) | ![legend + colorbar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_legend_colorbar.png) | ![stem](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stem.png) |
+| `imshow` | `legend` + `colorbar` | `stem` |
+| ![stairs](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_stairs.png) | | |
+| `stairs` | | |
 
 Regenerate locally with `cargo run -p rizzma-figure --example gallery` (writes
 `target/gallery_*.png`).
