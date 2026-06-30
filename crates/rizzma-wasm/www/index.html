@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>rizzma-wasm canvas demo</title>
+    <style>
+      body {
+        background: #1a1b26;
+        color: #c0caf5;
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+      }
+      canvas {
+        background: #fff;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      }
+      .caption {
+        font-size: 0.9rem;
+        opacity: 0.8;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="plot" width="640" height="480"></canvas>
+    <p class="caption">Rendered by <code>rizzma-wasm</code> (tiny-skia &rarr; ImageData).</p>
+    <script type="module">
+      import init, { draw_sample_to_canvas } from "./pkg/rizzma_wasm.js";
+      await init();
+      draw_sample_to_canvas("plot");
+    </script>
+  </body>
+</html>
