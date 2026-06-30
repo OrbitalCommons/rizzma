@@ -24,6 +24,7 @@
 //! - [`FixedLocator`] — a fixed set of positions (optionally subsampled).
 //! - [`LogLocator`] — logarithmic ticks at powers of a base, optionally with
 //!   subticks.
+//! - [`SymlogLocator`] — symmetric-log ticks with a linear region around zero.
 //! - [`NullLocator`] — no ticks.
 //!
 //! # Formatters
@@ -34,6 +35,7 @@
 //! - [`ScalarFormatter`] — picks significant figures from the tick spacing.
 //! - [`LogFormatter`] — labels logarithmic major ticks.
 //! - [`LogFormatterMathtext`] — labels large logarithmic powers as mathtext.
+//! - [`SymlogFormatter`] — labels symmetric-log ticks across zero.
 //! - [`NullFormatter`] — always the empty string.
 //! - [`FixedFormatter`] — fixed strings indexed by position.
 //! - [`FuncFormatter`] — a user-supplied boxed closure.
@@ -708,6 +710,145 @@ impl Locator for LogLocator {
     }
 }
 
+/// Place ticks on a symmetric-log axis.
+///
+/// Ticks are generated in three bands: negative logarithmic tail, a linear
+/// region spanning `[-linthresh, linthresh]`, and positive logarithmic tail.
+/// This mirrors the structure of matplotlib's symlog scale while remaining
+/// independent of any concrete axis wiring.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SymlogLocator {
+    base: f64,
+    linthresh: f64,
+    linear_ticks: usize,
+}
+
+impl SymlogLocator {
+    /// Construct a symlog locator.
+    ///
+    /// `base` must be finite and greater than one; `linthresh` must be finite
+    /// and positive. The linear region defaults to ticks at
+    /// `-linthresh`, `0`, and `linthresh`.
+    pub fn new(base: f64, linthresh: f64) -> Self {
+        Self::with_linear_ticks(base, linthresh, 3)
+    }
+
+    /// Construct a symlog locator with explicit linear-region tick count.
+    ///
+    /// `linear_ticks` is clamped to at least 2 so both edges of the linear
+    /// region can be represented when visible.
+    pub fn with_linear_ticks(base: f64, linthresh: f64, linear_ticks: usize) -> Self {
+        assert!(
+            base.is_finite() && base > 1.0,
+            "symlog locator base must be finite and > 1"
+        );
+        assert!(
+            linthresh.is_finite() && linthresh > 0.0,
+            "symlog locator linthresh must be finite and > 0"
+        );
+        SymlogLocator {
+            base,
+            linthresh,
+            linear_ticks: linear_ticks.max(2),
+        }
+    }
+
+    /// Return this locator's logarithm base.
+    #[must_use]
+    pub fn base(&self) -> f64 {
+        self.base
+    }
+
+    /// Return this locator's half-width of the linear region around zero.
+    #[must_use]
+    pub fn linthresh(&self) -> f64 {
+        self.linthresh
+    }
+}
+
+impl Default for SymlogLocator {
+    /// Default base-10 locator with `linthresh = 1`.
+    fn default() -> Self {
+        Self::new(10.0, 1.0)
+    }
+}
+
+impl Locator for SymlogLocator {
+    fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
+        if !vmin.is_finite() || !vmax.is_finite() {
+            return Vec::new();
+        }
+
+        let (lo, hi, reversed) = if vmin <= vmax {
+            (vmin, vmax, false)
+        } else {
+            (vmax, vmin, true)
+        };
+        let mut ticks = Vec::new();
+
+        if lo < -self.linthresh {
+            let max_abs = (-lo).max(self.linthresh);
+            let max_exp = (max_abs / self.linthresh).log(self.base).ceil() as i32;
+            for exponent in (1..=max_exp).rev() {
+                let tick = -self.linthresh * self.base.powi(exponent);
+                if tick >= lo * (1.0 + 1e-12) && tick <= hi * (1.0 - 1e-12) {
+                    ticks.push(tick);
+                }
+            }
+        }
+
+        let linear_lo = lo.max(-self.linthresh);
+        let linear_hi = hi.min(self.linthresh);
+        if linear_lo <= linear_hi {
+            let step = 2.0 * self.linthresh / (self.linear_ticks - 1) as f64;
+            for i in 0..self.linear_ticks {
+                let tick = -self.linthresh + i as f64 * step;
+                if tick >= linear_lo - 1e-12 && tick <= linear_hi + 1e-12 {
+                    ticks.push(if tick.abs() < 1e-12 { 0.0 } else { tick });
+                }
+            }
+        }
+
+        if hi > self.linthresh {
+            let max_exp = (hi / self.linthresh).log(self.base).ceil() as i32;
+            for exponent in 1..=max_exp {
+                let tick = self.linthresh * self.base.powi(exponent);
+                if tick >= lo * (1.0 - 1e-12) && tick <= hi * (1.0 + 1e-12) {
+                    ticks.push(tick);
+                }
+            }
+        }
+
+        ticks.sort_by(|a, b| a.partial_cmp(b).expect("finite ticks are comparable"));
+        ticks.dedup_by(|a, b| (*a - *b).abs() <= 1e-12 * a.abs().max(b.abs()).max(1.0));
+        if reversed {
+            ticks.reverse();
+        }
+        ticks
+    }
+
+    fn view_limits(&self, vmin: f64, vmax: f64) -> (f64, f64) {
+        let (lo, hi) = nonsingular(vmin, vmax, self.linthresh, 1e-13, true);
+        let ticks = self.tick_values(lo, hi);
+        match (ticks.first(), ticks.last()) {
+            (Some(first), Some(last)) => {
+                if vmin <= vmax {
+                    (*first, *last)
+                } else {
+                    (*last, *first)
+                }
+            }
+            _ => {
+                if vmin <= vmax {
+                    (-self.linthresh, self.linthresh)
+                } else {
+                    (self.linthresh, -self.linthresh)
+                }
+            }
+        }
+    }
+}
+
 /// Place no ticks at all.
 ///
 /// Port of matplotlib's `NullLocator`.
@@ -913,6 +1054,80 @@ impl Formatter for LogFormatterMathtext {
         };
 
         self.inner.format_exponent(exponent, true)
+    }
+}
+
+/// Format symmetric-log tick values.
+///
+/// Values in the linear region are formatted as plain decimals. Exact
+/// logarithmic tail ticks are labelled as signed powers of `base` when
+/// `linthresh == 1`; for other thresholds they fall back to decimal labels.
+/// Off-lattice values return an empty label, which is suitable for minor ticks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SymlogFormatter {
+    base: f64,
+    linthresh: f64,
+}
+
+impl SymlogFormatter {
+    /// Construct a symlog formatter.
+    ///
+    /// `base` must be finite and greater than one; `linthresh` must be finite
+    /// and positive.
+    pub fn new(base: f64, linthresh: f64) -> Self {
+        assert!(
+            base.is_finite() && base > 1.0,
+            "symlog formatter base must be finite and > 1"
+        );
+        assert!(
+            linthresh.is_finite() && linthresh > 0.0,
+            "symlog formatter linthresh must be finite and > 0"
+        );
+        SymlogFormatter { base, linthresh }
+    }
+
+    fn tail_exponent(&self, value: f64) -> Option<i32> {
+        if !value.is_finite() || value.abs() <= self.linthresh {
+            return None;
+        }
+        let abs = value.abs();
+        let exponent = (abs / self.linthresh).log(self.base).round();
+        let tick = self.linthresh * self.base.powf(exponent);
+        let rel = ((abs - tick) / tick).abs();
+        if rel <= 1e-10 {
+            Some(exponent as i32)
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for SymlogFormatter {
+    /// Default base-10 formatter with `linthresh = 1`.
+    fn default() -> Self {
+        Self::new(10.0, 1.0)
+    }
+}
+
+impl Formatter for SymlogFormatter {
+    fn format(&self, value: f64, _pos: Option<usize>) -> String {
+        if !value.is_finite() {
+            return String::new();
+        }
+        if value.abs() <= self.linthresh * (1.0 + 1e-12) {
+            return format_decimal(if value.abs() < 1e-12 { 0.0 } else { value });
+        }
+
+        let Some(exponent) = self.tail_exponent(value) else {
+            return String::new();
+        };
+        if (self.linthresh - 1.0).abs() > 1e-12 {
+            return format_decimal(value);
+        }
+
+        let sign = if value.is_sign_negative() { "-" } else { "" };
+        let label = LogFormatter::new(self.base).format_exponent(exponent, false);
+        format!("{sign}{label}")
     }
 }
 
@@ -1216,6 +1431,59 @@ mod tests {
 
         assert_eq!(formatter.format(8.0, None), "8");
         assert_eq!(formatter.format(128.0, None), "$2^{7}$");
+    }
+
+    #[test]
+    fn symlog_locator_spans_negative_linear_and_positive_regions() {
+        let locs = SymlogLocator::new(10.0, 1.0).tick_values(-100.0, 100.0);
+
+        assert_ticks(&locs, &[-100.0, -10.0, -1.0, 0.0, 1.0, 10.0, 100.0]);
+    }
+
+    #[test]
+    fn symlog_locator_honors_base_and_linthresh() {
+        let locs = SymlogLocator::new(2.0, 0.5).tick_values(-4.0, 4.0);
+
+        assert_ticks(&locs, &[-4.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 4.0]);
+    }
+
+    #[test]
+    fn symlog_locator_handles_reversed_ranges() {
+        let locs = SymlogLocator::new(10.0, 1.0).tick_values(100.0, -100.0);
+
+        assert_ticks(&locs, &[100.0, 10.0, 1.0, 0.0, -1.0, -10.0, -100.0]);
+    }
+
+    #[test]
+    fn symlog_locator_rejects_nonfinite_domain() {
+        assert!(
+            SymlogLocator::new(10.0, 1.0)
+                .tick_values(f64::NEG_INFINITY, 100.0)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn symlog_formatter_labels_linear_and_tail_ticks() {
+        let formatter = SymlogFormatter::new(10.0, 1.0);
+
+        assert_eq!(formatter.format(-100.0, None), "-100");
+        assert_eq!(formatter.format(-1.0, None), "-1");
+        assert_eq!(formatter.format(0.0, None), "0");
+        assert_eq!(formatter.format(1.0, None), "1");
+        assert_eq!(formatter.format(100.0, None), "100");
+        assert_eq!(formatter.format(20.0, None), "");
+        assert_eq!(formatter.format(1e6, None), "10^{6}");
+        assert_eq!(formatter.format(-1e6, None), "-10^{6}");
+    }
+
+    #[test]
+    fn symlog_formatter_nonunit_linthresh_uses_decimal_tail_labels() {
+        let formatter = SymlogFormatter::new(10.0, 2.0);
+
+        assert_eq!(formatter.format(2.0, None), "2");
+        assert_eq!(formatter.format(20.0, None), "20");
+        assert_eq!(formatter.format(40.0, None), "");
     }
 
     #[test]
