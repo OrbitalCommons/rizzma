@@ -793,6 +793,9 @@ version = "0.0.0"
 [[package]]
 name = "rizzma-figure"
 version = "0.0.0"
+dependencies = [
+ "rizzma-core",
+]
 
 [[package]]
 name = "rizzma-mathtext"
