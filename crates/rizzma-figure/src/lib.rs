@@ -1,15 +1,21 @@
 //! Figure and layout scaffolding for rizzma.
 //!
-//! This crate currently provides [`GridSpec`] subplot geometry: the
+//! This crate provides [`GridSpec`] subplot geometry plus the integration core,
+//! [`Figure`] and [`Axes`], that ties the artist, axis, text, and raster crates
+//! together into "a line on labeled axes → PNG". [`GridSpec`] supplies the
 //! figure-fraction arithmetic that positions a regular grid of cells and
 //! resolves individual cells or multi-cell spans ([`SubplotSpec`]) to
-//! rectangles. `Figure`/`SubFigure`, the `Axes` base, layout engines,
-//! `Legend`, and `Colorbar` are follow-ups.
+//! rectangles. `SubFigure`, layout engines, `Legend`, and `Colorbar` are
+//! follow-ups.
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
+mod axes;
+mod figure;
 mod gridspec;
 mod subplotspec;
 
+pub use axes::Axes;
+pub use figure::Figure;
 pub use gridspec::GridSpec;
 pub use subplotspec::SubplotSpec;
