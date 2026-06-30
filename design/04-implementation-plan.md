@@ -485,3 +485,36 @@ and numeric-parity tests are the throttle that keeps parallel work honest.
 > Cross-references: build order ↔ doc 01 §11.7 & doc 03 §13; crate↔crate mapping ↔
 > doc 03 §12; plot tiers ↔ doc 02 §5–7; the renderer-seam-is-the-only-sacred-abstraction
 > principle ↔ doc 01 §11.2/§11.6.
+
+---
+
+## 11. Execution log & locked decisions
+
+A running record of what's actually been built and the concrete decisions taken (so the
+plan above stays the *intent* and this section is the *ground truth*).
+
+### Locked decisions (Phase 0)
+- **Edition 2024, resolver 3.** Workspace pins the **current stable** toolchain via
+  `rust-toolchain.toml` (`rust-version = "1.96"`); bump in lockstep with new stables.
+- **No `unsafe` by default**, clippy `all = warn` inherited via `[workspace.lints]`; CI
+  runs `-D warnings`.
+- **Two extra crates beyond doc §2:** an umbrella **`rizzma`** crate (public facade +
+  crates.io name reservation) and an **`xtask`** automation crate (image-diff harness).
+- **crates.io name reserved:** `rizzma` v0.0.1 published as a placeholder.
+- **Repo policy:** `main` is **squash-only** (merge/rebase disabled, branch auto-deleted),
+  protected with required CI check `fmt + clippy + test`, linear history, non-strict
+  (so independent crate PRs can auto-merge in parallel). Admin bypass retained as an
+  escape hatch.
+- **Workflow:** every change on a `meawoppl/*` branch → PR → auto-merge on green CI.
+
+### Status by PR
+- **PR-01 (scaffold/CI/harness)** — ✅ merged (#1). Workspace, CI, toolchain pin, README.
+- **Geometry foundation** (`Affine2D` + `Bbox`, part of PR-03) — 🚧 in flight.
+- **Axis ticker** (locators + formatters, PR-23/24) — 🚧 in flight (pulled earlier than the
+  strict DAG order; it is self-contained and unblocks Axis work).
+- **xtask image-diff harness** (PR-13 substrate) — 🚧 in flight.
+- License files + housekeeping — 🚧 small out-of-DAG correctness PRs.
+
+> Note: the DAG order is a guide, not a straitjacket. Self-contained leaves (ticker, the
+> diff harness) are being pulled forward to maximize parallelism while the critical-path
+> spine (geometry → renderer → artists → axes → figure) proceeds.
