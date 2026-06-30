@@ -39,6 +39,7 @@
 //! - [`SymlogFormatter`] — labels symmetric-log ticks across zero.
 //! - [`SymlogFormatterMathtext`] — labels large symmetric-log powers as mathtext.
 //! - [`LogitFormatter`] — labels probability ticks on a logit scale.
+//! - [`LogitFormatterMathtext`] — labels logit probability tails as mathtext.
 //! - [`EngFormatter`] — labels values with SI engineering prefixes.
 //! - [`PercentFormatter`] — labels values as percentages.
 //! - [`NullFormatter`] — always the empty string.
@@ -1377,6 +1378,65 @@ impl Formatter for LogitFormatter {
     }
 }
 
+/// Format logit/probability tick values with mathtext tail labels.
+///
+/// This preserves [`LogitFormatter`]'s compact decimal labels for `0.1`,
+/// `0.5`, and `0.9`, while wrapping smaller lower-tail labels and mirrored
+/// upper-tail labels in `$...$` so rich-text rendering can draw superscripts.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LogitFormatterMathtext {
+    inner: LogitFormatter,
+}
+
+impl LogitFormatterMathtext {
+    /// Construct a logit mathtext formatter with powers through `1e-6`.
+    pub fn new() -> Self {
+        Self::with_max_exponent(6)
+    }
+
+    /// Construct a logit mathtext formatter with powers through
+    /// `10^-max_exponent`.
+    ///
+    /// `max_exponent` is clamped to at least 1.
+    pub fn with_max_exponent(max_exponent: i32) -> Self {
+        Self {
+            inner: LogitFormatter::with_max_exponent(max_exponent),
+        }
+    }
+}
+
+impl Default for LogitFormatterMathtext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Formatter for LogitFormatterMathtext {
+    fn format(&self, value: f64, _pos: Option<usize>) -> String {
+        if !value.is_finite() {
+            return String::new();
+        }
+        if (value - 0.5).abs() <= 1e-12 {
+            return "1/2".to_owned();
+        }
+        if let Some(exponent) = self.inner.lower_exponent(value) {
+            return if exponent == 1 {
+                "0.1".to_owned()
+            } else {
+                format!("$10^{{-{exponent}}}$")
+            };
+        }
+        if let Some(exponent) = self.inner.upper_exponent(value) {
+            return if exponent == 1 {
+                "0.9".to_owned()
+            } else {
+                format!("$1-10^{{-{exponent}}}$")
+            };
+        }
+        String::new()
+    }
+}
+
 /// Format values in engineering notation with SI prefixes.
 ///
 /// Exponents are multiples of three, clamped to the standard SI prefix range
@@ -1961,6 +2021,18 @@ mod tests {
         assert_eq!(formatter.format(0.5, None), "1/2");
         assert_eq!(formatter.format(0.9, None), "0.9");
         assert_eq!(formatter.format(0.99, None), "1-10^{-2}");
+        assert_eq!(formatter.format(0.2, None), "");
+    }
+
+    #[test]
+    fn logit_formatter_mathtext_wraps_tail_labels() {
+        let formatter = LogitFormatterMathtext::with_max_exponent(4);
+
+        assert_eq!(formatter.format(0.1, None), "0.1");
+        assert_eq!(formatter.format(0.01, None), "$10^{-2}$");
+        assert_eq!(formatter.format(0.5, None), "1/2");
+        assert_eq!(formatter.format(0.9, None), "0.9");
+        assert_eq!(formatter.format(0.99, None), "$1-10^{-2}$");
         assert_eq!(formatter.format(0.2, None), "");
     }
 

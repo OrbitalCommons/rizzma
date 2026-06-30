@@ -39,6 +39,8 @@
 //! | [`Axes::loglog`] | [`Axes::quiver`] | [`Axes::streamplot`] |
 //! | ![triplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_triplot.png) | ![tripcolor](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_tripcolor.png) | ![symlog](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_symlog.png) |
 //! | [`Axes::triplot`] | [`Axes::tripcolor`] | [`Axes::symlogy`] |
+//! | ![logit](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_logit.png) | | |
+//! | [`Axes::logity`] | | |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
