@@ -485,5 +485,24 @@ fn main() {
         fig.save_png("target/gallery_loglog.png").unwrap();
     }
 
+    // 31. quiver (rotational vector field u = -y, v = x over a grid)
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let coords = linspace(-3.0, 3.0, 7);
+        let (mut x, mut y, mut u, mut v) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for &gy in &coords {
+            for &gx in &coords {
+                x.push(gx);
+                y.push(gy);
+                u.push(-gy);
+                v.push(gx);
+            }
+        }
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.quiver(&x, &y, &u, &v);
+        ax.set_title("quiver");
+        fig.save_png("target/gallery_quiver.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
