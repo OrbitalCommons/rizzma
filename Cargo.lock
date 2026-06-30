@@ -944,6 +944,10 @@ dependencies = [
 [[package]]
 name = "rizzma-mathtext"
 version = "0.0.0"
+dependencies = [
+ "rizzma-core",
+ "rizzma-text",
+]
 
 [[package]]
 name = "rizzma-plot"
