@@ -800,7 +800,12 @@ version = "0.0.0"
 name = "rizzma-figure"
 version = "0.0.0"
 dependencies = [
+ "rizzma-artist",
+ "rizzma-axis",
  "rizzma-core",
+ "rizzma-render",
+ "rizzma-skia",
+ "rizzma-text",
 ]
 
 [[package]]
