@@ -931,6 +931,7 @@ dependencies = [
 name = "rizzma-figure"
 version = "0.0.0"
 dependencies = [
+ "resvg",
  "rizzma-artist",
  "rizzma-axis",
  "rizzma-core",

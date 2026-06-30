@@ -18,3 +18,6 @@ rizzma-render = { version = "0.0.0", path = "../rizzma-render" }
 rizzma-skia = { version = "0.0.0", path = "../rizzma-skia" }
 rizzma-svg = { version = "0.0.0", path = "../rizzma-svg" }
 rizzma-text = { version = "0.0.0", path = "../rizzma-text" }
+
+[dev-dependencies]
+resvg = { version = "0.47.0", default-features = false }
