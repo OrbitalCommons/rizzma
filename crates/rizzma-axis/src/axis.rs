@@ -17,6 +17,7 @@
 //! (decreasing x). [`AxisSide::Top`] and [`AxisSide::Right`] mirror these.
 
 use rizzma_core::{Affine2D, Bbox, Path, color::Rgba};
+use rizzma_mathtext::layout_rich_text;
 use rizzma_render::{GraphicsContext, Renderer};
 use rizzma_text::FontSource;
 
@@ -334,11 +335,18 @@ impl Axis {
             if text.is_empty() {
                 continue;
             }
-            let extent = font.measure(&text, self.label_size);
+            let rich = layout_rich_text(font, &text, self.label_size);
             let p = self.data_to_pixel(t, axes_bbox, vmin, vmax);
-            let origin = self.label_origin(axes_bbox, p, extent.width, extent.ascent);
-            let path = font.text_to_path(&text, self.label_size, origin);
-            renderer.draw_path(&gc, &path, &Affine2D::identity(), Some(self.color));
+            let origin = self.label_origin(axes_bbox, p, rich.width, rich.ascent);
+            let shift = Affine2D::from_translation(origin[0], origin[1]);
+            for path in &rich.paths {
+                renderer.draw_path(
+                    &gc,
+                    &path.transformed(&shift),
+                    &Affine2D::identity(),
+                    Some(self.color),
+                );
+            }
         }
     }
 
@@ -420,6 +428,7 @@ impl Axis {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ticker::{FixedFormatter, FixedLocator};
 
     /// A [`Renderer`] that counts `draw_path` calls and records the bbox of each
     /// path's vertices (after applying the transform), for assertions.
@@ -502,6 +511,25 @@ mod tests {
         assert!(
             r.verts.iter().any(|&[x, _]| x < 50.0),
             "expected ink left of the left spine"
+        );
+    }
+
+    #[test]
+    fn tick_labels_render_mathtext_formatter_output() {
+        let axis = Axis::new(AxisSide::Bottom)
+            .with_locator(Box::new(FixedLocator::new(vec![1.0])))
+            .with_formatter(Box::new(FixedFormatter::new(vec!["$10^{6}$".to_string()])));
+        let bbox = Bbox::from_extents(50.0, 50.0, 250.0, 250.0);
+        let font = FontSource::dejavu_sans();
+        let mut r = CountingRenderer::default();
+        axis.draw(&mut r, &bbox, (1.0, 1.0), &font);
+
+        // spine + tick + multiple mathtext glyph paths. The old plain-text
+        // route emitted only one label path containing literal '$' and braces.
+        assert!(
+            r.paths > 3,
+            "expected mathtext label to emit multiple paths, got {}",
+            r.paths
         );
     }
 }

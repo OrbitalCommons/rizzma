@@ -13,6 +13,7 @@ workspace = true
 [dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 rizzma-core = { version = "0.0.0", path = "../rizzma-core" }
+rizzma-mathtext = { version = "0.0.0", path = "../rizzma-mathtext" }
 rizzma-render = { version = "0.0.0", path = "../rizzma-render" }
 rizzma-text = { version = "0.0.0", path = "../rizzma-text" }
 
