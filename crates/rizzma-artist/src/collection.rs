@@ -147,24 +147,29 @@ impl Collection {
     fn size_at(&self, i: usize) -> f64 {
         broadcast(&self.sizes, i).unwrap_or(DEFAULT_SIZE)
     }
-}
 
-/// Index `values` at `i` modulo its length, broadcasting a length-1 vector to
-/// every index. Returns `None` for an empty vector.
-fn broadcast<T: Copy>(values: &[T], i: usize) -> Option<T> {
-    if values.is_empty() {
-        None
-    } else {
-        Some(values[i % values.len()])
+    /// Marker offsets in raw data coordinates.
+    #[must_use]
+    pub fn offsets(&self) -> &[[f64; 2]] {
+        &self.offsets
     }
-}
 
-impl Artist for Collection {
-    fn draw(&self, renderer: &mut dyn Renderer, transform: &Affine2D) {
+    /// Draw this collection with caller-supplied data offsets.
+    ///
+    /// The marker glyphs, sizes, colors, and z-order stay owned by the
+    /// collection; only the data-space placement coordinates are substituted.
+    /// This lets an owning axes pre-transform nonlinear-scale offsets while
+    /// preserving point-size marker semantics.
+    pub fn draw_with_offsets(
+        &self,
+        renderer: &mut dyn Renderer,
+        offsets: &[[f64; 2]],
+        transform: &Affine2D,
+    ) {
         if !self.visible {
             return;
         }
-        for (i, &[x, y]) in self.offsets.iter().enumerate() {
+        for (i, &[x, y]) in offsets.iter().enumerate() {
             if !x.is_finite() || !y.is_finite() {
                 continue;
             }
@@ -182,6 +187,22 @@ impl Artist for Collection {
             };
             renderer.draw_path(&gc, &self.marker, &point_transform, self.facecolor_at(i));
         }
+    }
+}
+
+/// Index `values` at `i` modulo its length, broadcasting a length-1 vector to
+/// every index. Returns `None` for an empty vector.
+fn broadcast<T: Copy>(values: &[T], i: usize) -> Option<T> {
+    if values.is_empty() {
+        None
+    } else {
+        Some(values[i % values.len()])
+    }
+}
+
+impl Artist for Collection {
+    fn draw(&self, renderer: &mut dyn Renderer, transform: &Affine2D) {
+        self.draw_with_offsets(renderer, &self.offsets, transform);
     }
 
     fn zorder(&self) -> f64 {
