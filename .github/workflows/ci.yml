@@ -38,3 +38,18 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --all-features
+
+      # Doc consistency: render the gallery, then verify every `gallery_*.png`
+      # referenced in the README / doc comments is actually produced by the
+      # gallery example (catches typo'd or stale image URLs).
+      - name: Render gallery
+        run: cargo run -p rizzma-figure --example gallery
+
+      - name: Check gallery doc links
+        run: cargo xtask check-gallery-links --strict
+
+      # Broken intra-doc links (and other rustdoc warnings) fail the build.
+      - name: Docs
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings

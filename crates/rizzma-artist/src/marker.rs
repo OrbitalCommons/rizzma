@@ -6,7 +6,7 @@
 //! matching matplotlib's unit markers, so the marker spans about `1.0` unit
 //! across.
 //!
-//! The paths are meant to be fed to [`Renderer::draw_markers`], one marker
+//! The paths are meant to be fed to [`Renderer::draw_markers`](rizzma_render::Renderer::draw_markers), one marker
 //! instance per data point: scale the unit path to the desired point size with
 //! [`MarkerStyle::scaled`], then let the renderer translate a copy to each data
 //! location.
@@ -72,7 +72,7 @@ impl MarkerStyle {
 
     /// The unit marker path, centered on the origin in y-up unit space.
     ///
-    /// Feed a [`scaled`](Self::scaled) copy to [`Renderer::draw_markers`].
+    /// Feed a [`scaled`](Self::scaled) copy to [`Renderer::draw_markers`](rizzma_render::Renderer::draw_markers).
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
@@ -88,7 +88,7 @@ impl MarkerStyle {
     ///
     /// The unit marker spans about `1.0` unit, so `size` is the marker's
     /// device-space span. The result stays centered on the origin and is meant
-    /// to be passed to [`Renderer::draw_markers`], which places one copy at each
+    /// to be passed to [`Renderer::draw_markers`](rizzma_render::Renderer::draw_markers), which places one copy at each
     /// data point.
     #[must_use]
     pub fn scaled(&self, size: f64) -> Path {

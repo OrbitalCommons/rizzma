@@ -320,7 +320,7 @@ impl Renderer for SkiaRenderer {
     ///
     /// `gc.alpha` is honored as a global opacity via [`PixmapPaint::opacity`],
     /// and `gc.clip_rect` clips the blit. (`gc.clip_path` is not yet honored;
-    /// see [`SkiaRenderer::clip_mask`].)
+    /// see the private `clip_mask` helper.)
     fn draw_image(
         &mut self,
         gc: &GraphicsContext,

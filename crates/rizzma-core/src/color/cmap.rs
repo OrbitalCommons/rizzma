@@ -91,7 +91,7 @@ impl LinearSegmentedColormap {
     ///
     /// This is the form used by listed data such as viridis: each row gives the
     /// `(r, g, b)` color at an evenly spaced position, and the lookup tables are
-    /// resampled to [`LUT_SIZE`] entries.
+    /// resampled to `LUT_SIZE` entries.
     #[must_use]
     pub fn from_rgb_table(table: &[[f64; 3]]) -> Self {
         let n = table.len();

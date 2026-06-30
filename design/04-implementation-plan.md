@@ -535,14 +535,51 @@ plan above stays the *intent* and this section is the *ground truth*).
 - **`rizzma-pyplot`:** #26 stateful façade (`plot`/`scatter`/`bar`/`hist`/`savefig`/…).
 
 ### Known gaps / cleanups queued
-- `Axes::plot` should apply the prop-cycle (first line currently defaults to black, not C0).
+- ✅ ~~`Axes::plot` prop-cycle~~ (done #30) and ~~skia `draw_image`~~ (done #29).
 - `Patch` `zorder`/`visible` setters shadow the `Artist` trait getters (sharp edge).
-- skia `draw_image`/`draw_text` are still TODO stubs (text renders as paths today).
+- skia `draw_text` is still a TODO stub (text renders as glyph paths today, which is fine).
+- `scatter_mapped` default marker size is oversized for dense data (markers merge into a band).
+- Per-method `///` rustdoc examples + embedded gallery images still to backfill (see below).
+
+### Documentation pattern: a rendered example per graphic type
+
+**Standard (apply to every plot type, existing and new).** Each public plotting
+method (`Axes::plot`, `scatter`, `bar`, `hist`, `fill_between`, `errorbar`, `imshow`,
+the reference-line family, and every Tier-2+ method as it lands) gets:
+
+1. **A runnable rustdoc example** in its `///` docs — a small ```` ```no_run ```` (or
+   doctest) snippet that builds a `Figure`, calls the method, and `save_png`s it, so
+   the docs double as copy-paste recipes and compile under `cargo test --doc`.
+2. **An embedded result image** via the gallery pattern: one figure per type is rendered
+   by [`crates/rizzma-figure/examples/gallery.rs`], published to the orphan `gh-pages`
+   branch by `.github/workflows/gallery.yml` (`force_orphan: true`, so no binaries enter
+   any tree's history), and referenced from the method's doc comment as
+   `![type](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_<type>.png)`.
+3. **CI consistency guards** (already wired into the required `fmt + clippy + test` job):
+   - `cargo xtask check-gallery-links --strict` — every `gallery_*.png` referenced in a
+     README/doc must actually be produced by `gallery.rs`, and every generated image must
+     be referenced (no typo'd, stale, or orphaned image URLs).
+   - `cargo doc --workspace --no-deps` under `RUSTDOCFLAGS=-D warnings` — broken/private
+     intra-doc links fail the build.
+
+**Backlog (per-type doc examples + images).** Add a `gallery.rs` case, the doc example,
+and the embedded image for each, then let CI enforce the link/render consistency:
+`plot` ☑ · `scatter` ☑ · `bar` ☑ · `barh` ☑ · `hist` ☑ · `fill_between` ☑ · `step` ☑ ·
+`errorbar` ☑ · reference-lines/spans ☑ · `imshow` ☑ · `legend`+`colorbar` ☑  *(rendered
+in the gallery; per-method `///` doc examples + per-method embeds still to backfill)* —
+then every Tier-2/3 type (`loglog`/`semilog*`, `pcolormesh`, `contour`, `boxplot`, `pie`,
+`quiver`, `streamplot`, polar, 3D) ships its gallery case + doc example **in the same PR**
+that adds the method (Definition-of-Done addition).
+
+> DoD addendum: a PR that adds or changes a plotting method is not done until it adds the
+> matching `gallery.rs` case, a runnable `///` example, and the embedded image URL — CI's
+> `check-gallery-links` + `cargo doc -D warnings` will fail otherwise.
 
 ### Next
 - M4: wasm `<canvas>` backend + demo. Quality: prop-cycle in `plot`, `draw_image` (→ `imshow`).
 - Tier-2: log-scale axes (`loglog`/`semilog*`), `imshow`, `pcolormesh`, `contour`, `boxplot`,
   `pie`. Then `mathtext`, dates-on-axes, polar, PDF, 3D.
+- Backfill per-method rustdoc examples + embedded images per the pattern above.
 
 > Note: the DAG order is a guide, not a straitjacket. Self-contained leaves are pulled
 > forward to maximize parallelism (often 3–4 worktree-isolated agents at once) while the

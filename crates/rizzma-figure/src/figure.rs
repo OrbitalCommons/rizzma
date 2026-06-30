@@ -186,7 +186,7 @@ impl Figure {
     /// Render the figure to an SVG document and return it as a string.
     ///
     /// This drives the *same* [`Figure::draw`] path used for PNG output, but
-    /// against an [`SvgRenderer`] instead of the raster backend, proving the
+    /// against an [`rizzma_svg::SvgRenderer`] instead of the raster backend, proving the
     /// figure is backend-agnostic (one scene → PNG via skia, SVG via svg).
     #[must_use]
     pub fn to_svg(&self) -> String {

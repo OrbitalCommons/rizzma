@@ -10,6 +10,7 @@
 //! golden-image tests: it compares a baseline render against a freshly
 //! produced image and reports a root-mean-square per-channel difference.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -108,8 +109,174 @@ fn print_usage() {
          cargo xtask <SUBCOMMAND>\n\n\
          SUBCOMMANDS:\n    \
          image-diff <a.png> <b.png> [--tolerance <f64>] [--out <diff.png>]\n        \
-         Compare two PNG images by root-mean-square per-channel difference."
+         Compare two PNG images by root-mean-square per-channel difference.\n    \
+         check-gallery-links [--gallery-dir <dir>] [--strict] [PATHS...]\n        \
+         Verify every `gallery_*.png` referenced in the README/docs is actually\n        \
+         produced by the gallery example (run it first). --strict also fails on\n        \
+         generated-but-unreferenced images."
     );
+}
+
+/// Every `gallery_<name>.png` token in `text`.
+///
+/// `<name>` is `[A-Za-z0-9_]+`. Matching is byte-exact on the ASCII `gallery_`
+/// prefix and `.png` suffix, so it is safe to slice around UTF-8 in the source.
+fn find_gallery_tokens(text: &str) -> Vec<String> {
+    const PREFIX: &[u8] = b"gallery_";
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + PREFIX.len() <= bytes.len() {
+        if &bytes[i..i + PREFIX.len()] != PREFIX {
+            i += 1;
+            continue;
+        }
+        let mut j = i + PREFIX.len();
+        while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+            j += 1;
+        }
+        if j > i + PREFIX.len() && text[j..].starts_with(".png") {
+            out.push(text[i..j + 4].to_string());
+        }
+        i = j.max(i + 1);
+    }
+    out
+}
+
+/// `gallery_*.png` files actually present in `dir`.
+fn gather_generated(dir: &Path) -> std::io::Result<BTreeSet<String>> {
+    let mut set = BTreeSet::new();
+    for entry in std::fs::read_dir(dir)? {
+        let name = entry?.file_name().to_string_lossy().into_owned();
+        if name.starts_with("gallery_") && name.ends_with(".png") {
+            set.insert(name);
+        }
+    }
+    Ok(set)
+}
+
+/// Recursively collect `.rs`/`.md` files under `root` (skipping `target` and
+/// dot-directories); a file `root` is taken as-is if it has a matching extension.
+fn collect_doc_files(root: &Path, out: &mut Vec<PathBuf>) {
+    if root.is_file() {
+        if matches!(root.extension().and_then(|e| e.to_str()), Some("rs" | "md")) {
+            out.push(root.to_path_buf());
+        }
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        // Skip build output, dot-dirs, and generators (examples/tests) — only
+        // human-facing docs (READMEs + `src` doc comments) count as references.
+        if matches!(name.as_ref(), "target" | "examples" | "tests") || name.starts_with('.') {
+            continue;
+        }
+        collect_doc_files(&entry.path(), out);
+    }
+}
+
+/// Run the `check-gallery-links` subcommand.
+fn run_check_gallery_links(args: &[String]) -> ExitCode {
+    let mut gallery_dir = PathBuf::from("target");
+    let mut strict = false;
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--gallery-dir" => {
+                i += 1;
+                match args.get(i) {
+                    Some(v) => gallery_dir = PathBuf::from(v),
+                    None => {
+                        eprintln!("error: --gallery-dir requires a value");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            "--strict" => strict = true,
+            "-h" | "--help" => {
+                print_usage();
+                return ExitCode::SUCCESS;
+            }
+            other if other.starts_with("--") => {
+                eprintln!("error: unknown flag: {other}");
+                return ExitCode::from(2);
+            }
+            other => roots.push(PathBuf::from(other)),
+        }
+        i += 1;
+    }
+    if roots.is_empty() {
+        roots = vec![PathBuf::from("README.md"), PathBuf::from("crates")];
+    }
+
+    let generated = match gather_generated(&gallery_dir) {
+        Ok(set) => set,
+        Err(e) => {
+            eprintln!("error: reading {}: {e}", gallery_dir.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    if generated.is_empty() {
+        eprintln!(
+            "error: no gallery_*.png in {} — run `cargo run -p rizzma-figure --example gallery` first",
+            gallery_dir.display()
+        );
+        return ExitCode::FAILURE;
+    }
+
+    let mut files = Vec::new();
+    for root in &roots {
+        collect_doc_files(root, &mut files);
+    }
+    let mut referenced: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+    for file in &files {
+        if let Ok(text) = std::fs::read_to_string(file) {
+            for token in find_gallery_tokens(&text) {
+                referenced.entry(token).or_default().push(file.clone());
+            }
+        }
+    }
+
+    let dangling: Vec<(&String, &Vec<PathBuf>)> = referenced
+        .iter()
+        .filter(|(token, _)| !generated.contains(*token))
+        .collect();
+    let unreferenced: Vec<&String> = generated
+        .iter()
+        .filter(|name| !referenced.contains_key(*name))
+        .collect();
+
+    println!(
+        "gallery link check: {} generated, {} referenced ({} files scanned)",
+        generated.len(),
+        referenced.len(),
+        files.len()
+    );
+    for (token, where_) in &dangling {
+        let locs: Vec<String> = where_.iter().map(|p| p.display().to_string()).collect();
+        eprintln!(
+            "  DANGLING: `{token}` referenced in {} but not produced by the gallery example",
+            locs.join(", ")
+        );
+    }
+    for name in &unreferenced {
+        eprintln!("  UNREFERENCED: `{name}` is generated but not referenced in any README/doc");
+    }
+
+    if !dangling.is_empty() || (strict && !unreferenced.is_empty()) {
+        ExitCode::FAILURE
+    } else {
+        println!(
+            "OK: all {} referenced gallery image(s) are generated.",
+            referenced.len()
+        );
+        ExitCode::SUCCESS
+    }
 }
 
 /// Parsed arguments for the `image-diff` subcommand.
@@ -234,6 +401,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("image-diff") => run_image_diff(&args[1..]),
+        Some("check-gallery-links") => run_check_gallery_links(&args[1..]),
         Some("-h") | Some("--help") | None => {
             print_usage();
             ExitCode::SUCCESS
@@ -288,5 +456,24 @@ mod tests {
         let b = solid(3, 2, [0, 0, 0, 255]);
         let err = compare(&a, &b, DEFAULT_TOLERANCE, None).expect_err("dimensions differ");
         assert!(err.contains("dimensions differ"));
+    }
+
+    #[test]
+    fn finds_gallery_tokens_in_markdown_and_docs() {
+        let text = "see ![p](https://x/gallery_plot.png) and `gallery_bar.png` here";
+        let toks = find_gallery_tokens(text);
+        assert_eq!(toks, vec!["gallery_plot.png", "gallery_bar.png"]);
+    }
+
+    #[test]
+    fn ignores_prefix_without_png_suffix_and_survives_unicode() {
+        // A `gallery_` with no `.png`, plus UTF-8 bytes around a real token.
+        let text = "→ gallery_thing.svg café ![x](gallery_imshow.png) ✓";
+        assert_eq!(find_gallery_tokens(text), vec!["gallery_imshow.png"]);
+    }
+
+    #[test]
+    fn bare_prefix_yields_no_token() {
+        assert!(find_gallery_tokens("gallery_.png and gallery_").is_empty());
     }
 }
