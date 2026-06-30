@@ -168,18 +168,19 @@ impl Artist for Collection {
             if !x.is_finite() || !y.is_finite() {
                 continue;
             }
-            let size = self.size_at(i);
-            // Scale the unit marker about the origin; it is then translated to
-            // the data point and mapped through the axes transform.
-            let marker_path = self.marker.transformed(&Affine2D::from_scale(size, size));
-            let point_transform = Affine2D::from_translation(x, y).then(transform);
+            let size = renderer.points_to_pixels(self.size_at(i));
+            // Markers are sized in points, not data units. Map the data offset
+            // to device coordinates first, then stamp the unit marker there in
+            // device-space pixels.
+            let (dx, dy) = transform.transform_point((x, y));
+            let point_transform = Affine2D::from_scale(size, size).translate(dx, dy);
             let edge = self.edgecolor_at(i);
             let gc = GraphicsContext {
                 line_width: self.linewidth,
                 stroke: edge,
                 ..GraphicsContext::new()
             };
-            renderer.draw_path(&gc, &marker_path, &point_transform, self.facecolor_at(i));
+            renderer.draw_path(&gc, &self.marker, &point_transform, self.facecolor_at(i));
         }
     }
 
@@ -230,6 +231,7 @@ mod tests {
     #[derive(Debug, Clone, Copy, PartialEq)]
     struct Call {
         translation: (f64, f64),
+        scale: (f64, f64),
         fill: Option<Rgba>,
         stroke: Option<Rgba>,
     }
@@ -242,9 +244,10 @@ mod tests {
             transform: &Affine2D,
             fill: Option<Rgba>,
         ) {
-            let [.., e, f] = transform.matrix();
+            let [a, _, _, d, e, f] = transform.matrix();
             self.calls.push(Call {
                 translation: (e, f),
+                scale: (a, d),
                 fill,
                 stroke: gc.stroke,
             });
@@ -252,6 +255,10 @@ mod tests {
 
         fn canvas_size(&self) -> (f64, f64) {
             (100.0, 100.0)
+        }
+
+        fn points_to_pixels(&self, points: f64) -> f64 {
+            points * 2.0
         }
     }
 
@@ -318,6 +325,22 @@ mod tests {
     }
 
     #[test]
+    fn marker_size_is_in_device_points_not_data_units() {
+        let coll = Collection::scatter(vec![[2.0, 3.0]]).with_sizes(vec![5.0]);
+        let data_to_device = Affine2D::from_scale(10.0, 20.0).translate(1.0, 2.0);
+        let mut r = MockRenderer::default();
+
+        coll.draw(&mut r, &data_to_device);
+
+        assert_eq!(r.calls.len(), 1);
+        // Offset follows the full data transform.
+        assert_eq!(r.calls[0].translation, (21.0, 62.0));
+        // Size follows renderer points-to-pixels only: 5 pt * 2 px/pt = 10 px,
+        // not the data transform's 10x/20x scale.
+        assert_eq!(r.calls[0].scale, (10.0, 10.0));
+    }
+
+    #[test]
     fn invisible_collection_draws_nothing() {
         let coll = Collection::scatter(vec![[0.0, 0.0]]).with_visible(false);
         let mut r = MockRenderer::default();
@@ -360,8 +383,6 @@ mod tests {
     #[test]
     fn default_zorder_is_one() {
         let coll = Collection::scatter(vec![[0.0, 0.0]]);
-        // The inherent `zorder` setter shadows the trait getter, so the trait
-        // method is called explicitly here.
-        assert_eq!(Artist::zorder(&coll), 1.0);
+        assert_eq!(coll.zorder(), 1.0);
     }
 }
