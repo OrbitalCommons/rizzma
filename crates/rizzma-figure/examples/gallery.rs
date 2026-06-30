@@ -241,5 +241,19 @@ fn main() {
         fig.save_png("target/gallery_broken_barh.png").unwrap();
     }
 
+    // 17. boxplot
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        // Four datasets with different spreads and a couple of clear outliers.
+        let tight = [4.0, 4.5, 5.0, 5.0, 5.5, 6.0];
+        let wide = [1.0, 3.0, 5.0, 7.0, 9.0, 11.0];
+        let skewed = [2.0, 2.5, 3.0, 3.5, 4.0, 9.0];
+        let with_outlier = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 16.0];
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.boxplot(&[&tight, &wide, &skewed, &with_outlier]);
+        ax.set_title("boxplot");
+        fig.save_png("target/gallery_boxplot.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
