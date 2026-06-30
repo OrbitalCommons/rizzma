@@ -13,8 +13,11 @@
 //! [`Axes::trans_data`].
 
 use rizzma_artist::{Artist, AxesImage, Collection, Line2D, Patch, QuadMesh};
+use std::borrow::Cow;
+
 use rizzma_axis::axis::{Axis, AxisSide};
-use rizzma_axis::scale::{LogScale, Scale};
+use rizzma_axis::scale::{LinearScale, LogScale, Scale};
+use rizzma_axis::ticker::{AutoLocator, LogFormatterMathtext, LogLocator, ScalarFormatter};
 use rizzma_core::color::{DEFAULT_COLOR_CYCLE, Rgba};
 use rizzma_core::{Affine2D, Bbox, Path};
 use rizzma_render::{GraphicsContext, Renderer};
@@ -26,7 +29,6 @@ use crate::richtext::layout_rich_text;
 const DEFAULT_MARGIN: f64 = 0.05;
 
 /// Per-axis scale state owned by [`Axes`].
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum ScaleSpec {
     /// Linear identity scale.
@@ -40,6 +42,24 @@ impl ScaleSpec {
         match self {
             ScaleSpec::Linear => value,
             ScaleSpec::Log { base } => LogScale::new(base).transform(value),
+        }
+    }
+
+    fn inverse(self, value: f64) -> f64 {
+        match self {
+            ScaleSpec::Linear => value,
+            ScaleSpec::Log { base } => LogScale::new(base).inverse(value),
+        }
+    }
+
+    fn is_linear(self) -> bool {
+        matches!(self, ScaleSpec::Linear)
+    }
+
+    fn limit_range(self, limits: (f64, f64), minpos: f64) -> (f64, f64) {
+        match self {
+            ScaleSpec::Linear => guard_range(limits),
+            ScaleSpec::Log { base } => guard_log_range(limits, base, minpos),
         }
     }
 }
@@ -62,6 +82,16 @@ impl DataToScaled {
         [self.x.transform(x), self.y.transform(y)]
     }
 
+    /// Map a scaled-space point back into raw data space.
+    pub(crate) fn inverse_point(&self, x: f64, y: f64) -> [f64; 2] {
+        [self.x.inverse(x), self.y.inverse(y)]
+    }
+
+    /// Whether this mapper is exact identity in both dimensions.
+    pub(crate) fn is_linear(&self) -> bool {
+        self.x.is_linear() && self.y.is_linear()
+    }
+
     /// Map every vertex in `path` into scaled data space, preserving path codes.
     pub(crate) fn map_path(&self, path: &Path) -> Path {
         let vertices = path
@@ -71,6 +101,26 @@ impl DataToScaled {
             .collect();
         let codes = path.codes().map(|codes| codes.to_vec());
         Path::new(vertices, codes)
+    }
+
+    /// Borrow `path` unchanged for linear scales, otherwise return mapped
+    /// geometry. This keeps the default linear draw path allocation-free at the
+    /// scale-mapping layer.
+    pub(crate) fn map_path_cow<'a>(&self, path: &'a Path) -> Cow<'a, Path> {
+        if self.is_linear() {
+            Cow::Borrowed(path)
+        } else {
+            Cow::Owned(self.map_path(path))
+        }
+    }
+
+    /// Borrow `points` unchanged for linear scales, otherwise map each point.
+    pub(crate) fn map_points_cow<'a>(&self, points: &'a [[f64; 2]]) -> Cow<'a, [[f64; 2]]> {
+        if self.is_linear() {
+            Cow::Borrowed(points)
+        } else {
+            Cow::Owned(points.iter().map(|&[x, y]| self.map_point(x, y)).collect())
+        }
     }
 
     /// Map raw x/y limits into scaled x/y limits.
@@ -202,6 +252,54 @@ pub(crate) struct SpanRect {
     pub(crate) hi: f64,
     /// Fill color.
     pub(crate) facecolor: Rgba,
+}
+
+enum DrawableArtist<'a> {
+    Line(&'a Line2D),
+    Patch(&'a Patch),
+    Collection(&'a Collection),
+}
+
+impl DrawableArtist<'_> {
+    fn zorder(&self) -> f64 {
+        match self {
+            DrawableArtist::Line(line) => line.zorder(),
+            DrawableArtist::Patch(patch) => patch.zorder(),
+            DrawableArtist::Collection(collection) => collection.zorder(),
+        }
+    }
+
+    fn visible(&self) -> bool {
+        match self {
+            DrawableArtist::Line(line) => line.visible(),
+            DrawableArtist::Patch(patch) => patch.visible(),
+            DrawableArtist::Collection(collection) => collection.visible(),
+        }
+    }
+
+    fn draw_scaled(
+        &self,
+        renderer: &mut dyn Renderer,
+        transform: &Affine2D,
+        mapper: &DataToScaled,
+    ) {
+        match self {
+            DrawableArtist::Line(line) => {
+                let points = line.points();
+                let path = Path::from_polyline(&points);
+                let path = mapper.map_path_cow(&path);
+                line.draw_path(renderer, path.as_ref(), transform);
+            }
+            DrawableArtist::Patch(patch) => {
+                let path = mapper.map_path_cow(patch.path());
+                patch.draw_path(renderer, path.as_ref(), transform);
+            }
+            DrawableArtist::Collection(collection) => {
+                let offsets = mapper.map_points_cow(collection.offsets());
+                collection.draw_with_offsets(renderer, offsets.as_ref(), transform);
+            }
+        }
+    }
 }
 
 impl Axes {
@@ -364,6 +462,92 @@ impl Axes {
         self
     }
 
+    /// Use a linear x-axis scale and default linear ticks.
+    pub fn set_xscale_linear(&mut self) -> &mut Self {
+        self.xscale = ScaleSpec::Linear;
+        self.xaxis
+            .set_scale(Box::new(LinearScale::new()))
+            .set_locator(Box::new(AutoLocator::new()))
+            .set_formatter(Box::new(ScalarFormatter::new()));
+        self
+    }
+
+    /// Use a linear y-axis scale and default linear ticks.
+    pub fn set_yscale_linear(&mut self) -> &mut Self {
+        self.yscale = ScaleSpec::Linear;
+        self.yaxis
+            .set_scale(Box::new(LinearScale::new()))
+            .set_locator(Box::new(AutoLocator::new()))
+            .set_formatter(Box::new(ScalarFormatter::new()));
+        self
+    }
+
+    /// Use a logarithmic x-axis scale with `base`.
+    ///
+    /// Limits, autoscaling, and public data APIs remain in raw data units; the
+    /// log transform is applied at draw time. Line, patch, collection, span,
+    /// and reference-line geometry is log-scaled; raster images and quad meshes
+    /// are intentionally unsupported on log axes in this first implementation.
+    /// `base` must be finite and greater than one.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `base` is not finite or is less than or equal to one.
+    pub fn set_xscale_log(&mut self, base: f64) -> &mut Self {
+        assert!(
+            base.is_finite() && base > 1.0,
+            "log scale base must be finite and > 1"
+        );
+        self.xscale = ScaleSpec::Log { base };
+        self.xaxis
+            .set_scale(Box::new(LogScale::new(base)))
+            .set_locator(Box::new(LogLocator::new(base)))
+            .set_formatter(Box::new(LogFormatterMathtext::new(base)));
+        self
+    }
+
+    /// Use a logarithmic y-axis scale with `base`.
+    ///
+    /// Limits, autoscaling, and public data APIs remain in raw data units; the
+    /// log transform is applied at draw time. Line, patch, collection, span,
+    /// and reference-line geometry is log-scaled; raster images and quad meshes
+    /// are intentionally unsupported on log axes in this first implementation.
+    /// `base` must be finite and greater than one.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `base` is not finite or is less than or equal to one.
+    pub fn set_yscale_log(&mut self, base: f64) -> &mut Self {
+        assert!(
+            base.is_finite() && base > 1.0,
+            "log scale base must be finite and > 1"
+        );
+        self.yscale = ScaleSpec::Log { base };
+        self.yaxis
+            .set_scale(Box::new(LogScale::new(base)))
+            .set_locator(Box::new(LogLocator::new(base)))
+            .set_formatter(Box::new(LogFormatterMathtext::new(base)));
+        self
+    }
+
+    /// Plot with a logarithmic x-axis and linear y-axis.
+    pub fn semilogx(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
+        self.set_xscale_log(10.0);
+        self.plot(x, y)
+    }
+
+    /// Plot with a linear x-axis and logarithmic y-axis.
+    pub fn semilogy(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
+        self.set_yscale_log(10.0);
+        self.plot(x, y)
+    }
+
+    /// Plot with logarithmic x and y axes.
+    pub fn loglog(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
+        self.set_xscale_log(10.0).set_yscale_log(10.0);
+        self.plot(x, y)
+    }
+
     /// Constrain the axes to an **equal** aspect ratio, so one data unit covers
     /// the same number of pixels along x and y (matplotlib's
     /// `set_aspect("equal")`).
@@ -465,6 +649,70 @@ impl Axes {
         (guard_range(xlim), guard_range(ylim))
     }
 
+    /// Resolve raw limits after applying the active scales' domain guards.
+    ///
+    /// Public limits remain raw data units. This helper only clamps ranges that
+    /// cannot be transformed by the active scale, such as non-positive log
+    /// bounds, immediately before draw-time scaling.
+    fn scale_limited_effective_limits(&self) -> ((f64, f64), (f64, f64)) {
+        let (xlim, ylim) = self.effective_limits();
+        let (xminpos, yminpos) = self.min_positive_data();
+        (
+            self.xscale.limit_range(xlim, xminpos),
+            self.yscale.limit_range(ylim, yminpos),
+        )
+    }
+
+    fn min_positive_data(&self) -> (f64, f64) {
+        let mut xmin = f64::INFINITY;
+        let mut ymin = f64::INFINITY;
+        for line in &self.lines {
+            for [x, y] in line.points() {
+                if x.is_finite() && x > 0.0 {
+                    xmin = xmin.min(x);
+                }
+                if y.is_finite() && y > 0.0 {
+                    ymin = ymin.min(y);
+                }
+            }
+        }
+        for patch in &self.patches {
+            for &[x, y] in patch.path().vertices() {
+                if x.is_finite() && x > 0.0 {
+                    xmin = xmin.min(x);
+                }
+                if y.is_finite() && y > 0.0 {
+                    ymin = ymin.min(y);
+                }
+            }
+        }
+        for collection in &self.collections {
+            for &[x, y] in collection.offsets() {
+                if x.is_finite() && x > 0.0 {
+                    xmin = xmin.min(x);
+                }
+                if y.is_finite() && y > 0.0 {
+                    ymin = ymin.min(y);
+                }
+            }
+        }
+        if let Some(bbox) = self.extra_data_bbox {
+            for x in [bbox.xmin(), bbox.xmax()] {
+                if x.is_finite() && x > 0.0 {
+                    xmin = xmin.min(x);
+                }
+            }
+            for y in [bbox.ymin(), bbox.ymax()] {
+                if y.is_finite() && y > 0.0 {
+                    ymin = ymin.min(y);
+                }
+            }
+        }
+        let xmin = if xmin.is_finite() { xmin } else { 1.0 };
+        let ymin = if ymin.is_finite() { ymin } else { 1.0 };
+        (xmin, ymin)
+    }
+
     /// Build the linear data-to-pixel [`Affine2D`].
     ///
     /// `axes_px` is the axes rectangle in pixels and `xlim`/`ylim` are the
@@ -485,7 +733,7 @@ impl Axes {
             .translate(axes_px.xmin(), axes_px.ymin())
     }
 
-    fn data_to_scaled(&self) -> DataToScaled {
+    pub(crate) fn data_to_scaled(&self) -> DataToScaled {
         DataToScaled::new(self.xscale, self.yscale)
     }
 
@@ -514,7 +762,7 @@ impl Axes {
             self.position.xmax() * fig_w_px,
             self.position.ymax() * fig_h_px,
         );
-        let (xlim, ylim) = self.effective_limits();
+        let (xlim, ylim) = self.scale_limited_effective_limits();
         let mapper = self.data_to_scaled();
         let (scaled_xlim, scaled_ylim) = mapper.map_limits(xlim, ylim);
         if self.aspect_equal {
@@ -540,7 +788,7 @@ impl Axes {
         // 1. Resolve the pixel rectangle and the data transform via the shared
         // forward path (also used by `Figure`'s coordinate inversion).
         let (axes_px, td) = self.pixel_rect_and_trans_data(fig_w_px, fig_h_px);
-        let (xlim, ylim) = self.effective_limits();
+        let (xlim, ylim) = self.scale_limited_effective_limits();
         let mapper = self.data_to_scaled();
 
         // 2. Fill the axes background.
@@ -551,17 +799,21 @@ impl Axes {
         // 3a. Draw colormapped images first (lowest zorder), beneath every
         // other artist, mapping their data-space extent through the data
         // transform.
-        for image in &self.images {
-            if image.visible() {
-                image.draw(renderer, &td);
+        if mapper.is_linear() {
+            for image in &self.images {
+                if image.visible() {
+                    image.draw(renderer, &td);
+                }
             }
         }
 
         // 3a'. Draw colormapped quad meshes (pcolormesh) beneath the other
         // artists, mapping their data-space corners through the data transform.
-        for mesh in &self.meshes {
-            if mesh.visible() {
-                mesh.draw(renderer, &td);
+        if mapper.is_linear() {
+            for mesh in &self.meshes {
+                if mesh.visible() {
+                    mesh.draw(renderer, &td);
+                }
             }
         }
 
@@ -586,11 +838,11 @@ impl Axes {
 
         // 4. Draw artists in ascending zorder.
         // TODO: clip artists to `axes_px` once clip plumbing lands.
-        let mut artists: Vec<&dyn Artist> =
+        let mut artists: Vec<DrawableArtist<'_>> =
             Vec::with_capacity(self.lines.len() + self.patches.len() + self.collections.len());
-        artists.extend(self.lines.iter().map(|l| l as &dyn Artist));
-        artists.extend(self.patches.iter().map(|p| p as &dyn Artist));
-        artists.extend(self.collections.iter().map(|c| c as &dyn Artist));
+        artists.extend(self.lines.iter().map(DrawableArtist::Line));
+        artists.extend(self.patches.iter().map(DrawableArtist::Patch));
+        artists.extend(self.collections.iter().map(DrawableArtist::Collection));
         let mut order: Vec<usize> = (0..artists.len())
             .filter(|&i| artists[i].visible())
             .collect();
@@ -601,7 +853,7 @@ impl Axes {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         for i in order {
-            artists[i].draw(renderer, &td);
+            artists[i].draw_scaled(renderer, &td, &mapper);
         }
 
         // 4a. Draw full-span reference lines (axhline/axvline) above the
@@ -720,6 +972,31 @@ fn guard_range((min, max): (f64, f64)) -> (f64, f64) {
     (min - pad, max + pad)
 }
 
+fn guard_log_range((a, b): (f64, f64), base: f64, minpos: f64) -> (f64, f64) {
+    let reversed = a > b;
+    let (mut lo, mut hi) = if reversed { (b, a) } else { (a, b) };
+    let minpos = if minpos.is_finite() && minpos > 0.0 {
+        minpos
+    } else {
+        1.0
+    };
+
+    if !lo.is_finite() || !hi.is_finite() || hi <= 0.0 {
+        lo = minpos;
+        hi = minpos * base;
+    } else {
+        if lo <= 0.0 {
+            lo = minpos.min(hi / base);
+        }
+        if hi <= lo {
+            lo = (lo / base).max(f64::MIN_POSITIVE);
+            hi *= base;
+        }
+    }
+
+    if reversed { (hi, lo) } else { (lo, hi) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -789,6 +1066,78 @@ mod tests {
 
         approx(scaled_tick_position(10.0, (1.0, 1000.0), scale), 1.0 / 3.0);
         approx(scaled_tick_position(100.0, (1.0, 1000.0), scale), 2.0 / 3.0);
+    }
+
+    #[derive(Default)]
+    struct GeometryRecorder {
+        paths: Vec<Vec<[f64; 2]>>,
+        origins: Vec<[f64; 2]>,
+    }
+
+    impl Renderer for GeometryRecorder {
+        fn draw_path(
+            &mut self,
+            _gc: &GraphicsContext,
+            path: &Path,
+            transform: &Affine2D,
+            _fill: Option<Rgba>,
+        ) {
+            let (ox, oy) = transform.transform_point((0.0, 0.0));
+            self.origins.push([ox, oy]);
+            self.paths.push(
+                path.vertices()
+                    .iter()
+                    .map(|&[x, y]| {
+                        let (tx, ty) = transform.transform_point((x, y));
+                        [tx, ty]
+                    })
+                    .collect(),
+            );
+        }
+
+        fn canvas_size(&self) -> (f64, f64) {
+            (100.0, 100.0)
+        }
+    }
+
+    #[test]
+    fn draw_scaled_maps_line_patch_and_collection_geometry() {
+        let mapper = DataToScaled::new(ScaleSpec::Log { base: 10.0 }, ScaleSpec::Linear);
+        let id = Affine2D::identity();
+
+        let line = Line2D::new(vec![1.0, 10.0, 100.0], vec![2.0, 4.0, 8.0]);
+        let patch = Patch::rectangle(1.0, 2.0, 9.0, 3.0);
+        let collection = Collection::scatter(vec![[1.0, 2.0], [100.0, 8.0]]);
+
+        let mut line_renderer = GeometryRecorder::default();
+        DrawableArtist::Line(&line).draw_scaled(&mut line_renderer, &id, &mapper);
+        assert_eq!(
+            line_renderer.paths[0],
+            vec![[0.0, 2.0], [1.0, 4.0], [2.0, 8.0]]
+        );
+
+        let mut patch_renderer = GeometryRecorder::default();
+        DrawableArtist::Patch(&patch).draw_scaled(&mut patch_renderer, &id, &mapper);
+        assert_eq!(patch_renderer.paths[0][0], [0.0, 2.0]);
+        assert_eq!(patch_renderer.paths[0][1], [1.0, 2.0]);
+
+        let mut collection_renderer = GeometryRecorder::default();
+        DrawableArtist::Collection(&collection).draw_scaled(&mut collection_renderer, &id, &mapper);
+        assert_eq!(collection_renderer.origins, vec![[0.0, 2.0], [2.0, 8.0]]);
+    }
+
+    #[test]
+    fn scale_limited_effective_limits_clamp_nonpositive_log_bounds() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.plot(&[1.0, 10.0, 100.0], &[0.0, 1.0, 2.0]);
+        axes.set_xscale_log(10.0).set_xlim(-10.0, 100.0);
+
+        let (xlim, _) = axes.scale_limited_effective_limits();
+        assert!(xlim.0 > 0.0, "log lower bound must be positive: {xlim:?}");
+        assert_eq!(xlim.1, 100.0);
+        let (axes_px, td) = axes.pixel_rect_and_trans_data(200.0, 100.0);
+        assert!(axes_px.width().is_finite());
+        assert!(td.transform_point((xlim.0.log10(), 0.0)).0.is_finite());
     }
 
     #[test]

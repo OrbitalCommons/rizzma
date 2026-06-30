@@ -109,12 +109,32 @@ impl Line2D {
     }
 
     /// The `(x, y)` data points zipped into a `Vec<[f64; 2]>`.
-    fn points(&self) -> Vec<[f64; 2]> {
+    #[must_use]
+    pub fn points(&self) -> Vec<[f64; 2]> {
         self.xdata
             .iter()
             .zip(self.ydata.iter())
             .map(|(&x, &y)| [x, y])
             .collect()
+    }
+
+    /// Draw this line's stroke style against an already-built data-space path.
+    ///
+    /// This lets an owning axes pre-transform nonlinear-scale geometry while
+    /// reusing the line's color, width, dash, cap, and join settings.
+    pub fn draw_path(&self, renderer: &mut dyn Renderer, path: &Path, transform: &Affine2D) {
+        if !self.visible || path.vertices().len() < 2 {
+            return;
+        }
+        let gc = GraphicsContext {
+            line_width: self.linewidth,
+            dashes: self.dashes.clone(),
+            cap: self.cap,
+            join: self.join,
+            stroke: Some(self.color),
+            ..GraphicsContext::new()
+        };
+        renderer.draw_path(&gc, path, transform, None);
     }
 }
 
@@ -128,15 +148,7 @@ impl Artist for Line2D {
             return;
         }
         let path = Path::from_polyline(&points);
-        let gc = GraphicsContext {
-            line_width: self.linewidth,
-            dashes: self.dashes.clone(),
-            cap: self.cap,
-            join: self.join,
-            stroke: Some(self.color),
-            ..GraphicsContext::new()
-        };
-        renderer.draw_path(&gc, &path, transform, None);
+        self.draw_path(renderer, &path, transform);
     }
 
     fn zorder(&self) -> f64 {

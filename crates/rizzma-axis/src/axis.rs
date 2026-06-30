@@ -101,6 +101,12 @@ impl Axis {
         self
     }
 
+    /// Replace the scale in-place.
+    pub fn set_scale(&mut self, scale: Box<dyn Scale>) -> &mut Self {
+        self.scale = scale;
+        self
+    }
+
     /// Set the locator, returning `self` for chaining.
     #[must_use]
     pub fn with_locator(mut self, locator: Box<dyn Locator>) -> Self {
@@ -108,9 +114,21 @@ impl Axis {
         self
     }
 
+    /// Replace the tick locator in-place.
+    pub fn set_locator(&mut self, locator: Box<dyn Locator>) -> &mut Self {
+        self.locator = locator;
+        self
+    }
+
     /// Set the formatter, returning `self` for chaining.
     #[must_use]
     pub fn with_formatter(mut self, formatter: Box<dyn Formatter>) -> Self {
+        self.formatter = formatter;
+        self
+    }
+
+    /// Replace the tick formatter in-place.
+    pub fn set_formatter(&mut self, formatter: Box<dyn Formatter>) -> &mut Self {
         self.formatter = formatter;
         self
     }

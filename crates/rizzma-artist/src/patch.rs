@@ -206,10 +206,12 @@ impl Patch {
     pub fn path(&self) -> &Path {
         &self.path
     }
-}
 
-impl Artist for Patch {
-    fn draw(&self, renderer: &mut dyn Renderer, transform: &Affine2D) {
+    /// Draw this patch's fill and stroke style against an already-built path.
+    ///
+    /// This lets an owning axes pre-transform nonlinear-scale geometry while
+    /// reusing the patch's face, edge, width, dash, cap, and join settings.
+    pub fn draw_path(&self, renderer: &mut dyn Renderer, path: &Path, transform: &Affine2D) {
         if !self.visible {
             return;
         }
@@ -221,7 +223,13 @@ impl Artist for Patch {
             stroke: self.edgecolor,
             ..GraphicsContext::new()
         };
-        renderer.draw_path(&gc, &self.path, transform, self.facecolor);
+        renderer.draw_path(&gc, path, transform, self.facecolor);
+    }
+}
+
+impl Artist for Patch {
+    fn draw(&self, renderer: &mut dyn Renderer, transform: &Affine2D) {
+        self.draw_path(renderer, &self.path, transform);
     }
 
     fn zorder(&self) -> f64 {

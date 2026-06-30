@@ -219,15 +219,14 @@ impl Figure {
     ///
     /// Returns `None` if `axes_index` is out of range.
     ///
-    /// This is the exact inverse of [`Figure::pixel_to_data`] for linear axes.
-    // TODO: honor non-linear scales (log/symlog) once `trans_data` does; today
-    // the data transform is purely linear.
+    /// This is the exact inverse of [`Figure::pixel_to_data`].
     #[must_use]
     pub fn data_to_pixel(&self, axes_index: usize, data_x: f64, data_y: f64) -> Option<(f64, f64)> {
         let ax = self.axes.get(axes_index)?;
         let (fig_w_px, fig_h_px) = self.size_px();
         let (_axes_px, td) = ax.pixel_rect_and_trans_data(fig_w_px, fig_h_px);
-        let (px, display_y) = td.transform_point((data_x, data_y));
+        let [scaled_x, scaled_y] = ax.data_to_scaled().map_point(data_x, data_y);
+        let (px, display_y) = td.transform_point((scaled_x, scaled_y));
         // Y-flip: matplotlib's display space is y-up (origin bottom-left), but
         // the canvas pixmap is top-down, so a display height of `display_y`
         // corresponds to a top-down row `fig_h_px - display_y`.
@@ -251,9 +250,7 @@ impl Figure {
     ///   readout can tell the cursor isn't over the axes), or
     /// - the data transform is singular and cannot be inverted.
     ///
-    /// This is the exact inverse of [`Figure::data_to_pixel`] for linear axes.
-    // TODO: honor non-linear scales (log/symlog) once `trans_data` does; today
-    // the data transform is purely linear.
+    /// This is the exact inverse of [`Figure::data_to_pixel`].
     #[must_use]
     pub fn pixel_to_data(&self, axes_index: usize, px: f64, py: f64) -> Option<(f64, f64)> {
         let ax = self.axes.get(axes_index)?;
@@ -268,7 +265,9 @@ impl Figure {
             return None;
         }
         let inv = td.inverted()?;
-        Some(inv.transform_point((px, display_y)))
+        let (scaled_x, scaled_y) = inv.transform_point((px, display_y));
+        let [data_x, data_y] = ax.data_to_scaled().inverse_point(scaled_x, scaled_y);
+        Some((data_x, data_y))
     }
 }
 
@@ -336,6 +335,22 @@ mod tests {
         assert!(svg.contains("<svg"), "missing <svg root: {svg}");
         assert!(svg.contains("</svg>"), "missing </svg> close");
         assert!(svg.contains("<path"), "missing at least one <path");
+    }
+
+    #[test]
+    fn data_pixel_round_trip_honors_log_scale() {
+        let mut fig = Figure::new(2.0, 2.0).with_dpi(100.0);
+        let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+        ax.set_xscale_log(10.0)
+            .set_xlim(1.0, 1000.0)
+            .set_ylim(0.0, 10.0);
+        let (px, py) = fig
+            .data_to_pixel(0, 10.0, 4.0)
+            .expect("axes index is valid");
+        let (x, y) = fig.pixel_to_data(0, px, py).expect("pixel is inside axes");
+
+        assert!((x - 10.0).abs() < 1e-9, "expected x=10, got {x}");
+        assert!((y - 4.0).abs() < 1e-9, "expected y=4, got {y}");
     }
 
     fn approx(a: f64, b: f64) {
