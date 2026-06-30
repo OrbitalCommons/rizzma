@@ -9,6 +9,7 @@ pub mod affine;
 pub mod bbox;
 pub mod color;
 pub mod path;
+pub mod rcparams;
 
 pub use affine::Affine2D;
 pub use bbox::Bbox;
@@ -17,3 +18,4 @@ pub use color::{
     Normalize, PowerNorm, Rgba, colormap, to_rgba, to_rgba_array,
 };
 pub use path::{Path, PathCode, PathSegment};
+pub use rcparams::{RcParams, TickDirection};
