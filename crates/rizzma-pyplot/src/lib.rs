@@ -184,6 +184,210 @@ pub fn fill_between(x: &[f64], y1: &[f64], y2: &[f64]) {
     with_axes(|ax| ax.fill_between(x, y1, y2));
 }
 
+/// Draw a horizontal bar chart of `width` at positions `y` on the current axes.
+pub fn barh(y: &[f64], width: &[f64]) {
+    with_axes(|ax| ax.barh(y, width));
+}
+
+/// Plot `y` against `x` as a piecewise-constant staircase line on the current
+/// axes.
+pub fn step(x: &[f64], y: &[f64]) {
+    with_axes(|ax| {
+        ax.step(x, y);
+    });
+}
+
+/// Draw a stairstep plot of `values` over bin `edges` on the current axes.
+pub fn stairs(values: &[f64], edges: &[f64]) {
+    with_axes(|ax| ax.stairs(values, edges));
+}
+
+/// Draw a stem plot of `y` against `x` on the current axes.
+pub fn stem(x: &[f64], y: &[f64]) {
+    with_axes(|ax| ax.stem(x, y));
+}
+
+/// Draw stacked filled areas of the series `ys` over `x` on the current axes.
+pub fn stackplot(x: &[f64], ys: &[&[f64]]) {
+    with_axes(|ax| ax.stackplot(x, ys));
+}
+
+/// Draw horizontal bars spanning the `xranges` at vertical `yrange` on the
+/// current axes.
+pub fn broken_barh(xranges: &[(f64, f64)], yrange: (f64, f64)) {
+    with_axes(|ax| ax.broken_barh(xranges, yrange));
+}
+
+/// Draw a grouped (clustered) bar chart from the `series` on the current axes.
+pub fn grouped_bar(series: &[&[f64]]) {
+    with_axes(|ax| {
+        ax.grouped_bar(series);
+    });
+}
+
+/// Plot `y` against `x` with symmetric vertical error bars `yerr` on the
+/// current axes.
+pub fn errorbar(x: &[f64], y: &[f64], yerr: &[f64]) {
+    with_axes(|ax| ax.errorbar(x, y, yerr));
+}
+
+/// Draw a box-and-whisker plot for each dataset in `data` on the current axes.
+pub fn boxplot(data: &[&[f64]]) {
+    with_axes(|ax| ax.boxplot(data));
+}
+
+/// Draw a violin plot for each dataset in `data` at optional `positions` on the
+/// current axes.
+pub fn violinplot(data: &[&[f64]], positions: Option<&[f64]>) {
+    with_axes(|ax| {
+        ax.violinplot(data, positions);
+    });
+}
+
+/// Draw a hexagonal binning of `(x, y)` with `gridsize` bins on the current
+/// axes.
+pub fn hexbin(x: &[f64], y: &[f64], gridsize: usize) {
+    with_axes(|ax| {
+        ax.hexbin(x, y, gridsize);
+    });
+}
+
+/// Draw the empirical cumulative distribution of `data` on the current axes.
+pub fn ecdf(data: &[f64]) {
+    with_axes(|ax| ax.ecdf(data));
+}
+
+/// Display `data` as an `nrows` by `ncols` image on the current axes.
+pub fn imshow(data: &[f64], nrows: usize, ncols: usize) {
+    with_axes(|ax| {
+        ax.imshow(data, nrows, ncols);
+    });
+}
+
+/// Display the `nrows` by `ncols` matrix `data` as an image on the current axes.
+pub fn matshow(data: &[f64], nrows: usize, ncols: usize) {
+    with_axes(|ax| {
+        ax.matshow(data, nrows, ncols);
+    });
+}
+
+/// Visualize the sparsity pattern of the `nrows` by `ncols` matrix `data` on the
+/// current axes.
+pub fn spy(data: &[f64], nrows: usize, ncols: usize) {
+    with_axes(|ax| {
+        ax.spy(data, nrows, ncols);
+    });
+}
+
+/// Draw a pseudocolor mesh of the `nrows` by `ncols` cell values `c` on the
+/// current axes.
+pub fn pcolormesh(c: &[f64], nrows: usize, ncols: usize) {
+    with_axes(|ax| {
+        ax.pcolormesh(c, nrows, ncols);
+    });
+}
+
+/// Draw contour lines of the `nrows` by `ncols` scalar field `z` on the current
+/// axes.
+pub fn contour(z: &[f64], nrows: usize, ncols: usize) {
+    with_axes(|ax| ax.contour(z, nrows, ncols));
+}
+
+/// Draw `n_levels` contour lines of the `nrows` by `ncols` scalar field `z` on
+/// the current axes.
+pub fn contour_levels(z: &[f64], nrows: usize, ncols: usize, n_levels: usize) {
+    with_axes(|ax| ax.contour_levels(z, nrows, ncols, n_levels));
+}
+
+/// Draw a 2-D histogram of `(x, y)` with `bins` bins per axis on the current
+/// axes.
+pub fn hist2d(x: &[f64], y: &[f64], bins: usize) {
+    with_axes(|ax| {
+        ax.hist2d(x, y, bins);
+    });
+}
+
+/// Draw an event raster plot: one row of ticks per dataset in `positions` on
+/// the current axes.
+pub fn eventplot(positions: &[&[f64]]) {
+    with_axes(|ax| ax.eventplot(positions));
+}
+
+/// Fill the region between the curves `(x1, y)` and `(x2, y)` on the current
+/// axes.
+pub fn fill_betweenx(y: &[f64], x1: &[f64], x2: &[f64]) {
+    with_axes(|ax| ax.fill_betweenx(y, x1, x2));
+}
+
+/// Draw a pie chart of `values` on the current axes.
+pub fn pie(values: &[f64]) {
+    with_axes(|ax| {
+        ax.pie(values);
+    });
+}
+
+/// Draw a horizontal line segment at each value in `y`, from `xmin` to `xmax`,
+/// on the current axes.
+pub fn hlines(y: &[f64], xmin: f64, xmax: f64) {
+    with_axes(|ax| ax.hlines(y, xmin, xmax));
+}
+
+/// Draw a vertical line segment at each value in `x`, from `ymin` to `ymax`, on
+/// the current axes.
+pub fn vlines(x: &[f64], ymin: f64, ymax: f64) {
+    with_axes(|ax| ax.vlines(x, ymin, ymax));
+}
+
+/// Add a full-width horizontal reference line at `y` on the current axes.
+pub fn axhline(y: f64) {
+    with_axes(|ax| ax.axhline(y));
+}
+
+/// Add a full-height vertical reference line at `x` on the current axes.
+pub fn axvline(x: f64) {
+    with_axes(|ax| ax.axvline(x));
+}
+
+/// Add a full-width horizontal shaded band between `ymin` and `ymax` on the
+/// current axes.
+pub fn axhspan(ymin: f64, ymax: f64) {
+    with_axes(|ax| ax.axhspan(ymin, ymax));
+}
+
+/// Add a full-height vertical shaded band between `xmin` and `xmax` on the
+/// current axes.
+pub fn axvspan(xmin: f64, xmax: f64) {
+    with_axes(|ax| ax.axvspan(xmin, xmax));
+}
+
+/// Set an equal data aspect ratio on the current axes.
+pub fn axis_equal() {
+    with_axes(|ax| {
+        ax.set_aspect_equal();
+    });
+}
+
+/// Hide the axis lines, ticks, and labels on the current axes.
+pub fn axis_off() {
+    with_axes(|ax| {
+        ax.set_axis_off();
+    });
+}
+
+/// Show the axis lines, ticks, and labels on the current axes.
+pub fn axis_on() {
+    with_axes(|ax| {
+        ax.set_axis_on();
+    });
+}
+
+/// Pad the data limits of the current axes by the fractional `margin`.
+pub fn margins(margin: f64) {
+    with_axes(|ax| {
+        ax.set_margins(margin);
+    });
+}
+
 /// Set the title of the current axes.
 pub fn title(text: &str) {
     with_axes(|ax| {
@@ -313,6 +517,69 @@ mod tests {
             let fig = st.figure.as_ref().expect("fresh figure exists");
             assert_eq!(fig.axes().len(), 1, "fresh figure has one axes");
         });
+        close();
+    }
+
+    #[test]
+    fn expanded_wrappers_smoke_savefig() {
+        figure();
+        let xs = [0.0, 1.0, 2.0, 3.0];
+        let ys = [1.0, 2.0, 1.5, 3.0];
+        barh(&xs, &ys);
+        step(&xs, &ys);
+        stairs(&[1.0, 2.0, 3.0], &[0.0, 1.0, 2.0, 3.0]);
+        errorbar(&xs, &ys, &[0.1, 0.2, 0.1, 0.3]);
+        let group_a = [1.0, 2.0, 3.0];
+        let group_b = [2.0, 1.0, 4.0];
+        let groups: [&[f64]; 2] = [&group_a, &group_b];
+        boxplot(&groups);
+        violinplot(&groups, None);
+        axhline(2.0);
+        axvline(1.5);
+        axhspan(0.5, 1.0);
+        margins(0.05);
+        pie(&[1.0, 2.0, 3.0]);
+        let path = target_path("pyplot_expanded_smoke.png");
+        savefig(&path).expect("savefig succeeds");
+        assert!(
+            std::fs::metadata(&path).expect("file exists").len() > 0,
+            "smoke PNG should be non-empty"
+        );
+        close();
+    }
+
+    #[test]
+    fn stackplot_threads_nested_slices() {
+        figure();
+        let x = [0.0, 1.0, 2.0];
+        let s0 = [1.0, 2.0, 1.0];
+        let s1 = [0.5, 0.5, 2.0];
+        let series: [&[f64]; 2] = [&s0, &s1];
+        stackplot(&x, &series);
+        let path = target_path("pyplot_stackplot.png");
+        savefig(&path).expect("savefig succeeds");
+        assert!(std::fs::metadata(&path).expect("file exists").len() > 0);
+        close();
+    }
+
+    #[test]
+    fn matrix_wrappers_accept_flat_data() {
+        figure();
+        let data = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
+        imshow(&data, 2, 3);
+        let path = target_path("pyplot_imshow.png");
+        savefig(&path).expect("savefig succeeds");
+        assert!(std::fs::metadata(&path).expect("file exists").len() > 0);
+        close();
+    }
+
+    #[test]
+    fn broken_barh_threads_tuple_args() {
+        figure();
+        broken_barh(&[(0.0, 1.0), (2.0, 1.5)], (1.0, 0.5));
+        let path = target_path("pyplot_broken_barh.png");
+        savefig(&path).expect("savefig succeeds");
+        assert!(std::fs::metadata(&path).expect("file exists").len() > 0);
         close();
     }
 
