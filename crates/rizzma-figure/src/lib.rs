@@ -37,8 +37,8 @@
 //! | [`Axes::violinplot`] | [`Axes::hexbin`] | [`Axes::grouped_bar`] |
 //! | ![loglog](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_loglog.png) | ![quiver](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_quiver.png) | ![streamplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_streamplot.png) |
 //! | [`Axes::loglog`] | [`Axes::quiver`] | [`Axes::streamplot`] |
-//! | ![triplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_triplot.png) | ![tripcolor](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_tripcolor.png) | |
-//! | [`Axes::triplot`] | [`Axes::tripcolor`] | |
+//! | ![triplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_triplot.png) | ![tripcolor](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_tripcolor.png) | ![symlog](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_symlog.png) |
+//! | [`Axes::triplot`] | [`Axes::tripcolor`] | [`Axes::symlogy`] |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 

@@ -16,8 +16,11 @@ use rizzma_artist::{Artist, AxesImage, Collection, Line2D, Patch, QuadMesh};
 use std::borrow::Cow;
 
 use rizzma_axis::axis::{Axis, AxisSide};
-use rizzma_axis::scale::{LinearScale, LogScale, Scale};
-use rizzma_axis::ticker::{AutoLocator, LogFormatterMathtext, LogLocator, ScalarFormatter};
+use rizzma_axis::scale::{LinearScale, LogScale, Scale, SymlogScale};
+use rizzma_axis::ticker::{
+    AutoLocator, LogFormatterMathtext, LogLocator, ScalarFormatter, SymlogFormatterMathtext,
+    SymlogLocator,
+};
 use rizzma_core::color::{DEFAULT_COLOR_CYCLE, Rgba};
 use rizzma_core::{Affine2D, Bbox, Path};
 use rizzma_render::{GraphicsContext, Renderer};
@@ -35,6 +38,8 @@ pub(crate) enum ScaleSpec {
     Linear,
     /// Logarithmic scale with the given base.
     Log { base: f64 },
+    /// Symmetric-log scale with a linear region around zero.
+    Symlog { base: f64, linthresh: f64 },
 }
 
 impl ScaleSpec {
@@ -42,6 +47,9 @@ impl ScaleSpec {
         match self {
             ScaleSpec::Linear => value,
             ScaleSpec::Log { base } => LogScale::new(base).transform(value),
+            ScaleSpec::Symlog { base, linthresh } => {
+                SymlogScale::new(base, linthresh, 1.0).transform(value)
+            }
         }
     }
 
@@ -49,6 +57,9 @@ impl ScaleSpec {
         match self {
             ScaleSpec::Linear => value,
             ScaleSpec::Log { base } => LogScale::new(base).inverse(value),
+            ScaleSpec::Symlog { base, linthresh } => {
+                SymlogScale::new(base, linthresh, 1.0).inverse(value)
+            }
         }
     }
 
@@ -60,6 +71,7 @@ impl ScaleSpec {
         match self {
             ScaleSpec::Linear => guard_range(limits),
             ScaleSpec::Log { base } => guard_log_range(limits, base, minpos),
+            ScaleSpec::Symlog { .. } => guard_range(limits),
         }
     }
 }
@@ -530,6 +542,66 @@ impl Axes {
         self
     }
 
+    /// Use a symmetric-log x-axis scale with `base` and `linthresh`.
+    ///
+    /// The symlog transform is linear within `[-linthresh, linthresh]` and
+    /// logarithmic in both tails, so negative values and zero remain valid.
+    /// Limits, autoscaling, and public data APIs remain in raw data units; the
+    /// transform is applied at draw time. Line, patch, collection, span, and
+    /// reference-line geometry is symlog-scaled; raster images and quad meshes
+    /// are intentionally unsupported on nonlinear axes in this implementation.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `base` is not finite or is less than or equal to one, or
+    /// when `linthresh` is not finite or is less than or equal to zero.
+    pub fn set_xscale_symlog(&mut self, base: f64, linthresh: f64) -> &mut Self {
+        assert!(
+            base.is_finite() && base > 1.0,
+            "symlog scale base must be finite and > 1"
+        );
+        assert!(
+            linthresh.is_finite() && linthresh > 0.0,
+            "symlog scale linthresh must be finite and > 0"
+        );
+        self.xscale = ScaleSpec::Symlog { base, linthresh };
+        self.xaxis
+            .set_scale(Box::new(SymlogScale::new(base, linthresh, 1.0)))
+            .set_locator(Box::new(SymlogLocator::new(base, linthresh)))
+            .set_formatter(Box::new(SymlogFormatterMathtext::new(base, linthresh)));
+        self
+    }
+
+    /// Use a symmetric-log y-axis scale with `base` and `linthresh`.
+    ///
+    /// The symlog transform is linear within `[-linthresh, linthresh]` and
+    /// logarithmic in both tails, so negative values and zero remain valid.
+    /// Limits, autoscaling, and public data APIs remain in raw data units; the
+    /// transform is applied at draw time. Line, patch, collection, span, and
+    /// reference-line geometry is symlog-scaled; raster images and quad meshes
+    /// are intentionally unsupported on nonlinear axes in this implementation.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `base` is not finite or is less than or equal to one, or
+    /// when `linthresh` is not finite or is less than or equal to zero.
+    pub fn set_yscale_symlog(&mut self, base: f64, linthresh: f64) -> &mut Self {
+        assert!(
+            base.is_finite() && base > 1.0,
+            "symlog scale base must be finite and > 1"
+        );
+        assert!(
+            linthresh.is_finite() && linthresh > 0.0,
+            "symlog scale linthresh must be finite and > 0"
+        );
+        self.yscale = ScaleSpec::Symlog { base, linthresh };
+        self.yaxis
+            .set_scale(Box::new(SymlogScale::new(base, linthresh, 1.0)))
+            .set_locator(Box::new(SymlogLocator::new(base, linthresh)))
+            .set_formatter(Box::new(SymlogFormatterMathtext::new(base, linthresh)));
+        self
+    }
+
     /// Plot with a logarithmic x-axis and linear y-axis.
     ///
     /// ```
@@ -571,6 +643,34 @@ impl Axes {
     /// ```
     pub fn loglog(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
         self.set_xscale_log(10.0).set_yscale_log(10.0);
+        self.plot(x, y)
+    }
+
+    /// Plot with a symmetric-log x-axis and linear y-axis.
+    ///
+    /// ```
+    /// use rizzma_core::Bbox;
+    /// use rizzma_figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.symlogx(&[-100.0, -1.0, 0.0, 1.0, 100.0], &[1.0, 2.0, 3.0, 2.0, 1.0]);
+    /// ```
+    pub fn symlogx(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
+        self.set_xscale_symlog(10.0, 1.0);
+        self.plot(x, y)
+    }
+
+    /// Plot with a linear x-axis and symmetric-log y-axis.
+    ///
+    /// ```
+    /// use rizzma_core::Bbox;
+    /// use rizzma_figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.symlogy(&[-2.0, -1.0, 0.0, 1.0, 2.0], &[-100.0, -1.0, 0.0, 1.0, 100.0]);
+    /// ```
+    pub fn symlogy(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
+        self.set_yscale_symlog(10.0, 1.0);
         self.plot(x, y)
     }
 
@@ -1087,11 +1187,85 @@ mod tests {
     }
 
     #[test]
+    fn data_to_scaled_symlog_maps_negative_zero_and_positive_points() {
+        let scale = ScaleSpec::Symlog {
+            base: 10.0,
+            linthresh: 1.0,
+        };
+        let mapper = DataToScaled::new(scale, ScaleSpec::Linear);
+        let path = Path::from_polyline(&[[-100.0, 2.0], [0.0, 4.0], [100.0, 8.0]]);
+        let scaled = mapper.map_path(&path);
+
+        approx(mapper.map_point(0.0, 5.0)[0], 0.0);
+        approx(
+            mapper.map_point(100.0, 5.0)[0],
+            -mapper.map_point(-100.0, 5.0)[0],
+        );
+        approx(scaled.vertices()[1][0], 0.0);
+        assert!(scaled.vertices()[0][0] < 0.0);
+        assert!(scaled.vertices()[2][0] > 0.0);
+        assert_eq!(scaled.codes(), path.codes());
+    }
+
+    #[test]
     fn log_tick_position_uses_scaled_coordinate_fraction() {
         let scale = ScaleSpec::Log { base: 10.0 };
 
         approx(scaled_tick_position(10.0, (1.0, 1000.0), scale), 1.0 / 3.0);
         approx(scaled_tick_position(100.0, (1.0, 1000.0), scale), 2.0 / 3.0);
+    }
+
+    #[test]
+    fn symlog_tick_position_uses_scaled_coordinate_fraction() {
+        let scale = ScaleSpec::Symlog {
+            base: 10.0,
+            linthresh: 1.0,
+        };
+
+        approx(scaled_tick_position(0.0, (-100.0, 100.0), scale), 0.5);
+        assert!(scaled_tick_position(-10.0, (-100.0, 100.0), scale) < 0.5);
+        assert!(scaled_tick_position(10.0, (-100.0, 100.0), scale) > 0.5);
+    }
+
+    #[test]
+    fn symlog_effective_limits_preserve_negative_zero_positive_domain() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.plot(
+            &[-100.0, -1.0, 0.0, 1.0, 100.0],
+            &[-1.0, 0.0, 1.0, 0.0, -1.0],
+        );
+        axes.set_xscale_symlog(10.0, 1.0).set_xlim(-100.0, 100.0);
+
+        let (xlim, _) = axes.scale_limited_effective_limits();
+        assert_eq!(xlim, (-100.0, 100.0));
+        let (axes_px, td) = axes.pixel_rect_and_trans_data(200.0, 100.0);
+        assert!(axes_px.width().is_finite());
+        assert!(td.transform_point((0.0, 0.0)).0.is_finite());
+    }
+
+    #[test]
+    fn symlog_wrappers_set_expected_axis_scales() {
+        let mut x_axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        x_axes.symlogx(&[-10.0, 0.0, 10.0], &[1.0, 2.0, 3.0]);
+        assert_eq!(
+            x_axes.xscale,
+            ScaleSpec::Symlog {
+                base: 10.0,
+                linthresh: 1.0
+            }
+        );
+        assert_eq!(x_axes.yscale, ScaleSpec::Linear);
+
+        let mut y_axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        y_axes.symlogy(&[-1.0, 0.0, 1.0], &[-10.0, 0.0, 10.0]);
+        assert_eq!(y_axes.xscale, ScaleSpec::Linear);
+        assert_eq!(
+            y_axes.yscale,
+            ScaleSpec::Symlog {
+                base: 10.0,
+                linthresh: 1.0
+            }
+        );
     }
 
     #[derive(Default)]
