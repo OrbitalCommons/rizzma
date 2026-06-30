@@ -1,0 +1,11 @@
+[package]
+name = "rizzma-axis"
+description = "Axis machinery: ticker (locators/formatters), scales, units/category, dates, and Axis/Tick/Spine drawing."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

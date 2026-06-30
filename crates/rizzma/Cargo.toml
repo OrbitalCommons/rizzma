@@ -1,0 +1,14 @@
+[package]
+name = "rizzma"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A Rust reimplementation of the good parts of matplotlib/pyplot, with first-class wasm support. Early construction; this release reserves the name."
+readme = "README.md"
+keywords = ["plotting", "matplotlib", "visualization", "charts", "wasm"]
+categories = ["visualization", "graphics", "wasm"]
+
+[lints]
+workspace = true

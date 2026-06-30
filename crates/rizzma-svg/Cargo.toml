@@ -1,0 +1,11 @@
+[package]
+name = "rizzma-svg"
+description = "SVG vector backend: implements Renderer by serializing primitives to SVG (defs/use, clips, hatches)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
