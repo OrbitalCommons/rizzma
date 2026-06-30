@@ -8,6 +8,31 @@ stateful facade, with a single `Renderer` trait driving multiple targets: a `tin
 raster backend (PNG), an SVG emitter, and a browser `<canvas>` backend — the same figure,
 rendered anywhere.
 
+## Gallery
+
+One figure per Tier-1 plot type, auto-rendered from
+[`crates/rizzma-figure/examples/gallery.rs`](crates/rizzma-figure/examples/gallery.rs) on
+every push to `main` and published to the `gh-pages` branch (so these images never live in
+`main`'s history). Browse them all at the
+[gallery page](https://orbitalcommons.github.io/rizzma/).
+
+<!-- Images are served from the orphan gh-pages branch; they appear after the Gallery
+     workflow runs on main. -->
+
+| | | |
+|:-:|:-:|:-:|
+| ![plot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_plot.png) | ![scatter](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_scatter.png) | ![bar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_bar.png) |
+| `plot` | `scatter` | `bar` |
+| ![barh](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_barh.png) | ![hist](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_hist.png) | ![fill_between](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_fill_between.png) |
+| `barh` | `hist` | `fill_between` |
+| ![step](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_step.png) | ![errorbar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_errorbar.png) | ![reference lines](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_reflines.png) |
+| `step` | `errorbar` | reference lines / spans |
+| ![imshow](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_imshow.png) | ![legend + colorbar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_legend_colorbar.png) | |
+| `imshow` | `legend` + `colorbar` | |
+
+Regenerate locally with `cargo run -p rizzma-figure --example gallery` (writes
+`target/gallery_*.png`).
+
 ## Workspace layout
 
 | Crate | Responsibility |

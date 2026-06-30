@@ -284,7 +284,7 @@ impl Axes {
     /// Resolve the effective `(xlim, ylim)` used for drawing.
     ///
     /// Explicit limits are used when set; otherwise the data limits are
-    /// expanded by [`margins`](Self::margins) on each side. With no data at all
+    /// expanded by the axes `margins` on each side. With no data at all
     /// the fallback range is `(0.0, 1.0)`. Zero-width ranges are nudged apart so
     /// the data transform never divides by zero.
     #[must_use]

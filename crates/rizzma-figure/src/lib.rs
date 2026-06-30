@@ -9,6 +9,21 @@
 //! gradient colorbars, and [`Figure::to_svg`] proves the figure is
 //! backend-agnostic. `SubFigure` and full layout engines are follow-ups.
 //!
+//! # Gallery
+//!
+//! One figure per Tier-1 plot type, rendered by
+//! `cargo run -p rizzma-figure --example gallery` and published to the project's
+//! `gh-pages` branch (the images are external, so this doc carries no binaries):
+//!
+//! | | | |
+//! |:-:|:-:|:-:|
+//! | ![plot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_plot.png) | ![scatter](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_scatter.png) | ![bar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_bar.png) |
+//! | [`Axes::plot`] | [`Axes::scatter`] | [`Axes::bar`] |
+//! | ![hist](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_hist.png) | ![fill_between](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_fill_between.png) | ![errorbar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_errorbar.png) |
+//! | [`Axes::hist`] | [`Axes::fill_between`] | [`Axes::errorbar`] |
+//! | ![imshow](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_imshow.png) | ![legend + colorbar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_legend_colorbar.png) | ![reference lines](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_reflines.png) |
+//! | [`Axes::imshow`] | [`Figure::colorbar`] | [`Axes::axhline`] etc. |
+//!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
 mod axes;
