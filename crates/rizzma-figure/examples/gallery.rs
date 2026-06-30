@@ -218,5 +218,28 @@ fn main() {
         fig.save_png("target/gallery_pcolormesh.png").unwrap();
     }
 
+    // 15. stackplot
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let x = linspace(0.0, TAU, 80);
+        let a: Vec<f64> = x.iter().map(|v| 1.0 + 0.5 * v.sin()).collect();
+        let b: Vec<f64> = x.iter().map(|v| 1.5 + 0.5 * (2.0 * v).cos()).collect();
+        let c: Vec<f64> = x.iter().map(|v| 1.0 + 0.3 * (0.5 * v).sin()).collect();
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.stackplot(&x, &[&a, &b, &c]);
+        ax.set_title("stackplot");
+        fig.save_png("target/gallery_stackplot.png").unwrap();
+    }
+
+    // 16. broken_barh
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.broken_barh(&[(1.0, 3.0), (5.0, 2.0), (8.0, 4.0)], (10.0, 4.0));
+        ax.broken_barh(&[(2.0, 4.0), (7.5, 3.0)], (20.0, 4.0));
+        ax.set_title("broken_barh");
+        fig.save_png("target/gallery_broken_barh.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
