@@ -204,6 +204,72 @@ impl Figure {
     pub fn save_svg<P: AsRef<std::path::Path>>(&self, path: P) -> std::io::Result<()> {
         std::fs::write(path, self.to_svg())
     }
+
+    /// Forward-map a data point in axes `axes_index` to a **top-down canvas
+    /// pixel** `(px, py)` (the same pixel space [`Figure::render`] produces, with
+    /// `py` measured from the top-left corner).
+    ///
+    /// This runs the exact forward transform used at draw time: the axes'
+    /// effective (resolved) `(xlim, ylim)` and its `trans_data` affine map the
+    /// data point into **y-up** display pixels, then the backend **Y-flip** is
+    /// applied (`py = fig_h_px - display_y`) so the result is a top-down canvas
+    /// pixel. "Effective" limits mean explicit [`set_xlim`](crate::Axes::set_xlim)
+    /// /[`set_ylim`](crate::Axes::set_ylim) when set, else the autoscaled
+    /// data extents expanded by the axes margins.
+    ///
+    /// Returns `None` if `axes_index` is out of range.
+    ///
+    /// This is the exact inverse of [`Figure::pixel_to_data`] for linear axes.
+    // TODO: honor non-linear scales (log/symlog) once `trans_data` does; today
+    // the data transform is purely linear.
+    #[must_use]
+    pub fn data_to_pixel(&self, axes_index: usize, data_x: f64, data_y: f64) -> Option<(f64, f64)> {
+        let ax = self.axes.get(axes_index)?;
+        let (fig_w_px, fig_h_px) = self.size_px();
+        let (_axes_px, td) = ax.pixel_rect_and_trans_data(fig_w_px, fig_h_px);
+        let (px, display_y) = td.transform_point((data_x, data_y));
+        // Y-flip: matplotlib's display space is y-up (origin bottom-left), but
+        // the canvas pixmap is top-down, so a display height of `display_y`
+        // corresponds to a top-down row `fig_h_px - display_y`.
+        Some((px, fig_h_px - display_y))
+    }
+
+    /// Inverse-map a **top-down canvas pixel** `(px, py)` (as produced by
+    /// [`Figure::render`], `py` from the top-left corner) to data coordinates in
+    /// axes `axes_index`.
+    ///
+    /// This inverts the exact forward transform of [`Figure::data_to_pixel`]:
+    /// the backend **Y-flip** is undone (`display_y = fig_h_px - py`) to recover
+    /// the y-up display point, which is then pushed through the inverse of the
+    /// axes' `trans_data` affine. The limits used are the effective/resolved ones
+    /// (explicit [`set_xlim`](crate::Axes::set_xlim)/[`set_ylim`](crate::Axes::set_ylim)
+    /// when set, else autoscaled-with-margins) — identical to draw time.
+    ///
+    /// Returns `None` if:
+    /// - `axes_index` is out of range, or
+    /// - the pixel lies **outside** that axes' pixel rectangle (so a hover
+    ///   readout can tell the cursor isn't over the axes), or
+    /// - the data transform is singular and cannot be inverted.
+    ///
+    /// This is the exact inverse of [`Figure::data_to_pixel`] for linear axes.
+    // TODO: honor non-linear scales (log/symlog) once `trans_data` does; today
+    // the data transform is purely linear.
+    #[must_use]
+    pub fn pixel_to_data(&self, axes_index: usize, px: f64, py: f64) -> Option<(f64, f64)> {
+        let ax = self.axes.get(axes_index)?;
+        let (fig_w_px, fig_h_px) = self.size_px();
+        let (axes_px, td) = ax.pixel_rect_and_trans_data(fig_w_px, fig_h_px);
+        // Undo the backend Y-flip to recover the y-up display point that
+        // `trans_data` operates in.
+        let display_y = fig_h_px - py;
+        // Reject pixels outside the axes rectangle. `axes_px` is in y-up display
+        // pixels, so compare against the un-flipped `display_y`.
+        if !axes_px.contains_point(px, display_y) {
+            return None;
+        }
+        let inv = td.inverted()?;
+        Some(inv.transform_point((px, display_y)))
+    }
 }
 
 #[cfg(test)]
@@ -270,6 +336,73 @@ mod tests {
         assert!(svg.contains("<svg"), "missing <svg root: {svg}");
         assert!(svg.contains("</svg>"), "missing </svg> close");
         assert!(svg.contains("<path"), "missing at least one <path");
+    }
+
+    fn approx(a: f64, b: f64) {
+        assert!((a - b).abs() < 1e-6, "expected {b}, got {a}");
+    }
+
+    /// A figure with one axes at a known fractional position and explicit
+    /// limits, so its pixel rect and data extents are fully determined.
+    fn fixture() -> Figure {
+        // 4x2 inch at 100 dpi -> 400x200 px canvas.
+        let mut fig = Figure::new(4.0, 2.0).with_dpi(100.0);
+        let ax = fig.add_axes(0.25, 0.5, 0.5, 0.25);
+        // axes_px (y-up): x in [100, 300], y in [100, 150].
+        ax.set_xlim(0.0, 10.0);
+        ax.set_ylim(-5.0, 5.0);
+        fig
+    }
+
+    #[test]
+    fn data_to_pixel_maps_lower_left_to_bottom_left_pixel() {
+        let fig = fixture();
+        // Lower-left data corner (xmin, ymin) -> axes-rect lower-left in y-up
+        // display, which is the *larger* py after the Y-flip.
+        // axes_px y-up lower-left = (100, 100); canvas py = 200 - 100 = 100.
+        let (px, py) = fig.data_to_pixel(0, 0.0, -5.0).expect("in range");
+        approx(px, 100.0);
+        approx(py, 100.0);
+
+        // Data center (5, 0) -> axes-rect pixel center.
+        // y-up center = (200, 125); canvas py = 200 - 125 = 75.
+        let (cx, cy) = fig.data_to_pixel(0, 5.0, 0.0).expect("in range");
+        approx(cx, 200.0);
+        approx(cy, 75.0);
+
+        // Upper-right data corner (xmax, ymax) -> axes-rect upper-right in
+        // y-up display = (300, 150); canvas py = 200 - 150 = 50.
+        let (ux, uy) = fig.data_to_pixel(0, 10.0, 5.0).expect("in range");
+        approx(ux, 300.0);
+        approx(uy, 50.0);
+    }
+
+    #[test]
+    fn pixel_to_data_round_trips() {
+        let fig = fixture();
+        for &(x, y) in &[
+            (0.0, -5.0),
+            (10.0, 5.0),
+            (5.0, 0.0),
+            (2.5, -1.25),
+            (7.3, 3.1),
+        ] {
+            let (px, py) = fig.data_to_pixel(0, x, y).expect("in range");
+            let (rx, ry) = fig.pixel_to_data(0, px, py).expect("inside axes");
+            approx(rx, x);
+            approx(ry, y);
+        }
+    }
+
+    #[test]
+    fn pixel_to_data_returns_none_outside_and_out_of_range() {
+        let fig = fixture();
+        // Well outside the axes pixel rect (canvas is 400x200; this is past it).
+        assert!(fig.pixel_to_data(0, 5.0, 5.0).is_none());
+        assert!(fig.pixel_to_data(0, 399.0, 199.0).is_none());
+        // Out-of-range axes index.
+        assert!(fig.pixel_to_data(1, 200.0, 100.0).is_none());
+        assert!(fig.data_to_pixel(1, 0.0, 0.0).is_none());
     }
 
     #[test]
