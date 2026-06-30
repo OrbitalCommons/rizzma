@@ -8,8 +8,8 @@
 //!
 //! Supported in this first pass: ordinary symbols, whitespace glue, `{...}`
 //! groups, superscripts/subscripts, `\frac{...}{...}`, and a small table of
-//! common named symbols. Unsupported commands are preserved as literal fallback
-//! text and reported as structured warnings.
+//! common named symbols and accents. Unsupported commands are preserved as
+//! literal fallback text and reported as structured warnings.
 //!
 //! This is intentionally a scoped approximation: it uses the embedded DejaVu
 //! Sans face for wasm-clean, deterministic glyph geometry, so it does not yet
@@ -55,6 +55,26 @@ impl MathLayout {
     pub fn is_empty(&self) -> bool {
         self.elements.is_empty()
     }
+
+    /// Returns a copy of this layout translated by `(dx, dy)` pixels.
+    ///
+    /// This is the preferred way for higher-level text layout to place math
+    /// runs on a baseline without matching on individual [`MathElement`]
+    /// variants.
+    #[must_use]
+    pub fn translated(&self, dx: f64, dy: f64) -> Self {
+        Self {
+            elements: self
+                .elements
+                .iter()
+                .map(|element| element.translated(dx, dy))
+                .collect(),
+            width: self.width,
+            ascent: self.ascent,
+            descent: self.descent,
+            warnings: self.warnings.clone(),
+        }
+    }
 }
 
 /// One positioned geometry element in a [`MathLayout`].
@@ -72,6 +92,71 @@ pub enum MathElement {
         /// Rectangle path in final math-layout coordinates.
         path: Path,
     },
+    /// Accent mark geometry positioned above a base expression.
+    Accent {
+        /// Accent kind.
+        kind: AccentKind,
+        /// Accent mark path in final math-layout coordinates.
+        path: Path,
+    },
+}
+
+impl MathElement {
+    /// Returns this element's geometry path.
+    ///
+    /// Consumers should use this accessor instead of exhaustively matching on
+    /// [`MathElement`] variants when they only need geometry.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        match self {
+            MathElement::Glyph { path, .. }
+            | MathElement::Rule { path }
+            | MathElement::Accent { path, .. } => path,
+        }
+    }
+
+    /// Returns a copy of this element translated by `(dx, dy)` pixels.
+    #[must_use]
+    pub fn translated(&self, dx: f64, dy: f64) -> Self {
+        if dx == 0.0 && dy == 0.0 {
+            return self.clone();
+        }
+        let transform = Affine2D::from_translation(dx, dy);
+        self.transformed(&transform)
+    }
+
+    fn transformed(&self, transform: &Affine2D) -> Self {
+        match self {
+            MathElement::Glyph { text, path } => MathElement::Glyph {
+                text: text.clone(),
+                path: path.transformed(transform),
+            },
+            MathElement::Rule { path } => MathElement::Rule {
+                path: path.transformed(transform),
+            },
+            MathElement::Accent { kind, path } => MathElement::Accent {
+                kind: *kind,
+                path: path.transformed(transform),
+            },
+        }
+    }
+}
+
+/// Supported accent commands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AccentKind {
+    /// `\hat{x}`.
+    Hat,
+    /// `\bar{x}`.
+    Bar,
+    /// `\vec{x}`.
+    Vec,
+    /// `\tilde{x}`.
+    Tilde,
+    /// `\dot{x}`.
+    Dot,
+    /// `\ddot{x}`.
+    Ddot,
 }
 
 /// A non-fatal parser/layout warning.
@@ -98,6 +183,8 @@ pub enum MathTextWarningReason {
     UnmatchedCloseBrace,
     /// `\frac` was missing one of its required groups.
     MissingFractionArgument,
+    /// A command was missing a required group argument.
+    MissingCommandArgument,
 }
 
 /// Error returned when an API receives a non-math span.
@@ -151,6 +238,10 @@ enum Node {
     Fraction {
         numerator: Row,
         denominator: Row,
+    },
+    Accent {
+        kind: AccentKind,
+        body: Row,
     },
     Script {
         base: Box<Node>,
@@ -322,6 +413,10 @@ impl<'a> Parser<'a> {
             return self.parse_fraction(start);
         }
 
+        if let Some(kind) = accent_kind(name) {
+            return self.parse_accent(start, name, kind);
+        }
+
         if let Some(symbol) = command_symbol(name) {
             return self.parse_scripts(Node::Text(symbol.to_owned()));
         }
@@ -336,10 +431,18 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_fraction(&mut self, start: usize) -> Node {
-        let Some(numerator) = self.parse_required_group(start, "\\frac") else {
+        let Some(numerator) = self.parse_required_group(
+            start,
+            "frac",
+            MathTextWarningReason::MissingFractionArgument,
+        ) else {
             return Node::Text("\\frac".to_owned());
         };
-        let Some(denominator) = self.parse_required_group(start, "\\frac") else {
+        let Some(denominator) = self.parse_required_group(
+            start,
+            "frac",
+            MathTextWarningReason::MissingFractionArgument,
+        ) else {
             return Node::Text("\\frac".to_owned());
         };
         self.parse_scripts(Node::Fraction {
@@ -348,15 +451,31 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_required_group(&mut self, command_start: usize, command: &str) -> Option<Row> {
+    fn parse_accent(&mut self, start: usize, command: &str, kind: AccentKind) -> Node {
+        let Some(body) = self.parse_required_group(
+            start,
+            command,
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text(format!("\\{command}"));
+        };
+        self.parse_scripts(Node::Accent { kind, body })
+    }
+
+    fn parse_required_group(
+        &mut self,
+        command_start: usize,
+        command: &str,
+        reason: MathTextWarningReason,
+    ) -> Option<Row> {
         if self.peek_char() == Some('{') {
             self.pos += 1;
             Some(self.parse_group_from_open())
         } else {
             self.warnings.push(MathTextWarning {
                 range: Some(command_start..self.pos),
-                reason: MathTextWarningReason::MissingFractionArgument,
-                source: command.to_owned(),
+                reason,
+                source: format!("\\{command}"),
             });
             None
         }
@@ -435,6 +554,7 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
             numerator,
             denominator,
         } => layout_fraction(numerator, denominator, font, font_size_px),
+        Node::Accent { kind, body } => layout_accent(*kind, body, font, font_size_px),
         Node::Script { base, sup, sub } => {
             layout_script(base, sup.as_ref(), sub.as_ref(), font, font_size_px)
         }
@@ -498,6 +618,25 @@ fn layout_fraction(
     }
 }
 
+fn layout_accent(kind: AccentKind, body: &Row, font: &FontSource, font_size_px: f64) -> LayoutBox {
+    let base = layout_row(&body.nodes, font, font_size_px);
+    let mark_width = base.width.max(font_size_px * 0.45);
+    let mark_height = (font_size_px * 0.12).max(1.0);
+    let gap = font_size_px * 0.08;
+    let mark_x = (base.width - mark_width) / 2.0;
+    let mark_y = base.ascent + gap;
+    let mark = accent_path(kind, mark_x, mark_y, mark_width, mark_height);
+    let mut elements = base.elements;
+    elements.push(MathElement::Accent { kind, path: mark });
+
+    LayoutBox {
+        elements,
+        width: base.width,
+        ascent: mark_y + mark_height,
+        descent: base.descent,
+    }
+}
+
 fn layout_script(
     base: &Node,
     sup: Option<&Row>,
@@ -547,16 +686,47 @@ fn shift_elements(elements: Vec<MathElement>, dx: f64, dy: f64) -> Vec<MathEleme
     let transform = Affine2D::from_translation(dx, dy);
     elements
         .into_iter()
-        .map(|element| match element {
-            MathElement::Glyph { text, path } => MathElement::Glyph {
-                text,
-                path: path.transformed(&transform),
-            },
-            MathElement::Rule { path } => MathElement::Rule {
-                path: path.transformed(&transform),
-            },
-        })
+        .map(|element| element.transformed(&transform))
         .collect()
+}
+
+fn accent_path(kind: AccentKind, x: f64, y: f64, width: f64, height: f64) -> Path {
+    match kind {
+        AccentKind::Hat => {
+            Path::from_polyline(&[[x, y], [x + width * 0.5, y + height], [x + width, y]])
+        }
+        AccentKind::Bar => rect_path(x, y + height * 0.45, width, height * 0.18),
+        AccentKind::Vec => {
+            let shaft_y = y + height * 0.55;
+            let head = height * 0.45;
+            Path::from_polyline(&[
+                [x, shaft_y],
+                [x + width, shaft_y],
+                [x + width - head, shaft_y + head],
+                [x + width, shaft_y],
+                [x + width - head, shaft_y - head],
+            ])
+        }
+        AccentKind::Tilde => Path::from_polyline(&[
+            [x, y + height * 0.45],
+            [x + width * 0.25, y + height],
+            [x + width * 0.5, y + height * 0.45],
+            [x + width * 0.75, y],
+            [x + width, y + height * 0.45],
+        ]),
+        AccentKind::Dot => rect_path(
+            x + width * 0.5 - height * 0.25,
+            y + height * 0.35,
+            height * 0.5,
+            height * 0.5,
+        ),
+        AccentKind::Ddot => {
+            let dot = height * 0.45;
+            let left = rect_path(x + width * 0.35 - dot * 0.5, y + height * 0.35, dot, dot);
+            let right = rect_path(x + width * 0.65 - dot * 0.5, y + height * 0.35, dot, dot);
+            combine_paths(&[left, right])
+        }
+    }
 }
 
 fn rect_path(x: f64, y: f64, width: f64, height: f64) -> Path {
@@ -571,6 +741,7 @@ fn flatten_row_text(row: &Row) -> String {
             Node::Text(text) => out.push_str(text),
             Node::Space => out.push(' '),
             Node::Fraction { .. } => out.push_str("\\frac"),
+            Node::Accent { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Script { base, .. } => out.push_str(&flatten_node_text(base)),
         }
     }
@@ -582,7 +753,40 @@ fn flatten_node_text(node: &Node) -> String {
         Node::Text(text) => text.clone(),
         Node::Space => " ".to_owned(),
         Node::Fraction { .. } => "\\frac".to_owned(),
+        Node::Accent { body, .. } => flatten_row_text(body),
         Node::Script { base, .. } => flatten_node_text(base),
+    }
+}
+
+fn combine_paths(paths: &[Path]) -> Path {
+    let mut vertices = Vec::new();
+    let mut codes = Vec::new();
+    for path in paths {
+        vertices.extend_from_slice(path.vertices());
+        if let Some(path_codes) = path.codes() {
+            codes.extend_from_slice(path_codes);
+        } else {
+            for i in 0..path.vertices().len() {
+                codes.push(if i == 0 {
+                    rizzma_core::PathCode::MoveTo
+                } else {
+                    rizzma_core::PathCode::LineTo
+                });
+            }
+        }
+    }
+    Path::new(vertices, Some(codes))
+}
+
+fn accent_kind(name: &str) -> Option<AccentKind> {
+    match name {
+        "hat" => Some(AccentKind::Hat),
+        "bar" | "overline" => Some(AccentKind::Bar),
+        "vec" => Some(AccentKind::Vec),
+        "tilde" => Some(AccentKind::Tilde),
+        "dot" => Some(AccentKind::Dot),
+        "ddot" => Some(AccentKind::Ddot),
+        _ => None,
     }
 }
 
@@ -593,30 +797,90 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "gamma" => Some("γ"),
         "delta" => Some("δ"),
         "epsilon" => Some("ε"),
+        "varepsilon" => Some("ε"),
+        "zeta" => Some("ζ"),
+        "eta" => Some("η"),
         "theta" => Some("θ"),
+        "vartheta" => Some("ϑ"),
+        "iota" => Some("ι"),
+        "kappa" => Some("κ"),
         "lambda" => Some("λ"),
         "mu" => Some("μ"),
+        "nu" => Some("ν"),
+        "xi" => Some("ξ"),
+        "omicron" => Some("ο"),
         "pi" => Some("π"),
+        "varpi" => Some("ϖ"),
+        "rho" => Some("ρ"),
+        "varrho" => Some("ϱ"),
         "sigma" => Some("σ"),
+        "varsigma" => Some("ς"),
+        "tau" => Some("τ"),
+        "upsilon" => Some("υ"),
         "phi" => Some("φ"),
+        "varphi" => Some("ϕ"),
+        "chi" => Some("χ"),
+        "psi" => Some("ψ"),
         "omega" => Some("ω"),
         "Gamma" => Some("Γ"),
         "Delta" => Some("Δ"),
         "Theta" => Some("Θ"),
         "Lambda" => Some("Λ"),
+        "Xi" => Some("Ξ"),
         "Pi" => Some("Π"),
         "Sigma" => Some("Σ"),
+        "Upsilon" => Some("Υ"),
         "Phi" => Some("Φ"),
+        "Psi" => Some("Ψ"),
         "Omega" => Some("Ω"),
         "times" => Some("×"),
+        "div" => Some("÷"),
         "pm" => Some("±"),
+        "mp" => Some("∓"),
         "leq" => Some("≤"),
+        "le" => Some("≤"),
         "geq" => Some("≥"),
+        "ge" => Some("≥"),
         "neq" => Some("≠"),
+        "ne" => Some("≠"),
+        "approx" => Some("≈"),
+        "sim" => Some("∼"),
+        "simeq" => Some("≃"),
+        "equiv" => Some("≡"),
+        "propto" => Some("∝"),
         "infty" => Some("∞"),
         "partial" => Some("∂"),
+        "nabla" => Some("∇"),
         "sum" => Some("∑"),
+        "prod" => Some("∏"),
         "int" => Some("∫"),
+        "oint" => Some("∮"),
+        "sqrt" => Some("√"),
+        "cdot" => Some("⋅"),
+        "bullet" => Some("•"),
+        "circ" => Some("∘"),
+        "degree" => Some("°"),
+        "prime" => Some("′"),
+        "rightarrow" | "to" => Some("→"),
+        "leftarrow" => Some("←"),
+        "leftrightarrow" => Some("↔"),
+        "Rightarrow" => Some("⇒"),
+        "Leftarrow" => Some("⇐"),
+        "Leftrightarrow" => Some("⇔"),
+        "in" => Some("∈"),
+        "notin" => Some("∉"),
+        "subset" => Some("⊂"),
+        "subseteq" => Some("⊆"),
+        "supset" => Some("⊃"),
+        "supseteq" => Some("⊇"),
+        "cup" => Some("∪"),
+        "cap" => Some("∩"),
+        "emptyset" => Some("∅"),
+        "forall" => Some("∀"),
+        "exists" => Some("∃"),
+        "land" => Some("∧"),
+        "lor" => Some("∨"),
+        "neg" => Some("¬"),
         _ => None,
     }
 }
@@ -648,10 +912,25 @@ mod tests {
             .iter()
             .filter_map(|element| match element {
                 MathElement::Glyph { text, .. } => Some(text.as_str()),
-                MathElement::Rule { .. } => None,
+                MathElement::Rule { .. } | MathElement::Accent { .. } => None,
             })
             .collect();
         assert_eq!(texts, ["α", "+", "β"]);
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn expanded_symbol_table_maps_common_commands() {
+        let layout = layout_math("\\leq\\approx\\nabla\\rightarrow\\subseteq", &font(), 20.0);
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                MathElement::Rule { .. } | MathElement::Accent { .. } => None,
+            })
+            .collect();
+        assert_eq!(text, "≤≈∇→⊆");
         assert!(layout.warnings.is_empty());
     }
 
@@ -698,6 +977,94 @@ mod tests {
         assert!(layout.ascent > 0.0);
         assert!(layout.descent > 0.0);
         assert!(layout.height() > 24.0);
+    }
+
+    #[test]
+    fn accents_emit_mark_paths_above_base() {
+        let plain = layout_math("x", &font(), 24.0);
+        let accented = layout_math("\\hat{x}", &font(), 24.0);
+        let accent_path = accented.elements.iter().find_map(|element| match element {
+            MathElement::Accent {
+                kind: AccentKind::Hat,
+                path,
+            } => Some(path),
+            _ => None,
+        });
+        let accent_path = accent_path.expect("hat accent should emit an accent path");
+
+        assert!(accented.ascent > plain.ascent);
+        assert!(accent_path.get_extents().ymin() >= plain.ascent);
+        assert!(accented.warnings.is_empty());
+    }
+
+    #[test]
+    fn vector_accent_can_take_script() {
+        let layout = layout_math("\\vec{x}_i", &font(), 24.0);
+        assert!(layout.elements.iter().any(|element| matches!(
+            element,
+            MathElement::Accent {
+                kind: AccentKind::Vec,
+                ..
+            }
+        )));
+        assert!(layout.descent > layout_math("\\vec{x}", &font(), 24.0).descent);
+    }
+
+    #[test]
+    fn accent_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\hat", &font(), 20.0);
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert_eq!(layout.warnings[0].source, "\\hat");
+        assert!(
+            layout.elements.iter().any(
+                |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\hat")
+            )
+        );
+    }
+
+    #[test]
+    fn element_path_accessor_covers_all_variants() {
+        let layout = layout_math("\\hat{\\frac{x}{y}}", &font(), 24.0);
+        assert!(
+            layout
+                .elements
+                .iter()
+                .any(|element| matches!(element, MathElement::Glyph { .. }))
+        );
+        assert!(
+            layout
+                .elements
+                .iter()
+                .any(|element| matches!(element, MathElement::Rule { .. }))
+        );
+        assert!(
+            layout
+                .elements
+                .iter()
+                .any(|element| matches!(element, MathElement::Accent { .. }))
+        );
+
+        for element in &layout.elements {
+            assert!(!element.path().vertices().is_empty());
+        }
+    }
+
+    #[test]
+    fn translated_layout_moves_geometry_without_changing_metrics() {
+        let layout = layout_math("\\vec{x}_i", &font(), 24.0);
+        let before = layout.elements[0].path().get_extents();
+        let shifted = layout.translated(12.0, -3.0);
+        let after = shifted.elements[0].path().get_extents();
+
+        assert_eq!(shifted.width, layout.width);
+        assert_eq!(shifted.ascent, layout.ascent);
+        assert_eq!(shifted.descent, layout.descent);
+        assert!((after.xmin() - (before.xmin() + 12.0)).abs() < 1e-9);
+        assert!((after.ymin() - (before.ymin() - 3.0)).abs() < 1e-9);
     }
 
     #[test]
