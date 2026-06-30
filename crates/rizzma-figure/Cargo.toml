@@ -22,4 +22,5 @@ rizzma-svg = { version = "0.0.0", path = "../rizzma-svg" }
 rizzma-text = { version = "0.0.0", path = "../rizzma-text" }
 
 [dev-dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 resvg = { version = "0.47.0", default-features = false }
