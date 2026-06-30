@@ -13,6 +13,7 @@
 mod axes;
 mod figure;
 mod gridspec;
+mod plotting;
 mod subplotspec;
 
 pub use axes::Axes;
