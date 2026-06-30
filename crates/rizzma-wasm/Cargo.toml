@@ -9,3 +9,13 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rizzma-core = { version = "0.0.0", path = "../rizzma-core" }
+rizzma-figure = { version = "0.0.0", path = "../rizzma-figure" }
+rizzma-skia = { version = "0.0.0", path = "../rizzma-skia" }
+wasm-bindgen = "0.2.126"
+web-sys = { version = "0.3.103", features = ["Window", "Document", "HtmlCanvasElement", "CanvasRenderingContext2d", "ImageData"] }
