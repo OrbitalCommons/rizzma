@@ -9,3 +9,7 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+rizzma-core = { version = "0.0.0", path = "../rizzma-core" }
+rizzma-text = { version = "0.0.0", path = "../rizzma-text" }
