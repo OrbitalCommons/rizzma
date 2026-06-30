@@ -22,8 +22,8 @@ pub use rizzma_core::{Affine2D, Path, color::Rgba};
 use rizzma_core::PathSegment;
 use rizzma_render::{CapStyle, GraphicsContext, JoinStyle, Renderer};
 use tiny_skia::{
-    Color, FillRule, LineCap, LineJoin, Mask, Paint, PathBuilder, Pixmap, Rect, Stroke, StrokeDash,
-    Transform,
+    Color, FillRule, IntSize, LineCap, LineJoin, Mask, Paint, PathBuilder, Pixmap, PixmapPaint,
+    Rect, Stroke, StrokeDash, Transform,
 };
 
 /// An error encoding the pixmap to PNG, or writing it to disk.
@@ -191,6 +191,27 @@ fn to_color(rgba: Rgba, alpha: Option<f64>) -> Color {
     .unwrap_or(Color::TRANSPARENT)
 }
 
+/// Convert a straight (non-premultiplied) RGBA8 buffer into the premultiplied
+/// RGBA8 layout that [`tiny_skia::Pixmap::from_vec`] requires.
+///
+/// `rgba` must hold exactly `width * height * 4` bytes in row-major order. Each
+/// pixel's color channels are scaled by its alpha (`c * a / 255`, rounded),
+/// producing the premultiplied form tiny-skia stores internally.
+fn premultiply_rgba(rgba: &[u8], width: usize, height: usize) -> Vec<u8> {
+    debug_assert_eq!(rgba.len(), width * height * 4);
+    let mut out = Vec::with_capacity(rgba.len());
+    for px in rgba.chunks_exact(4) {
+        let [r, g, b, a] = [px[0], px[1], px[2], px[3]];
+        // Premultiply with rounding: (channel * alpha + 127) / 255.
+        let mul = |c: u8| -> u8 { ((u16::from(c) * u16::from(a) + 127) / 255) as u8 };
+        out.push(mul(r));
+        out.push(mul(g));
+        out.push(mul(b));
+        out.push(a);
+    }
+    out
+}
+
 /// Map a seam [`CapStyle`] to tiny-skia's [`LineCap`].
 fn to_line_cap(cap: CapStyle) -> LineCap {
     match cap {
@@ -281,8 +302,73 @@ impl Renderer for SkiaRenderer {
         true
     }
 
-    // draw_image / draw_text use the trait defaults for now.
-    // TODO: implement raster image blit and text shaping.
+    /// Blit a straight-RGBA8 image with its lower-left corner at device
+    /// `(x, y)`.
+    ///
+    /// `rgba` is a row-major `width * height` buffer (4 bytes per pixel,
+    /// top-row-first). The bytes are premultiplied (tiny-skia's required
+    /// layout) into a source [`Pixmap`], then composited into the destination.
+    ///
+    /// # Y-flip
+    ///
+    /// matplotlib's device origin is bottom-left, so `(x, y)` is the image's
+    /// *lower-left* corner and the image spans device y in `[y, y + height]`.
+    /// The pixmap is top-down, so the image's top edge (device `y + height`)
+    /// lands at pixmap row `pixmap_height - y - height`. Because the input rows
+    /// are already top-first, no row reversal is needed: the source pixmap is
+    /// blitted at pixmap coordinate `(x, pixmap_height - y - height)`.
+    ///
+    /// `gc.alpha` is honored as a global opacity via [`PixmapPaint::opacity`],
+    /// and `gc.clip_rect` clips the blit. (`gc.clip_path` is not yet honored;
+    /// see [`SkiaRenderer::clip_mask`].)
+    fn draw_image(
+        &mut self,
+        gc: &GraphicsContext,
+        x: f64,
+        y: f64,
+        rgba: &[u8],
+        width: usize,
+        height: usize,
+    ) {
+        // Reject empty images or buffers that do not match the stated shape.
+        if width == 0 || height == 0 || rgba.len() != width * height * 4 {
+            return;
+        }
+        let (Ok(w), Ok(h)) = (u32::try_from(width), u32::try_from(height)) else {
+            return;
+        };
+        let Some(size) = IntSize::from_wh(w, h) else {
+            return;
+        };
+        let premultiplied = premultiply_rgba(rgba, width, height);
+        let Some(src) = Pixmap::from_vec(premultiplied, size) else {
+            return;
+        };
+
+        // Destination top-left in pixmap (top-down) space, applying the Y-flip.
+        let pix_h = f64::from(self.pixmap.height());
+        let dest_x = x.round() as i32;
+        let dest_y = (pix_h - y - height as f64).round() as i32;
+
+        let opacity = gc.alpha.map_or(1.0, |a| a.clamp(0.0, 1.0) as f32);
+        let paint = PixmapPaint {
+            opacity,
+            ..PixmapPaint::default()
+        };
+
+        let mask = self.clip_mask(gc);
+        self.pixmap.draw_pixmap(
+            dest_x,
+            dest_y,
+            src.as_ref(),
+            &paint,
+            Transform::identity(),
+            mask.as_ref(),
+        );
+    }
+
+    // draw_text uses the trait default for now.
+    // TODO: implement text shaping.
 }
 
 #[cfg(test)]
@@ -355,6 +441,108 @@ mod tests {
             Some(Rgba::BLUE),
         );
         assert!(!r.encode_png().expect("encode succeeds").is_empty());
+    }
+
+    /// Build a `width * height` straight-RGBA8 buffer where every pixel is the
+    /// given color.
+    fn solid_rgba(width: usize, height: usize, rgba: [u8; 4]) -> Vec<u8> {
+        rgba.iter()
+            .copied()
+            .cycle()
+            .take(width * height * 4)
+            .collect()
+    }
+
+    #[test]
+    fn draw_image_places_solid_block_with_y_flip() {
+        // 100x100 canvas; blit a 10x10 red block with its lower-left corner at
+        // device (20, 20). The block spans device x in [20, 30] and device
+        // y in [20, 30]. With the Y-flip its top edge (device y=30) lands at
+        // pixmap row 100 - 30 = 70, so the block occupies pixmap rows [70, 80)
+        // and columns [20, 30).
+        let mut r = SkiaRenderer::new(100, 100, 72.0);
+        let img = solid_rgba(10, 10, [255, 0, 0, 255]);
+        r.draw_image(&GraphicsContext::new(), 20.0, 20.0, &img, 10, 10);
+
+        // Inside the blitted region: opaque red.
+        assert_eq!(pixel(&r, 25, 75), [255, 0, 0, 255]);
+        assert_eq!(pixel(&r, 20, 70), [255, 0, 0, 255]);
+        assert_eq!(pixel(&r, 29, 79), [255, 0, 0, 255]);
+
+        // Outside the region (and where the un-flipped block would be): still
+        // transparent.
+        assert_eq!(pixel(&r, 5, 5), [0, 0, 0, 0]);
+        assert_eq!(pixel(&r, 25, 25), [0, 0, 0, 0]);
+        assert_eq!(pixel(&r, 50, 50), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn draw_image_half_transparent_blends_over_background() {
+        // Paint the whole canvas opaque blue, then blit a half-transparent red
+        // (alpha 128) image over part of it. SourceOver compositing yields a
+        // purple-ish blend: out = src + dst * (1 - src_a).
+        let mut r = SkiaRenderer::new(20, 20, 72.0);
+        let bg = Affine2D::from_scale(20.0, 20.0);
+        r.draw_path(
+            &GraphicsContext::new(),
+            &Path::unit_rectangle(),
+            &bg,
+            Some(Rgba::BLUE),
+        );
+
+        let img = solid_rgba(8, 8, [255, 0, 0, 128]);
+        // Lower-left at (5, 5); pixmap rows [20-13, 20-5) = [7, 13).
+        r.draw_image(&GraphicsContext::new(), 5.0, 5.0, &img, 8, 8);
+
+        let [red, green, blue, alpha] = pixel(&r, 8, 10);
+        // src red premultiplied = 128, plus dst blue * (1 - 128/255) ~= 127.
+        assert!(red > 110 && red < 145, "red {red}");
+        assert_eq!(green, 0);
+        assert!(blue > 110 && blue < 145, "blue {blue}");
+        assert_eq!(alpha, 255);
+
+        // A background pixel outside the blit stays pure blue.
+        assert_eq!(pixel(&r, 0, 0), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn draw_image_non_square_places_corner() {
+        // A wide image: width 30, height 10. Lower-left at (0, 0) on a 40x40
+        // canvas. Pixmap rows [40-10, 40) = [30, 40), columns [0, 30).
+        let mut r = SkiaRenderer::new(40, 40, 72.0);
+        let img = solid_rgba(30, 10, [0, 255, 0, 255]);
+        r.draw_image(&GraphicsContext::new(), 0.0, 0.0, &img, 30, 10);
+
+        // Far-right column of the image (x=29) is filled green.
+        assert_eq!(pixel(&r, 29, 39), [0, 255, 0, 255]);
+        // The bottom-left pixmap corner (device top) is filled too.
+        assert_eq!(pixel(&r, 0, 30), [0, 255, 0, 255]);
+        // Just past the image width stays transparent.
+        assert_eq!(pixel(&r, 30, 39), [0, 0, 0, 0]);
+        // Above the image (smaller pixmap row) stays transparent.
+        assert_eq!(pixel(&r, 0, 29), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn draw_image_global_alpha_scales_opacity() {
+        // Blit an opaque red image with gc.alpha = 0.5: the result should be a
+        // half-opaque red over transparent.
+        let mut r = SkiaRenderer::new(20, 20, 72.0);
+        let img = solid_rgba(6, 6, [255, 0, 0, 255]);
+        let gc = GraphicsContext::new().with_alpha(0.5);
+        r.draw_image(&gc, 2.0, 2.0, &img, 6, 6);
+
+        let [_, _, _, alpha] = pixel(&r, 4, 14);
+        assert!((120..=135).contains(&alpha), "alpha {alpha}");
+    }
+
+    #[test]
+    fn draw_image_ignores_mismatched_buffer() {
+        // A buffer that does not match width*height*4 is rejected (no-op).
+        let mut r = SkiaRenderer::new(10, 10, 72.0);
+        let img = vec![255u8; 7]; // not 4*W*H for any 2x2 etc.
+        r.draw_image(&GraphicsContext::new(), 0.0, 0.0, &img, 2, 2);
+        assert_eq!(pixel(&r, 0, 9), [0, 0, 0, 0]);
     }
 
     #[test]
