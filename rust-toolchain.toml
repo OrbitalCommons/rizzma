@@ -1,0 +1,6 @@
+# Pin the newest stable Rust as the project target.
+# Bump this in lockstep with new stable releases.
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

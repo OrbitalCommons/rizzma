@@ -1,0 +1,11 @@
+[package]
+name = "rizzma-core"
+description = "Core primitives: cbook-style utils, typed RcParams, Path, Bbox, Affine2D, transform graph, color/colormaps/norms."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
