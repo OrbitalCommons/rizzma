@@ -531,18 +531,44 @@ impl Axes {
     }
 
     /// Plot with a logarithmic x-axis and linear y-axis.
+    ///
+    /// ```
+    /// use rizzma_core::Bbox;
+    /// use rizzma_figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.semilogx(&[1.0, 10.0, 100.0], &[0.0, 1.0, 2.0]);
+    /// ```
     pub fn semilogx(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
         self.set_xscale_log(10.0);
         self.plot(x, y)
     }
 
     /// Plot with a linear x-axis and logarithmic y-axis.
+    ///
+    /// ```
+    /// use rizzma_core::Bbox;
+    /// use rizzma_figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.semilogy(&[0.0, 1.0, 2.0], &[1.0, 10.0, 100.0]);
+    /// ```
     pub fn semilogy(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
         self.set_yscale_log(10.0);
         self.plot(x, y)
     }
 
     /// Plot with logarithmic x and y axes.
+    ///
+    /// ![loglog](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_loglog.png)
+    ///
+    /// ```
+    /// use rizzma_core::Bbox;
+    /// use rizzma_figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.loglog(&[1.0, 10.0, 100.0], &[1.0, 100.0, 10_000.0]);
+    /// ```
     pub fn loglog(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
         self.set_xscale_log(10.0).set_yscale_log(10.0);
         self.plot(x, y)

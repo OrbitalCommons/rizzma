@@ -457,7 +457,7 @@ fn main() {
         fig.save_png("target/gallery_hexbin.png").unwrap();
     }
 
-    // 28. grouped_bar
+    // 29. grouped_bar
     {
         let mut fig = Figure::new(5.0, 3.5);
         // Three series across four groups, with visibly distinct heights.
@@ -468,6 +468,21 @@ fn main() {
         ax.grouped_bar(&[&s0, &s1, &s2]);
         ax.set_title("grouped_bar");
         fig.save_png("target/gallery_grouped_bar.png").unwrap();
+    }
+
+    // 30. loglog
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let x = linspace(1.0, 1000.0, 120);
+        let y: Vec<f64> = x.iter().map(|v| v * v).collect();
+        let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
+        ax.loglog(&x, &y);
+        ax.set_xlim(1.0, 1000.0);
+        ax.set_ylim(1.0, 1_000_000.0);
+        ax.set_title("loglog");
+        ax.set_xlabel("x");
+        ax.set_ylabel("$x^2$");
+        fig.save_png("target/gallery_loglog.png").unwrap();
     }
 
     println!("wrote target/gallery_*.png");

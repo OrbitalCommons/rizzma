@@ -35,6 +35,8 @@
 //! | [`Axes::spy`] | [`Axes::hist2d`] | [`Axes::pie`] |
 //! | ![violinplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_violinplot.png) | ![hexbin](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_hexbin.png) | ![grouped_bar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_grouped_bar.png) |
 //! | [`Axes::violinplot`] | [`Axes::hexbin`] | [`Axes::grouped_bar`] |
+//! | ![loglog](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_loglog.png) | | |
+//! | [`Axes::loglog`] | | |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
