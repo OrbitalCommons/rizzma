@@ -24,6 +24,7 @@
 
 use rizzma_core::color::Rgba;
 use rizzma_figure::Figure;
+use wasm_bindgen::prelude::wasm_bindgen;
 
 /// Build a small labeled `sin(x)` plot so demos and tests have something to draw.
 ///
@@ -82,12 +83,78 @@ pub fn figure_to_rgba(fig: &Figure) -> (Vec<u8>, u32, u32) {
     (rgba, width, height)
 }
 
+/// A [`Figure`] owned across the wasm boundary, with an interactive
+/// pixel-to-data readout for DOM hover.
+///
+/// Construct one with [`WasmFigure::sample`], read its pixel size via
+/// [`WasmFigure::size`], render it to a canvas with
+/// [`WasmFigure::render`] (wasm only), and translate cursor pixels to data
+/// coordinates with [`WasmFigure::data_at`].
+#[wasm_bindgen]
+pub struct WasmFigure {
+    /// The wrapped figure whose first axes drives the hover readout.
+    fig: Figure,
+}
+
+#[wasm_bindgen]
+impl WasmFigure {
+    /// Build a [`WasmFigure`] wrapping the built-in [`sample_figure`].
+    #[must_use]
+    pub fn sample() -> WasmFigure {
+        WasmFigure {
+            fig: sample_figure(),
+        }
+    }
+
+    /// The figure's pixel size as a 2-element `[width, height]` array.
+    ///
+    /// Exposed across the wasm boundary as a `Float64Array`; callers size the
+    /// target canvas to `size[0]` by `size[1]`.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn size(&self) -> Box<[f64]> {
+        let (w, h) = self.fig.size_px();
+        Box::new([w, h])
+    }
+
+    /// Map a **top-down canvas pixel** `(px, py)` to data coordinates in the
+    /// figure's first axes.
+    ///
+    /// Returns `Some([x, y])` when the pixel falls inside the axes rectangle,
+    /// else `None`. Across the wasm boundary this maps to a
+    /// `Float64Array | undefined`, so a hover readout can show `undefined`
+    /// (off-axes) versus a concrete `[x, y]`.
+    #[must_use]
+    pub fn data_at(&self, px: f64, py: f64) -> Option<Box<[f64]>> {
+        self.fig
+            .pixel_to_data(0, px, py)
+            .map(|(x, y)| Box::new([x, y]) as Box<[f64]>)
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 mod canvas {
     use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
     use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 
-    use crate::{figure_to_rgba, sample_figure};
+    use crate::{WasmFigure, figure_to_rgba, sample_figure};
+
+    #[wasm_bindgen]
+    impl WasmFigure {
+        /// Render this figure onto the canvas element with id `canvas_id`.
+        ///
+        /// Rasterizes via the shared RGBA path and blits the result with
+        /// `putImageData`, sizing the canvas to the figure's pixel size.
+        ///
+        /// # Errors
+        ///
+        /// Returns a [`JsValue`] error if the canvas element cannot be found, is
+        /// not a canvas, has no 2D context, or `ImageData`/`putImageData` fails.
+        pub fn render(&self, canvas_id: &str) -> Result<(), JsValue> {
+            let (rgba, width, height) = figure_to_rgba(&self.fig);
+            render_rgba_to_canvas(canvas_id, &rgba, width, height)
+        }
+    }
 
     /// Look up the canvas with `canvas_id` and return it with its 2D context.
     fn canvas_context(
@@ -198,6 +265,59 @@ mod tests {
         assert!(
             saw_white,
             "expected the opaque white facecolor to survive un-premultiply as 255,255,255"
+        );
+    }
+
+    #[test]
+    fn data_at_round_trips_a_known_in_axes_pixel() {
+        let wf = WasmFigure::sample();
+        // Pick a data point inside the sample's plotted range (sin(x) over
+        // [0, TAU]), forward-map it to a canvas pixel, then read it back.
+        let (data_x, data_y) = (std::f64::consts::PI, 0.0);
+        let (px, py) = wf
+            .fig
+            .data_to_pixel(0, data_x, data_y)
+            .expect("axes 0 exists");
+
+        let got = wf.data_at(px, py).expect("pixel is inside the axes");
+        assert_eq!(got.len(), 2, "data_at returns [x, y]");
+        assert!(got[0].is_finite() && got[1].is_finite());
+        assert!((got[0] - data_x).abs() < 1e-6, "x round-trips: {}", got[0]);
+        assert!((got[1] - data_y).abs() < 1e-6, "y round-trips: {}", got[1]);
+    }
+
+    #[test]
+    fn data_at_center_is_within_data_range() {
+        let wf = WasmFigure::sample();
+        let size = wf.size();
+        let (cx, cy) = (size[0] / 2.0, size[1] / 2.0);
+
+        let got = wf
+            .data_at(cx, cy)
+            .expect("canvas center sits over the axes");
+        // sin(x) is plotted over x in [0, TAU] with y in [-1, 1]; the
+        // margin-expanded extents stay comfortably within these bounds.
+        assert!(
+            (0.0..=std::f64::consts::TAU).contains(&got[0]),
+            "x near center should be in [0, TAU]: {}",
+            got[0]
+        );
+        assert!(
+            got[1].abs() <= 2.0,
+            "y near center should be near the sine range: {}",
+            got[1]
+        );
+    }
+
+    #[test]
+    fn data_at_off_canvas_is_none() {
+        let wf = WasmFigure::sample();
+        // Far outside the canvas in both axes: well past the axes rect.
+        assert!(wf.data_at(-100.0, -100.0).is_none());
+        let size = wf.size();
+        assert!(
+            wf.data_at(size[0] + 1000.0, size[1] + 1000.0).is_none(),
+            "a pixel far past the canvas is off-axes"
         );
     }
 }

@@ -1,8 +1,10 @@
 # rizzma-wasm browser demo
 
-A minimal page that renders the built-in `sample_figure()` into a `<canvas>` via
-the wasm canvas backend (`rizzma-wasm`): tiny-skia rasterizes the figure to
-straight RGBA, which is blitted onto the canvas as `ImageData`.
+A minimal page that builds a `WasmFigure.sample()`, renders it into a `<canvas>`
+via the wasm canvas backend (`rizzma-wasm`) — tiny-skia rasterizes the figure to
+straight RGBA, which is blitted onto the canvas as `ImageData` — and wires a
+`mousemove` listener that calls `WasmFigure.data_at(px, py)` to show the data
+coordinates under the cursor live (`x=…, y=…`, or `—` when off the axes).
 
 ## Build
 
