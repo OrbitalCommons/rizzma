@@ -388,6 +388,26 @@ pub fn margins(margin: f64) {
     });
 }
 
+/// Add a legend to the current axes from `(color, label)` entries.
+///
+/// Mirrors `plt.legend(...)`; each entry draws a color swatch beside its label.
+pub fn legend(entries: Vec<(Rgba, String)>) {
+    with_axes(|ax| {
+        ax.legend(entries);
+    });
+}
+
+/// Add a vertical colorbar to the current figure for `cmap_name` over the value
+/// range `[vmin, vmax]`.
+///
+/// Mirrors `plt.colorbar(...)`. The colormap name matches the built-in palettes
+/// (e.g. `"viridis"`, `"gray"`).
+pub fn colorbar(cmap_name: &str, vmin: f64, vmax: f64) {
+    with_figure(|fig| {
+        fig.colorbar(cmap_name, vmin, vmax);
+    });
+}
+
 /// Set the title of the current axes.
 pub fn title(text: &str) {
     with_axes(|ax| {
@@ -591,6 +611,24 @@ mod tests {
             assert_eq!(st.figure.as_ref().expect("figure").axes().len(), 4);
             assert_eq!(st.current_axes, 0);
         });
+        close();
+    }
+
+    #[test]
+    fn legend_and_colorbar_render_to_png() {
+        figure();
+        plot(&[0.0, 1.0, 2.0], &[0.0, 1.0, 0.5]);
+        legend(vec![
+            (Rgba::new(0.2, 0.4, 0.8, 1.0), "series a".to_string()),
+            (Rgba::new(0.8, 0.3, 0.2, 1.0), "series b".to_string()),
+        ]);
+        colorbar("viridis", 0.0, 1.0);
+        let path = target_path("pyplot_legend_colorbar.png");
+        savefig(&path).expect("savefig succeeds");
+        assert!(
+            std::fs::metadata(&path).expect("file exists").len() > 0,
+            "legend + colorbar PNG should be non-empty"
+        );
         close();
     }
 }
