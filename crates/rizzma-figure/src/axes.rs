@@ -12,7 +12,7 @@
 //! backend applies its own Y-flip. The data-to-pixel mapping is built by
 //! [`Axes::trans_data`].
 
-use rizzma_artist::{Artist, Line2D, Patch};
+use rizzma_artist::{Artist, Collection, Line2D, Patch};
 use rizzma_axis::axis::{Axis, AxisSide};
 use rizzma_core::{Affine2D, Bbox, Path, color::Rgba};
 use rizzma_render::{GraphicsContext, Renderer};
@@ -46,6 +46,8 @@ pub struct Axes {
     pub(crate) lines: Vec<Line2D>,
     /// Patch artists, drawn in ascending zorder.
     pub(crate) patches: Vec<Patch>,
+    /// Scatter [`Collection`] artists, drawn in ascending zorder.
+    pub(crate) collections: Vec<Collection>,
     /// The bottom (x) axis.
     xaxis: Axis,
     /// The left (y) axis.
@@ -116,6 +118,7 @@ impl Axes {
             facecolor: Rgba::WHITE,
             lines: Vec::new(),
             patches: Vec::new(),
+            collections: Vec::new(),
             xaxis: Axis::new(AxisSide::Bottom),
             yaxis: Axis::new(AxisSide::Left),
             title: None,
@@ -202,7 +205,8 @@ impl Axes {
         let mut acc: Option<Bbox> = None;
         let line_extents = self.lines.iter().filter_map(Artist::data_extents);
         let patch_extents = self.patches.iter().filter_map(Artist::data_extents);
-        for e in line_extents.chain(patch_extents) {
+        let collection_extents = self.collections.iter().filter_map(Artist::data_extents);
+        for e in line_extents.chain(patch_extents).chain(collection_extents) {
             acc = Some(match acc {
                 Some(a) => a.union(&e),
                 None => e,
@@ -299,9 +303,10 @@ impl Axes {
         // 4. Draw artists in ascending zorder.
         // TODO: clip artists to `axes_px` once clip plumbing lands.
         let mut artists: Vec<&dyn Artist> =
-            Vec::with_capacity(self.lines.len() + self.patches.len());
+            Vec::with_capacity(self.lines.len() + self.patches.len() + self.collections.len());
         artists.extend(self.lines.iter().map(|l| l as &dyn Artist));
         artists.extend(self.patches.iter().map(|p| p as &dyn Artist));
+        artists.extend(self.collections.iter().map(|c| c as &dyn Artist));
         let mut order: Vec<usize> = (0..artists.len())
             .filter(|&i| artists[i].visible())
             .collect();

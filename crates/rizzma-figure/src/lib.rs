@@ -14,6 +14,7 @@ mod axes;
 mod figure;
 mod gridspec;
 mod plotting;
+mod plotting_stats;
 mod subplotspec;
 
 pub use axes::Axes;
