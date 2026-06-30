@@ -7,11 +7,11 @@
 //! later step; this crate owns only parsing and layout.
 //!
 //! Supported in this first pass: ordinary symbols, whitespace glue, `{...}`
-//! groups, superscripts/subscripts, `\frac{...}{...}`, `\sqrt{...}` and
-//! `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`, `\text{...}`,
-//! `\left...\right` delimiters, large operators, and a table of common named
-//! symbols and accents. Unsupported commands are preserved as literal fallback
-//! text and reported as structured warnings. The
+//! groups, superscripts/subscripts, `\frac{...}{...}`, `\binom{...}{...}`,
+//! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
+//! `\text{...}`, `\left...\right` delimiters, large operators, and a table of
+//! common named symbols and accents. Unsupported commands are preserved as
+//! literal fallback text and reported as structured warnings. The
 //! [`richtext`] module combines plain text spans and math spans into reusable
 //! label geometry for axes, titles, and other text artists.
 //!
@@ -343,6 +343,10 @@ enum Node {
         numerator: Row,
         denominator: Row,
     },
+    Binomial {
+        upper: Row,
+        lower: Row,
+    },
     Radical {
         index: Option<Row>,
         body: Row,
@@ -536,6 +540,10 @@ impl<'a> Parser<'a> {
             return self.parse_fraction(start);
         }
 
+        if name == "binom" {
+            return self.parse_binomial(start);
+        }
+
         if name == "sqrt" {
             return self.parse_radical(start);
         }
@@ -601,6 +609,24 @@ impl<'a> Parser<'a> {
             numerator,
             denominator,
         })
+    }
+
+    fn parse_binomial(&mut self, start: usize) -> Node {
+        let Some(upper) = self.parse_required_group(
+            start,
+            "binom",
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text("\\binom".to_owned());
+        };
+        let Some(lower) = self.parse_required_group(
+            start,
+            "binom",
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text("\\binom".to_owned());
+        };
+        self.parse_scripts(Node::Binomial { upper, lower })
     }
 
     fn parse_radical(&mut self, start: usize) -> Node {
@@ -969,6 +995,7 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
             numerator,
             denominator,
         } => layout_fraction(numerator, denominator, font, font_size_px),
+        Node::Binomial { upper, lower } => layout_binomial(upper, lower, font, font_size_px),
         Node::Radical { index, body } => layout_radical(index.as_ref(), body, font, font_size_px),
         Node::LineDecoration { kind, body } => {
             layout_line_decoration(*kind, body, font, font_size_px)
@@ -1045,6 +1072,61 @@ fn layout_fraction(
         width,
         ascent: num_baseline + num.ascent,
         descent: -den_baseline + den.descent,
+    }
+}
+
+fn layout_binomial(upper: &Row, lower: &Row, font: &FontSource, font_size_px: f64) -> LayoutBox {
+    let script_size = font_size_px * SCRIPT_SCALE;
+    let upper = layout_row(&upper.nodes, font, script_size);
+    let lower = layout_row(&lower.nodes, font, script_size);
+    let pad = font_size_px * FRAC_PAD_EM;
+    let gap = font_size_px * FRAC_GAP_EM;
+    let stroke = (font_size_px * 0.045).max(1.0);
+    let delimiter_width = delimiter_width(font_size_px, stroke);
+    let inner_width = upper.width.max(lower.width) + 2.0 * pad;
+    let upper_x = delimiter_width + (inner_width - upper.width) / 2.0;
+    let lower_x = delimiter_width + (inner_width - lower.width) / 2.0;
+    let upper_baseline = gap + upper.descent;
+    let lower_baseline = -gap - lower.ascent;
+    let ascent = upper_baseline + upper.ascent;
+    let descent = -lower_baseline + lower.descent;
+    let height = ascent + descent;
+    let ymin = -descent;
+    let right_x = delimiter_width + inner_width;
+
+    let mut elements = Vec::new();
+    elements.push(MathElement::Delimiter {
+        kind: DelimiterKind::Paren,
+        path: delimiter_path(
+            DelimiterKind::Paren,
+            0.0,
+            ymin,
+            delimiter_width,
+            height,
+            stroke,
+            true,
+        ),
+    });
+    elements.extend(shift_elements(upper.elements, upper_x, upper_baseline));
+    elements.extend(shift_elements(lower.elements, lower_x, lower_baseline));
+    elements.push(MathElement::Delimiter {
+        kind: DelimiterKind::Paren,
+        path: delimiter_path(
+            DelimiterKind::Paren,
+            right_x,
+            ymin,
+            delimiter_width,
+            height,
+            stroke,
+            false,
+        ),
+    });
+
+    LayoutBox {
+        elements,
+        width: right_x + delimiter_width,
+        ascent,
+        descent,
     }
 }
 
@@ -1409,6 +1491,7 @@ fn flatten_row_text(row: &Row) -> String {
             Node::Space => out.push(' '),
             Node::Kern(_) => {}
             Node::Fraction { .. } => out.push_str("\\frac"),
+            Node::Binomial { .. } => out.push_str("\\binom"),
             Node::Radical { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::LineDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Delimited { body, .. } => out.push_str(&flatten_row_text(body)),
@@ -1426,6 +1509,7 @@ fn flatten_node_text(node: &Node) -> String {
         Node::Space => " ".to_owned(),
         Node::Kern(_) => String::new(),
         Node::Fraction { .. } => "\\frac".to_owned(),
+        Node::Binomial { .. } => "\\binom".to_owned(),
         Node::Radical { body, .. } => flatten_row_text(body),
         Node::LineDecoration { body, .. } => flatten_row_text(body),
         Node::Delimited { body, .. } => flatten_row_text(body),
@@ -1846,6 +1930,80 @@ mod tests {
         assert_eq!(fraction_count, 1);
         assert!(layout.height() > layout_math("\\frac{1}{x}", &font(), 24.0).height());
         assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn binomial_stacks_terms_inside_parentheses_without_rule() {
+        let upper = layout_math("n", &font(), 24.0);
+        let lower = layout_math("k", &font(), 24.0);
+        let binom = layout_math("\\binom{n}{k}", &font(), 24.0);
+        let texts: Vec<_> = binom
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(texts.contains(&"n"));
+        assert!(texts.contains(&"k"));
+        assert_eq!(
+            binom
+                .elements
+                .iter()
+                .filter(|element| matches!(
+                    element,
+                    MathElement::Delimiter {
+                        kind: DelimiterKind::Paren,
+                        ..
+                    }
+                ))
+                .count(),
+            2
+        );
+        assert!(
+            !binom
+                .elements
+                .iter()
+                .any(|element| matches!(element, MathElement::Rule { .. }))
+        );
+        assert!(binom.height() > upper.height());
+        assert!(binom.height() > lower.height());
+        assert!(binom.warnings.is_empty());
+    }
+
+    #[test]
+    fn binomial_can_take_scripts() {
+        let binom = layout_math("\\binom{n}{k}", &font(), 24.0);
+        let scripted = layout_math("\\binom{n}{k}^2", &font(), 24.0);
+        let texts: Vec<_> = scripted
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(texts.contains(&"2"));
+        assert!(scripted.width > binom.width);
+        assert!(scripted.ascent > binom.ascent);
+        assert!(scripted.warnings.is_empty());
+    }
+
+    #[test]
+    fn binomial_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\binom{n}+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\binom")
+        ));
     }
 
     #[test]
