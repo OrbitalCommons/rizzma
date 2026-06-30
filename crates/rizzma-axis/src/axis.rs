@@ -395,40 +395,50 @@ impl Axis {
             return;
         }
         let gc = GraphicsContext::new();
-        let extent = font.measure(label, self.label_size);
-        // Offset beyond the tick labels: tick length + two label rows + pads.
-        let extra = self.tick_length + 2.0 * (self.label_pad + self.label_size);
+        let rich = layout_rich_text(font, label, self.label_size);
         let origin = match self.side {
             AxisSide::Bottom => {
-                let x = (axes_bbox.xmin() + axes_bbox.xmax()) / 2.0 - extent.width / 2.0;
+                // Offset beyond the tick labels: tick length + two label rows + pads.
+                let extra = self.tick_length + 2.0 * (self.label_pad + self.label_size);
+                let x = (axes_bbox.xmin() + axes_bbox.xmax()) / 2.0 - rich.width / 2.0;
                 let y = axes_bbox.ymin() - extra;
                 [x, y]
             }
             AxisSide::Top => {
-                let x = (axes_bbox.xmin() + axes_bbox.xmax()) / 2.0 - extent.width / 2.0;
+                let extra = self.tick_length + 2.0 * (self.label_pad + self.label_size);
+                let x = (axes_bbox.xmin() + axes_bbox.xmax()) / 2.0 - rich.width / 2.0;
                 let y = axes_bbox.ymax() + extra;
                 [x, y]
             }
             AxisSide::Left => {
-                let x = axes_bbox.xmin() - extra - extent.width;
-                let y = (axes_bbox.ymin() + axes_bbox.ymax()) / 2.0 - extent.ascent / 2.0;
+                let extra = self.tick_length + 3.0 * (self.label_pad + self.label_size);
+                let x = axes_bbox.xmin() - extra - rich.width;
+                let y = (axes_bbox.ymin() + axes_bbox.ymax()) / 2.0 - rich.ascent / 2.0;
                 [x, y]
             }
             AxisSide::Right => {
+                let extra = self.tick_length + 3.0 * (self.label_pad + self.label_size);
                 let x = axes_bbox.xmax() + extra;
-                let y = (axes_bbox.ymin() + axes_bbox.ymax()) / 2.0 - extent.ascent / 2.0;
+                let y = (axes_bbox.ymin() + axes_bbox.ymax()) / 2.0 - rich.ascent / 2.0;
                 [x, y]
             }
         };
-        let path = font.text_to_path(label, self.label_size, origin);
-        renderer.draw_path(&gc, &path, &Affine2D::identity(), Some(self.color));
+        let shift = Affine2D::from_translation(origin[0], origin[1]);
+        for path in &rich.paths {
+            renderer.draw_path(
+                &gc,
+                &path.transformed(&shift),
+                &Affine2D::identity(),
+                Some(self.color),
+            );
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ticker::{FixedFormatter, FixedLocator};
+    use crate::ticker::{FixedFormatter, FixedLocator, NullLocator};
 
     /// A [`Renderer`] that counts `draw_path` calls and records the bbox of each
     /// path's vertices (after applying the transform), for assertions.
@@ -529,6 +539,25 @@ mod tests {
         assert!(
             r.paths > 3,
             "expected mathtext label to emit multiple paths, got {}",
+            r.paths
+        );
+    }
+
+    #[test]
+    fn axis_label_renders_mathtext() {
+        let axis = Axis::new(AxisSide::Left)
+            .with_locator(Box::new(NullLocator))
+            .with_label("$x^2$");
+        let bbox = Bbox::from_extents(50.0, 50.0, 250.0, 250.0);
+        let font = FontSource::dejavu_sans();
+        let mut r = CountingRenderer::default();
+        axis.draw(&mut r, &bbox, (0.0, 1.0), &font);
+
+        // spine + multiple axis-label mathtext paths. The old plain-text route
+        // emitted the whole "$x^2$" label as one literal path.
+        assert!(
+            r.paths > 2,
+            "expected mathtext axis label to add multiple paths, got {}",
             r.paths
         );
     }
