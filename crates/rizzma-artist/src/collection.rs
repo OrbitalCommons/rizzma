@@ -115,14 +115,14 @@ impl Collection {
 
     /// Set the stacking order, returning `self` for chaining.
     #[must_use]
-    pub fn zorder(mut self, zorder: f64) -> Self {
+    pub fn with_zorder(mut self, zorder: f64) -> Self {
         self.zorder = zorder;
         self
     }
 
     /// Set whether the collection is drawn, returning `self` for chaining.
     #[must_use]
-    pub fn visible(mut self, visible: bool) -> Self {
+    pub fn with_visible(mut self, visible: bool) -> Self {
         self.visible = visible;
         self
     }
@@ -319,10 +319,16 @@ mod tests {
 
     #[test]
     fn invisible_collection_draws_nothing() {
-        let coll = Collection::scatter(vec![[0.0, 0.0]]).visible(false);
+        let coll = Collection::scatter(vec![[0.0, 0.0]]).with_visible(false);
         let mut r = MockRenderer::default();
         coll.draw(&mut r, &Affine2D::identity());
         assert!(r.calls.is_empty());
+    }
+
+    #[test]
+    fn with_zorder_sets_trait_zorder() {
+        let coll = Collection::scatter(vec![[0.0, 0.0]]).with_zorder(9.0);
+        assert_eq!(coll.zorder(), 9.0);
     }
 
     #[test]
