@@ -87,10 +87,9 @@ impl PolarAxes {
     }
 
     /// Pin the radial maximum (the value of `r` reaching the outer ring),
-    /// returning `self` for chaining. Non-finite or non-positive values are
+    /// returning `&mut self` for chaining. Non-finite or non-positive values are
     /// ignored.
-    #[must_use]
-    pub fn set_rmax(mut self, rmax: f64) -> Self {
+    pub fn set_rmax(&mut self, rmax: f64) -> &mut Self {
         if rmax.is_finite() && rmax > 0.0 {
             self.rmax_override = Some(rmax);
         }
@@ -447,7 +446,8 @@ mod tests {
     /// `set_rmax` overrides the data-derived radial maximum.
     #[test]
     fn set_rmax_overrides_data() {
-        let mut ax = PolarAxes::new().set_rmax(10.0);
+        let mut ax = PolarAxes::new();
+        ax.set_rmax(10.0);
         ax.plot(&[0.0], &[1.0]);
         assert_eq!(ax.rmax(), 10.0);
     }
