@@ -16,10 +16,10 @@ use rizzma_artist::{Artist, AxesImage, Collection, Line2D, Patch, QuadMesh};
 use std::borrow::Cow;
 
 use rizzma_axis::axis::{Axis, AxisSide};
-use rizzma_axis::scale::{LinearScale, LogScale, Scale, SymlogScale};
+use rizzma_axis::scale::{LinearScale, LogScale, LogitScale, Scale, SymlogScale};
 use rizzma_axis::ticker::{
-    AutoLocator, LogFormatterMathtext, LogLocator, ScalarFormatter, SymlogFormatterMathtext,
-    SymlogLocator,
+    AutoLocator, LogFormatterMathtext, LogLocator, LogitFormatterMathtext, LogitLocator,
+    ScalarFormatter, SymlogFormatterMathtext, SymlogLocator,
 };
 use rizzma_core::color::{DEFAULT_COLOR_CYCLE, Rgba};
 use rizzma_core::{Affine2D, Bbox, Path};
@@ -40,6 +40,8 @@ pub(crate) enum ScaleSpec {
     Log { base: f64 },
     /// Symmetric-log scale with a linear region around zero.
     Symlog { base: f64, linthresh: f64 },
+    /// Logit scale for probabilities in the open interval `(0, 1)`.
+    Logit,
 }
 
 impl ScaleSpec {
@@ -50,6 +52,7 @@ impl ScaleSpec {
             ScaleSpec::Symlog { base, linthresh } => {
                 SymlogScale::new(base, linthresh, 1.0).transform(value)
             }
+            ScaleSpec::Logit => LogitScale::new().transform(value),
         }
     }
 
@@ -60,6 +63,7 @@ impl ScaleSpec {
             ScaleSpec::Symlog { base, linthresh } => {
                 SymlogScale::new(base, linthresh, 1.0).inverse(value)
             }
+            ScaleSpec::Logit => LogitScale::new().inverse(value),
         }
     }
 
@@ -72,6 +76,7 @@ impl ScaleSpec {
             ScaleSpec::Linear => guard_range(limits),
             ScaleSpec::Log { base } => guard_log_range(limits, base, minpos),
             ScaleSpec::Symlog { .. } => guard_range(limits),
+            ScaleSpec::Logit => guard_logit_range(limits, minpos),
         }
     }
 }
@@ -602,6 +607,40 @@ impl Axes {
         self
     }
 
+    /// Use a logit x-axis scale for probabilities in `(0, 1)`.
+    ///
+    /// Limits, autoscaling, and public data APIs remain in raw probability
+    /// units; the logit transform is applied at draw time. Values outside the
+    /// open interval are clamped out of the rendered view immediately before
+    /// scaling. Line, patch, collection, span, and reference-line geometry is
+    /// logit-scaled; raster images and quad meshes are intentionally
+    /// unsupported on nonlinear axes in this implementation.
+    pub fn set_xscale_logit(&mut self) -> &mut Self {
+        self.xscale = ScaleSpec::Logit;
+        self.xaxis
+            .set_scale(Box::new(LogitScale::new()))
+            .set_locator(Box::new(LogitLocator::new()))
+            .set_formatter(Box::new(LogitFormatterMathtext::new()));
+        self
+    }
+
+    /// Use a logit y-axis scale for probabilities in `(0, 1)`.
+    ///
+    /// Limits, autoscaling, and public data APIs remain in raw probability
+    /// units; the logit transform is applied at draw time. Values outside the
+    /// open interval are clamped out of the rendered view immediately before
+    /// scaling. Line, patch, collection, span, and reference-line geometry is
+    /// logit-scaled; raster images and quad meshes are intentionally
+    /// unsupported on nonlinear axes in this implementation.
+    pub fn set_yscale_logit(&mut self) -> &mut Self {
+        self.yscale = ScaleSpec::Logit;
+        self.yaxis
+            .set_scale(Box::new(LogitScale::new()))
+            .set_locator(Box::new(LogitLocator::new()))
+            .set_formatter(Box::new(LogitFormatterMathtext::new()));
+        self
+    }
+
     /// Plot with a logarithmic x-axis and linear y-axis.
     ///
     /// ```
@@ -671,6 +710,34 @@ impl Axes {
     /// ```
     pub fn symlogy(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
         self.set_yscale_symlog(10.0, 1.0);
+        self.plot(x, y)
+    }
+
+    /// Plot with a logit x-axis and linear y-axis.
+    ///
+    /// ```
+    /// use rizzma_core::Bbox;
+    /// use rizzma_figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.logitx(&[0.01, 0.1, 0.5, 0.9, 0.99], &[0.0, 1.0, 2.0, 1.0, 0.0]);
+    /// ```
+    pub fn logitx(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
+        self.set_xscale_logit();
+        self.plot(x, y)
+    }
+
+    /// Plot with a linear x-axis and logit y-axis.
+    ///
+    /// ```
+    /// use rizzma_core::Bbox;
+    /// use rizzma_figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.logity(&[0.0, 1.0, 2.0, 3.0, 4.0], &[0.01, 0.1, 0.5, 0.9, 0.99]);
+    /// ```
+    pub fn logity(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
+        self.set_yscale_logit();
         self.plot(x, y)
     }
 
@@ -1123,6 +1190,34 @@ fn guard_log_range((a, b): (f64, f64), base: f64, minpos: f64) -> (f64, f64) {
     if reversed { (hi, lo) } else { (lo, hi) }
 }
 
+fn guard_logit_range((a, b): (f64, f64), minpos: f64) -> (f64, f64) {
+    let reversed = a > b;
+    let (mut lo, mut hi) = if reversed { (b, a) } else { (a, b) };
+    let eps = if minpos.is_finite() && minpos > 0.0 && minpos < 0.5 {
+        minpos.min(1e-7)
+    } else {
+        1e-7
+    };
+
+    if !lo.is_finite() || !hi.is_finite() || hi <= 0.0 || lo >= 1.0 {
+        lo = eps;
+        hi = 1.0 - eps;
+    } else {
+        if lo <= 0.0 {
+            lo = eps;
+        }
+        if hi >= 1.0 {
+            hi = 1.0 - eps;
+        }
+        if hi <= lo {
+            lo = eps;
+            hi = 1.0 - eps;
+        }
+    }
+
+    if reversed { (hi, lo) } else { (lo, hi) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1208,6 +1303,26 @@ mod tests {
     }
 
     #[test]
+    fn data_to_scaled_logit_maps_probability_points_and_limits() {
+        let mapper = DataToScaled::new(ScaleSpec::Logit, ScaleSpec::Linear);
+        let path = Path::from_polyline(&[[0.1, 2.0], [0.5, 4.0], [0.9, 8.0]]);
+        let scaled = mapper.map_path(&path);
+
+        approx(mapper.map_point(0.5, 5.0)[0], 0.0);
+        approx(
+            mapper.map_point(0.9, 5.0)[0],
+            -mapper.map_point(0.1, 5.0)[0],
+        );
+        approx(scaled.vertices()[1][0], 0.0);
+        assert!(scaled.vertices()[0][0] < 0.0);
+        assert!(scaled.vertices()[2][0] > 0.0);
+        assert_eq!(scaled.codes(), path.codes());
+        let ((x0, x1), ylim) = mapper.map_limits((0.1, 0.9), (2.0, 8.0));
+        approx(x0, -x1);
+        assert_eq!(ylim, (2.0, 8.0));
+    }
+
+    #[test]
     fn log_tick_position_uses_scaled_coordinate_fraction() {
         let scale = ScaleSpec::Log { base: 10.0 };
 
@@ -1228,6 +1343,16 @@ mod tests {
     }
 
     #[test]
+    fn logit_tick_position_uses_scaled_coordinate_fraction() {
+        approx(
+            scaled_tick_position(0.5, (0.01, 0.99), ScaleSpec::Logit),
+            0.5,
+        );
+        assert!(scaled_tick_position(0.1, (0.01, 0.99), ScaleSpec::Logit) < 0.5);
+        assert!(scaled_tick_position(0.9, (0.01, 0.99), ScaleSpec::Logit) > 0.5);
+    }
+
+    #[test]
     fn symlog_effective_limits_preserve_negative_zero_positive_domain() {
         let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
         axes.plot(
@@ -1241,6 +1366,24 @@ mod tests {
         let (axes_px, td) = axes.pixel_rect_and_trans_data(200.0, 100.0);
         assert!(axes_px.width().is_finite());
         assert!(td.transform_point((0.0, 0.0)).0.is_finite());
+    }
+
+    #[test]
+    fn logit_effective_limits_clamp_to_open_probability_domain() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.plot(&[0.01, 0.5, 0.99], &[0.0, 1.0, 2.0]);
+        axes.set_xscale_logit().set_xlim(-1.0, 2.0);
+
+        let (xlim, _) = axes.scale_limited_effective_limits();
+        assert!(xlim.0 > 0.0, "logit lower bound must be open: {xlim:?}");
+        assert!(xlim.1 < 1.0, "logit upper bound must be open: {xlim:?}");
+        let (axes_px, td) = axes.pixel_rect_and_trans_data(200.0, 100.0);
+        assert!(axes_px.width().is_finite());
+        assert!(
+            td.transform_point((LogitScale::new().transform(xlim.0), 0.0))
+                .0
+                .is_finite()
+        );
     }
 
     #[test]
@@ -1266,6 +1409,19 @@ mod tests {
                 linthresh: 1.0
             }
         );
+    }
+
+    #[test]
+    fn logit_wrappers_set_expected_axis_scales() {
+        let mut x_axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        x_axes.logitx(&[0.01, 0.5, 0.99], &[1.0, 2.0, 3.0]);
+        assert_eq!(x_axes.xscale, ScaleSpec::Logit);
+        assert_eq!(x_axes.yscale, ScaleSpec::Linear);
+
+        let mut y_axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        y_axes.logity(&[1.0, 2.0, 3.0], &[0.01, 0.5, 0.99]);
+        assert_eq!(y_axes.xscale, ScaleSpec::Linear);
+        assert_eq!(y_axes.yscale, ScaleSpec::Logit);
     }
 
     #[derive(Default)]

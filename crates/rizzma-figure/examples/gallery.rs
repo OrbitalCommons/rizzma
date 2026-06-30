@@ -588,5 +588,19 @@ fn main() {
         fig.save_png("target/gallery_symlog.png").unwrap();
     }
 
+    // 36. logit (sigmoid with probability-tail ticks)
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let x = linspace(-7.0, 7.0, 161);
+        let y: Vec<f64> = x.iter().map(|v| 1.0 / (1.0 + (-v).exp())).collect();
+        let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
+        ax.logity(&x, &y);
+        ax.set_xlim(-7.0, 7.0).set_ylim(0.001, 0.999);
+        ax.set_title("logit");
+        ax.set_xlabel("x");
+        ax.set_ylabel("P(x)");
+        fig.save_png("target/gallery_logit.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
