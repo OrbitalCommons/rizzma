@@ -87,8 +87,9 @@ pub fn figure_to_rgba(fig: &Figure) -> (Vec<u8>, u32, u32) {
 /// pixel-to-data readout for DOM hover.
 ///
 /// Construct one with [`WasmFigure::sample`], read its pixel size via
-/// [`WasmFigure::size`], render it to a canvas with
-/// [`WasmFigure::render`] (wasm only), and translate cursor pixels to data
+/// [`WasmFigure::size`], render it to a canvas with `WasmFigure::render`
+/// (wasm only — `#[cfg(target_arch = "wasm32")]`, so it can't be an intra-doc
+/// link on the host docs build), and translate cursor pixels to data
 /// coordinates with [`WasmFigure::data_at`].
 #[wasm_bindgen]
 pub struct WasmFigure {
