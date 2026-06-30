@@ -271,4 +271,21 @@ mod tests {
         assert!(svg.contains("</svg>"), "missing </svg> close");
         assert!(svg.contains("<path"), "missing at least one <path");
     }
+
+    #[test]
+    fn imshow_figure_svg_embeds_image_data() {
+        let mut fig = Figure::new(2.0, 2.0).with_dpi(50.0);
+        let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+        ax.imshow(&[0.0, 1.0, 2.0, 3.0], 2, 2);
+
+        let svg = fig.to_svg();
+        assert!(
+            svg.contains("<image "),
+            "imshow should emit SVG image: {svg}"
+        );
+        assert!(
+            svg.contains("href=\"data:image/png;base64,"),
+            "imshow should embed PNG data URI: {svg}"
+        );
+    }
 }
