@@ -908,6 +908,11 @@ version = "0.0.2"
 [[package]]
 name = "rizzma-3d"
 version = "0.0.0"
+dependencies = [
+ "rizzma-core",
+ "rizzma-render",
+ "rizzma-skia",
+]
 
 [[package]]
 name = "rizzma-artist"
