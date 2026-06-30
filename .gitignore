@@ -1,0 +1,5 @@
+# Reference material (cloned upstream sources, not part of this repo)
+/references/
+
+# Rust build artifacts
+/target/
