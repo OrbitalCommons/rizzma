@@ -542,7 +542,7 @@ plan above stays the *intent* and this section is the *ground truth*).
   dedicated required CI workflow job. Remaining quality work: headless wasm smoke and
   wasm canvas parity.
 
-### Merged PRs (#1–#64)
+### Merged PRs (#1–#68)
 - **Infra/docs:** #1 scaffold/CI/toolchain, #2 licenses, #3/#20/#28/#32/#42 log updates,
   #5 `xtask` image-diff, #33 gallery publishing + doc-link CI, #34 TeX rendering path
   split, #38 `AGENTS.md` coordination rules, #39 wasm32 workspace check.
@@ -561,13 +561,15 @@ plan above stays the *intent* and this section is the *ground truth*).
 - **`rizzma-artist`:** #13 `Artist`+`Line2D`, #16 `Patch`, #18 `MarkerStyle`,
   #21 `Collection`, #37 builder setter cleanup, #41 scatter marker sizing in device units,
   #54 `QuadMesh`.
-- **`rizzma-axis`:** #7 ticker, #9 scales (lin/log/symlog/logit), #17 renderable `Axis`.
+- **`rizzma-axis`:** #7 ticker, #9 scales (lin/log/symlog/logit), #17 renderable `Axis`,
+  #68 date conversion, auto date locator, and date formatters.
 - **`rizzma-figure`:** #15 `GridSpec`, #19 `Figure`+`Axes`, #23 Tier-1 methods, #25 scatter/
   hist/errorbar, #27 legend/colorbar/`save_svg`, #30 prop-cycle, #31 `imshow`,
   #43 PNG-vs-SVG raster parity test for a renderer-seam scene, #47 pixel↔data
   coordinate inversion helpers for interaction, #51 `stem`/`stairs` Tier-2 plots,
   #52 `stackplot`/`broken_barh`, #54 `pcolormesh`, #56 `boxplot`, #58 mathtext in
-  `Axes` titles, #60 `contour`, #63 `eventplot`/`fill_betweenx`/`ecdf`.
+  `Axes` titles, #60 `contour`, #63 `eventplot`/`fill_betweenx`/`ecdf`, #66
+  `matshow`/`spy`/`hist2d`, #67 `pie`.
 - **`rizzma-pyplot`:** #26 stateful façade (`plot`/`scatter`/`bar`/`hist`/`savefig`/…).
 - **`rizzma-wasm`:** #40 render-to-straight-RGBA core plus wasm-only Canvas `ImageData`
   blit entry points, #45 browser demo page, #49 DOM event readout demo.
@@ -615,11 +617,11 @@ the reference-line family, and every Tier-2+ method as it lands) gets:
 and the embedded image for each, then let CI enforce the link/render consistency:
 `plot` ☑ · `scatter` ☑ · `bar` ☑ · `barh` ☑ · `hist` ☑ · `fill_between` ☑ · `step` ☑ ·
 `errorbar` ☑ · reference-lines/spans ☑ · `imshow` ☑ · `legend`+`colorbar` ☑ ·
-`eventplot` ☑ · `fill_betweenx` ☑ · `ecdf` ☑  *(rendered in the gallery; per-method
-`///` doc examples + per-method embeds still to backfill)* — then every Tier-2/3 type
-(`loglog`/`semilog*`, `pcolormesh`, `contour`, `boxplot`, `pie`, `quiver`, `streamplot`,
-polar, 3D) ships its gallery case + doc example **in the same PR** that adds the method
-(Definition-of-Done addition).
+`eventplot` ☑ · `fill_betweenx` ☑ · `ecdf` ☑ · `matshow` ☑ · `spy` ☑ · `hist2d` ☑ ·
+`pie` ☑  *(rendered in the gallery; per-method `///` doc examples + per-method embeds
+still to backfill)* — then every Tier-2/3 type (`loglog`/`semilog*`, `pcolormesh`,
+`contour`, `boxplot`, `quiver`, `streamplot`, polar, 3D) ships its gallery case + doc
+example **in the same PR** that adds the method (Definition-of-Done addition).
 
 > DoD addendum: a PR that adds or changes a plotting method is not done until it adds the
 > matching `gallery.rs` case, a runnable `///` example, and the embedded image URL — CI's
@@ -628,8 +630,8 @@ polar, 3D) ships its gallery case + doc example **in the same PR** that adds the
 ### Next
 - M4 quality: headless wasm smoke and wasm canvas parity.
 - Quality: native `draw_text`, arbitrary `clip_path`, renderer/backend parity checks.
-- Tier-2: log-scale axes (`loglog`/`semilog*`), `pie`. Then broader mathtext coverage,
-  optional native TeX export, dates-on-axes, polar, PDF, 3D.
+- Tier-2: log-scale axes (`loglog`/`semilog*`). Then broader mathtext coverage, optional
+  native TeX export, date-axis integration, polar, PDF, 3D.
 - Backfill per-method rustdoc examples + embedded images per the pattern above.
 
 > Note: the DAG order is a guide, not a straitjacket. Self-contained leaves are pulled
