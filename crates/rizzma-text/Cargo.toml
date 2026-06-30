@@ -1,6 +1,6 @@
 [package]
 name = "rizzma-text"
-description = "Font sourcing and text layout/metrics via cosmic-text (multiline, align, rotation, extents)."
+description = "Embedded font sourcing and single-line text metrics via ttf-parser (wasm-safe extents)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,3 +9,6 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+ttf-parser = "0.25.1"
