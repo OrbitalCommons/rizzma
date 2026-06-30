@@ -284,5 +284,44 @@ fn main() {
         fig.save_png("target/gallery_contour.png").unwrap();
     }
 
+    // 20. eventplot
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        // Three neuron-like spike trains at increasing rates.
+        let row0: Vec<f64> = (0..8).map(|i| i as f64 * 1.2 + 0.3).collect();
+        let row1: Vec<f64> = (0..14).map(|i| i as f64 * 0.7 + 0.1).collect();
+        let row2: Vec<f64> = (0..20).map(|i| i as f64 * 0.5).collect();
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.eventplot(&[&row0, &row1, &row2]);
+        ax.set_title("eventplot");
+        fig.save_png("target/gallery_eventplot.png").unwrap();
+    }
+
+    // 21. fill_betweenx
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let y = linspace(0.0, TAU, 120);
+        let x1: Vec<f64> = y.iter().map(|v| v.sin()).collect();
+        let x2: Vec<f64> = y.iter().map(|v| v.sin() + 1.0 + 0.3 * v.cos()).collect();
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.fill_betweenx(&y, &x1, &x2);
+        ax.set_title("fill_betweenx");
+        fig.save_png("target/gallery_fill_betweenx.png").unwrap();
+    }
+
+    // 22. ecdf
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        // A lumpy sample whose empirical CDF rises in clear steps.
+        let data = [
+            0.2, 0.5, 0.5, 0.9, 1.1, 1.1, 1.4, 1.8, 2.0, 2.3, 2.3, 2.7, 3.0, 3.0, 3.4, 3.9, 4.2,
+            4.2, 4.8, 5.0,
+        ];
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.ecdf(&data);
+        ax.set_title("ecdf");
+        fig.save_png("target/gallery_ecdf.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
