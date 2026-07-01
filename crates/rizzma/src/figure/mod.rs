@@ -39,8 +39,8 @@
 //! | [`Axes::loglog`] | [`Axes::quiver`] | [`Axes::streamplot`] |
 //! | ![triplot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_triplot.png) | ![tripcolor](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_tripcolor.png) | ![symlog](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_symlog.png) |
 //! | [`Axes::triplot`] | [`Axes::tripcolor`] | [`Axes::symlogy`] |
-//! | ![logit](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_logit.png) | | |
-//! | [`Axes::logity`] | | |
+//! | ![logit](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_logit.png) | ![asinh](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_asinh.png) | |
+//! | [`Axes::logity`] | [`Axes::asinhy`] | |
 //! | ![dates](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_dates.png) | ![polar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar.png) | ![polar scatter](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_scatter.png) |
 //! | [`Axes::set_xaxis_date`] | [`PolarAxes`] | [`PolarAxes::scatter`] |
 //! | ![polar fill](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_fill.png) | ![contourf](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_contourf.png) | |

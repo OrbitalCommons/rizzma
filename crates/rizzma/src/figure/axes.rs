@@ -17,10 +17,10 @@ use std::borrow::Cow;
 
 use crate::axis::axis::{Axis, AxisSide};
 use crate::axis::dates::{AutoDateLocator, ConciseDateFormatter};
-use crate::axis::scale::{LinearScale, LogScale, LogitScale, Scale, SymlogScale};
+use crate::axis::scale::{AsinhScale, LinearScale, LogScale, LogitScale, Scale, SymlogScale};
 use crate::axis::ticker::{
-    AutoLocator, LogFormatterMathtext, LogLocator, LogitFormatterMathtext, LogitLocator,
-    ScalarFormatter, SymlogFormatterMathtext, SymlogLocator,
+    AsinhFormatterMathtext, AsinhLocator, AutoLocator, LogFormatterMathtext, LogLocator,
+    LogitFormatterMathtext, LogitLocator, ScalarFormatter, SymlogFormatterMathtext, SymlogLocator,
 };
 use crate::core::color::{DEFAULT_COLOR_CYCLE, Rgba};
 use crate::core::{Affine2D, Bbox, Path};
@@ -43,6 +43,8 @@ pub(crate) enum ScaleSpec {
     Symlog { base: f64, linthresh: f64 },
     /// Logit scale for probabilities in the open interval `(0, 1)`.
     Logit,
+    /// Inverse-hyperbolic-sine scale with a quasi-linear region around zero.
+    Asinh { linear_width: f64 },
 }
 
 impl ScaleSpec {
@@ -54,6 +56,7 @@ impl ScaleSpec {
                 SymlogScale::new(base, linthresh, 1.0).transform(value)
             }
             ScaleSpec::Logit => LogitScale::new().transform(value),
+            ScaleSpec::Asinh { linear_width } => AsinhScale::new(linear_width).transform(value),
         }
     }
 
@@ -65,6 +68,7 @@ impl ScaleSpec {
                 SymlogScale::new(base, linthresh, 1.0).inverse(value)
             }
             ScaleSpec::Logit => LogitScale::new().inverse(value),
+            ScaleSpec::Asinh { linear_width } => AsinhScale::new(linear_width).inverse(value),
         }
     }
 
@@ -78,6 +82,7 @@ impl ScaleSpec {
             ScaleSpec::Log { base } => guard_log_range(limits, base, minpos),
             ScaleSpec::Symlog { .. } => guard_range(limits),
             ScaleSpec::Logit => guard_logit_range(limits, minpos),
+            ScaleSpec::Asinh { .. } => guard_range(limits),
         }
     }
 }
@@ -636,6 +641,58 @@ impl Axes {
         self
     }
 
+    /// Use an inverse-hyperbolic-sine x-axis scale with `linear_width`.
+    ///
+    /// The asinh transform is quasi-linear near zero and logarithmic in both
+    /// tails, so negative values and zero remain valid. Limits, autoscaling,
+    /// and public data APIs remain in raw data units; the transform is applied
+    /// at draw time. Line, patch, collection, span, and reference-line
+    /// geometry is asinh-scaled; raster images and quad meshes are
+    /// intentionally unsupported on nonlinear axes in this implementation.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `linear_width` is not finite or is less than or equal to
+    /// zero.
+    pub fn set_xscale_asinh(&mut self, linear_width: f64) -> &mut Self {
+        assert!(
+            linear_width.is_finite() && linear_width > 0.0,
+            "asinh scale linear_width must be finite and > 0"
+        );
+        self.xscale = ScaleSpec::Asinh { linear_width };
+        self.xaxis
+            .set_scale(Box::new(AsinhScale::new(linear_width)))
+            .set_locator(Box::new(AsinhLocator::new(linear_width)))
+            .set_formatter(Box::new(AsinhFormatterMathtext::new(10.0, linear_width)));
+        self
+    }
+
+    /// Use an inverse-hyperbolic-sine y-axis scale with `linear_width`.
+    ///
+    /// The asinh transform is quasi-linear near zero and logarithmic in both
+    /// tails, so negative values and zero remain valid. Limits, autoscaling,
+    /// and public data APIs remain in raw data units; the transform is applied
+    /// at draw time. Line, patch, collection, span, and reference-line
+    /// geometry is asinh-scaled; raster images and quad meshes are
+    /// intentionally unsupported on nonlinear axes in this implementation.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `linear_width` is not finite or is less than or equal to
+    /// zero.
+    pub fn set_yscale_asinh(&mut self, linear_width: f64) -> &mut Self {
+        assert!(
+            linear_width.is_finite() && linear_width > 0.0,
+            "asinh scale linear_width must be finite and > 0"
+        );
+        self.yscale = ScaleSpec::Asinh { linear_width };
+        self.yaxis
+            .set_scale(Box::new(AsinhScale::new(linear_width)))
+            .set_locator(Box::new(AsinhLocator::new(linear_width)))
+            .set_formatter(Box::new(AsinhFormatterMathtext::new(10.0, linear_width)));
+        self
+    }
+
     /// Use a logit x-axis scale for probabilities in `(0, 1)`.
     ///
     /// Limits, autoscaling, and public data APIs remain in raw probability
@@ -739,6 +796,34 @@ impl Axes {
     /// ```
     pub fn symlogy(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
         self.set_yscale_symlog(10.0, 1.0);
+        self.plot(x, y)
+    }
+
+    /// Plot with an inverse-hyperbolic-sine x-axis and linear y-axis.
+    ///
+    /// ```
+    /// use rizzma::core::Bbox;
+    /// use rizzma::figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.asinhx(&[-100.0, -1.0, 0.0, 1.0, 100.0], &[1.0, 2.0, 3.0, 2.0, 1.0]);
+    /// ```
+    pub fn asinhx(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
+        self.set_xscale_asinh(1.0);
+        self.plot(x, y)
+    }
+
+    /// Plot with a linear x-axis and inverse-hyperbolic-sine y-axis.
+    ///
+    /// ```
+    /// use rizzma::core::Bbox;
+    /// use rizzma::figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.asinhy(&[-2.0, -1.0, 0.0, 1.0, 2.0], &[-100.0, -1.0, 0.0, 1.0, 100.0]);
+    /// ```
+    pub fn asinhy(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
+        self.set_yscale_asinh(1.0);
         self.plot(x, y)
     }
 
@@ -1352,6 +1437,24 @@ mod tests {
     }
 
     #[test]
+    fn data_to_scaled_asinh_maps_negative_zero_and_positive_points() {
+        let scale = ScaleSpec::Asinh { linear_width: 2.0 };
+        let mapper = DataToScaled::new(scale, ScaleSpec::Linear);
+        let path = Path::from_polyline(&[[-100.0, 2.0], [0.0, 4.0], [100.0, 8.0]]);
+        let scaled = mapper.map_path(&path);
+
+        approx(mapper.map_point(0.0, 5.0)[0], 0.0);
+        approx(
+            mapper.map_point(100.0, 5.0)[0],
+            -mapper.map_point(-100.0, 5.0)[0],
+        );
+        approx(scaled.vertices()[1][0], 0.0);
+        assert!(scaled.vertices()[0][0] < 0.0);
+        assert!(scaled.vertices()[2][0] > 0.0);
+        assert_eq!(scaled.codes(), path.codes());
+    }
+
+    #[test]
     fn log_tick_position_uses_scaled_coordinate_fraction() {
         let scale = ScaleSpec::Log { base: 10.0 };
 
@@ -1379,6 +1482,15 @@ mod tests {
         );
         assert!(scaled_tick_position(0.1, (0.01, 0.99), ScaleSpec::Logit) < 0.5);
         assert!(scaled_tick_position(0.9, (0.01, 0.99), ScaleSpec::Logit) > 0.5);
+    }
+
+    #[test]
+    fn asinh_tick_position_uses_scaled_coordinate_fraction() {
+        let scale = ScaleSpec::Asinh { linear_width: 2.0 };
+
+        approx(scaled_tick_position(0.0, (-100.0, 100.0), scale), 0.5);
+        assert!(scaled_tick_position(-10.0, (-100.0, 100.0), scale) < 0.5);
+        assert!(scaled_tick_position(10.0, (-100.0, 100.0), scale) > 0.5);
     }
 
     #[test]
@@ -1413,6 +1525,22 @@ mod tests {
                 .0
                 .is_finite()
         );
+    }
+
+    #[test]
+    fn asinh_effective_limits_preserve_negative_zero_positive_domain() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.plot(
+            &[-100.0, -1.0, 0.0, 1.0, 100.0],
+            &[-1.0, 0.0, 1.0, 0.0, -1.0],
+        );
+        axes.set_xscale_asinh(2.0).set_xlim(-100.0, 100.0);
+
+        let (xlim, _) = axes.scale_limited_effective_limits();
+        assert_eq!(xlim, (-100.0, 100.0));
+        let (axes_px, td) = axes.pixel_rect_and_trans_data(200.0, 100.0);
+        assert!(axes_px.width().is_finite());
+        assert!(td.transform_point((0.0, 0.0)).0.is_finite());
     }
 
     #[test]
@@ -1451,6 +1579,19 @@ mod tests {
         y_axes.logity(&[1.0, 2.0, 3.0], &[0.01, 0.5, 0.99]);
         assert_eq!(y_axes.xscale, ScaleSpec::Linear);
         assert_eq!(y_axes.yscale, ScaleSpec::Logit);
+    }
+
+    #[test]
+    fn asinh_wrappers_set_expected_axis_scales() {
+        let mut x_axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        x_axes.asinhx(&[-10.0, 0.0, 10.0], &[1.0, 2.0, 3.0]);
+        assert_eq!(x_axes.xscale, ScaleSpec::Asinh { linear_width: 1.0 });
+        assert_eq!(x_axes.yscale, ScaleSpec::Linear);
+
+        let mut y_axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        y_axes.asinhy(&[-1.0, 0.0, 1.0], &[-10.0, 0.0, 10.0]);
+        assert_eq!(y_axes.xscale, ScaleSpec::Linear);
+        assert_eq!(y_axes.yscale, ScaleSpec::Asinh { linear_width: 1.0 });
     }
 
     #[test]
