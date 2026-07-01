@@ -57,6 +57,7 @@ const SPACE_EM: f64 = 0.28;
 const THIN_SPACE_EM: f64 = 3.0 / 18.0;
 const MEDIUM_SPACE_EM: f64 = 4.0 / 18.0;
 const THICK_SPACE_EM: f64 = 5.0 / 18.0;
+const ENSPACE_EM: f64 = 0.5;
 const QUAD_SPACE_EM: f64 = 1.0;
 
 /// A laid-out math expression in y-up coordinates.
@@ -2436,6 +2437,9 @@ fn named_spacing_command(name: &str) -> Option<f64> {
         "medspace" => Some(MEDIUM_SPACE_EM),
         "thickspace" => Some(THICK_SPACE_EM),
         "negthinspace" => Some(-THIN_SPACE_EM),
+        "negmedspace" => Some(-MEDIUM_SPACE_EM),
+        "negthickspace" => Some(-THICK_SPACE_EM),
+        "enspace" | "enskip" => Some(ENSPACE_EM),
         "quad" => Some(QUAD_SPACE_EM),
         "qquad" => Some(2.0 * QUAD_SPACE_EM),
         _ => None,
@@ -2989,6 +2993,7 @@ mod tests {
         let thin = layout_math("a\\,b", &font(), 18.0);
         let med = layout_math("a\\:b", &font(), 18.0);
         let thick = layout_math("a\\;b", &font(), 18.0);
+        let enspace = layout_math("a\\enspace b", &font(), 18.0);
         let quad = layout_math("a\\quad b", &font(), 18.0);
         let qquad = layout_math("a\\qquad b", &font(), 18.0);
         let neg = layout_math("a\\!b", &font(), 18.0);
@@ -2997,10 +3002,11 @@ mod tests {
         assert!(thin.width > tight.width);
         assert!(med.width > thin.width);
         assert!(thick.width > med.width);
-        assert!(quad.width > thick.width);
+        assert!(enspace.width > thick.width);
+        assert!(quad.width > enspace.width);
         assert!(qquad.width > quad.width);
 
-        for layout in [&thin, &med, &thick, &quad, &qquad, &neg] {
+        for layout in [&thin, &med, &thick, &enspace, &quad, &qquad, &neg] {
             assert_eq!(
                 layout
                     .elements
@@ -3019,11 +3025,26 @@ mod tests {
         let named_thin = layout_math("a\\thinspace b", &font(), 18.0);
         let neg = layout_math("a\\!b", &font(), 18.0);
         let named_neg = layout_math("a\\negthinspace b", &font(), 18.0);
+        let enspace = layout_math("a\\enspace b", &font(), 18.0);
+        let enskip = layout_math("a\\enskip b", &font(), 18.0);
+        let neg_med = layout_math("a\\negmedspace b", &font(), 18.0);
+        let neg_thick = layout_math("a\\negthickspace b", &font(), 18.0);
 
         assert!((thin.width - named_thin.width).abs() < 1e-9);
         assert!((neg.width - named_neg.width).abs() < 1e-9);
-        assert!(named_thin.warnings.is_empty());
-        assert!(named_neg.warnings.is_empty());
+        assert!((enspace.width - enskip.width).abs() < 1e-9);
+        assert!(neg_thick.width < neg_med.width);
+        assert!(neg_med.width < neg.width);
+        for layout in [
+            &named_thin,
+            &named_neg,
+            &enspace,
+            &enskip,
+            &neg_med,
+            &neg_thick,
+        ] {
+            assert!(layout.warnings.is_empty());
+        }
     }
 
     #[test]
