@@ -2885,8 +2885,18 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "ncong" => Some("≇"),
         "asymp" => Some("≍"),
         "doteq" => Some("≐"),
+        "bumpeq" => Some("≏"),
+        "Bumpeq" => Some("≎"),
+        "doteqdot" => Some("≑"),
+        "fallingdotseq" => Some("≒"),
+        "risingdotseq" => Some("≓"),
+        "eqcirc" => Some("≖"),
+        "circeq" => Some("≗"),
+        "triangleq" => Some("≜"),
         "models" => Some("⊨"),
         "perp" => Some("⊥"),
+        "between" => Some("≬"),
+        "pitchfork" => Some("⋔"),
         "mid" => Some("∣"),
         "nmid" => Some("∤"),
         "parallel" => Some("∥"),
@@ -3425,6 +3435,34 @@ mod tests {
             .collect();
 
         assert_eq!(text, "⨁⨂⨀⋃⋂⋁⋀∐");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn relation_variant_aliases_map_to_covered_unicode_glyphs() {
+        let font = font();
+        for ch in ['≏', '≎', '≑', '≒', '≓', '≖', '≗', '≜', '≬', '⋔'] {
+            assert!(font.has_glyph(ch), "expected DejaVu coverage for {ch}");
+        }
+
+        let layout = layout_math(
+            concat!(
+                "\\bumpeq\\Bumpeq\\doteqdot\\fallingdotseq\\risingdotseq",
+                "\\eqcirc\\circeq\\triangleq\\between\\pitchfork"
+            ),
+            &font,
+            20.0,
+        );
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "≏≎≑≒≓≖≗≜≬⋔");
         assert!(layout.warnings.is_empty());
     }
 
