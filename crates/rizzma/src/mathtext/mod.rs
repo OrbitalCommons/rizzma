@@ -613,6 +613,9 @@ impl<'a> Parser<'a> {
                 if let Some(kern) = single_char_spacing_command(ch) {
                     return Node::Kern(kern);
                 }
+                if ch == '|' {
+                    return Node::Text("∥".to_owned());
+                }
                 return Node::Text(ch.to_string());
             }
             return Node::Text("\\".to_owned());
@@ -2346,6 +2349,7 @@ fn delimiter_symbol(ch: char) -> Option<DelimiterKind> {
 fn delimiter_command(name: &str) -> Option<DelimiterKind> {
     match name {
         "{" | "}" => Some(DelimiterKind::Brace),
+        "vert" | "lvert" | "rvert" => Some(DelimiterKind::Bar),
         "|" | "Vert" | "lVert" | "rVert" => Some(DelimiterKind::DoubleBar),
         "langle" | "rangle" => Some(DelimiterKind::Angle),
         "lbrace" | "rbrace" => Some(DelimiterKind::Brace),
@@ -2750,6 +2754,8 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "neg" => Some("¬"),
         "top" => Some("⊤"),
         "bot" => Some("⊥"),
+        "vert" | "lvert" | "rvert" => Some("∣"),
+        "Vert" | "lVert" | "rVert" => Some("∥"),
         _ => None,
     }
 }
@@ -2791,7 +2797,7 @@ mod tests {
     #[test]
     fn expanded_symbol_table_maps_common_commands() {
         let layout = layout_math(
-            "\\leq\\approx\\nabla\\rightarrow\\subseteq\\oplus\\mapsto\\parallel\\aleph",
+            "\\leq\\approx\\nabla\\rightarrow\\subseteq\\oplus\\mapsto\\parallel\\aleph\\|\\lvert\\rvert\\Vert",
             &font(),
             20.0,
         );
@@ -2803,7 +2809,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(text, "≤≈∇→⊆⊕↦∥ℵ");
+        assert_eq!(text, "≤≈∇→⊆⊕↦∥ℵ∥∣∣∥");
         assert!(layout.warnings.is_empty());
     }
 
@@ -4193,6 +4199,34 @@ mod tests {
             .count();
 
         assert_eq!(delimiter_count, 1);
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn left_right_accepts_vertical_bar_aliases() {
+        let layout = layout_math(
+            "\\left\\lvert x \\right\\rvert+\\left\\lVert y \\right\\rVert",
+            &font(),
+            20.0,
+        );
+        let kinds: Vec<_> = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Delimiter { kind, .. } => Some(*kind),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            kinds,
+            [
+                DelimiterKind::Bar,
+                DelimiterKind::Bar,
+                DelimiterKind::DoubleBar,
+                DelimiterKind::DoubleBar,
+            ]
+        );
         assert!(layout.warnings.is_empty());
     }
 
