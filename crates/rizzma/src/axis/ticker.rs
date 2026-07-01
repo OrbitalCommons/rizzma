@@ -2220,8 +2220,8 @@ impl Formatter for FuncFormatter {
 /// This is a small, deterministic subset of matplotlib's
 /// `FormatStrFormatter`: the first numeric conversion in the template receives
 /// the tick value, `%%` escapes a literal percent sign, and surrounding text is
-/// preserved. Supported conversion types are `f`, `e`, `E`, `g`, and `G`, with
-/// optional sign, zero-padding, left-alignment, width, and precision.
+/// preserved. Supported conversion types are `d`, `i`, `f`, `e`, `E`, `g`, and
+/// `G`, with optional sign, zero-padding, left-alignment, width, and precision.
 pub struct FormatStrFormatter {
     fmt: String,
 }
@@ -2337,7 +2337,7 @@ where
         return (None, raw);
     };
     raw.push(conversion);
-    if matches!(conversion, 'f' | 'e' | 'E' | 'g' | 'G') {
+    if matches!(conversion, 'd' | 'i' | 'f' | 'e' | 'E' | 'g' | 'G') {
         spec.conversion = conversion;
         (Some(spec), raw)
     } else {
@@ -2348,6 +2348,7 @@ where
 fn format_percent_value(value: f64, spec: PercentSpec) -> String {
     let precision = spec.precision.unwrap_or(6);
     let mut rendered = match spec.conversion {
+        'd' | 'i' => format!("{}", value.trunc() as i64),
         'f' => format!("{value:.precision$}"),
         'e' => format!("{value:.precision$e}"),
         'E' => format!("{value:.precision$E}"),
@@ -2431,8 +2432,9 @@ fn trim_decimal_zeros(value: &str) -> String {
 /// Small deterministic subset of matplotlib's `StrMethodFormatter`.
 /// Occurrences of `{x}` and `{pos}` are replaced with the value and position
 /// respectively, `{{` and `}}` escape literal braces, and numeric value fields
-/// support a compact Python-like format-spec subset such as `{x:.2f}` or
-/// `{x:+08.1e}`. A missing position renders as the empty string.
+/// support a compact Python-like format-spec subset such as `{x:.2f}`,
+/// `{x:+08.1e}`, or `{pos:02d}`. A missing position renders as the empty
+/// string.
 pub struct StrMethodFormatter {
     fmt: String,
 }
@@ -2540,7 +2542,9 @@ fn format_brace_integer(value: usize, spec: &str) -> Option<String> {
     }
     let percent = percent?;
     match percent.conversion {
-        'f' | 'e' | 'E' | 'g' | 'G' => Some(format_percent_value(value as f64, percent)),
+        'd' | 'i' | 'f' | 'e' | 'E' | 'g' | 'G' => {
+            Some(format_percent_value(value as f64, percent))
+        }
         _ => None,
     }
 }
@@ -3194,6 +3198,14 @@ mod tests {
     }
 
     #[test]
+    fn format_str_formatter_integer_conversion() {
+        let f = FormatStrFormatter::new("%+05d");
+
+        assert_eq!(f.format(12.9, None), "+0012");
+        assert_eq!(f.format(-12.9, None), "-0012");
+    }
+
+    #[test]
     fn format_str_formatter_general_trims_decimal_zeros() {
         let f = FormatStrFormatter::new("%g");
         let upper = FormatStrFormatter::new("%.3G");
@@ -3223,6 +3235,13 @@ mod tests {
 
         assert_eq!(f.format(12.0, None), "x=+00012.0");
         assert_eq!(f.format(-12.0, None), "x=-00012.0");
+    }
+
+    #[test]
+    fn str_method_formatter_integer_format_specs() {
+        let f = StrMethodFormatter::new("x={x:04d} pos={pos:02d}");
+
+        assert_eq!(f.format(12.9, Some(3)), "x=0012 pos=03");
     }
 
     #[test]
