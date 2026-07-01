@@ -1,10 +1,12 @@
 //! # rizzma
 //!
-//! A Rust reimplementation of the good parts of matplotlib / pyplot, with first-class
-//! WebAssembly support.
+//! A single-crate Rust reimplementation of the good parts of matplotlib / pyplot,
+//! with first-class WebAssembly support.
 //!
-//! This umbrella crate re-exports the `rizzma-*` workspace crates behind one import
-//! surface, so downstream users depend on a single `rizzma` crate:
+//! Everything lives in one publishable crate. The former workspace crates are now
+//! namespaced modules — [`figure`], [`pyplot`], [`axis`], [`artist`], [`mathtext`],
+//! the backends ([`skia`], [`svg`], [`pdf`]), and [`mplot3d`] — so you can reach any
+//! part of the API through a single dependency.
 //!
 //! ```
 //! use rizzma::Figure;
@@ -16,30 +18,37 @@
 //! assert!(!png.is_empty());
 //! ```
 //!
-//! The workspace crates are also reachable as namespaced modules — [`figure`],
-//! [`pyplot`], [`axis`], [`artist`], [`mathtext`], the backends ([`skia`], [`svg`],
-//! [`pdf`]), and [`mplot3d`] — so you can reach any part of the API without adding
-//! the individual crates as dependencies.
+//! ## Features
+//!
+//! The core plotting stack plus the SVG/PDF/raster backends are always compiled.
+//! The optional leaf modules are enabled by default but can be turned off:
+//!
+//! - `plot3d` — the [`mplot3d`] 3D plotting module.
+//! - `pyplot` — the stateful [`pyplot`] facade.
+//! - `wasm` — the [`wasm`] browser bridge.
+//!
+//! Building with `--no-default-features` yields the core, figure, and all backends
+//! without 3D, pyplot, or wasm.
 
-// Namespaced re-exports of each workspace crate.
-/// The mplot3d-equivalent 3D plotting crate ([`rizzma_3d`]).
-pub use rizzma_3d as mplot3d;
-pub use rizzma_artist as artist;
-pub use rizzma_axis as axis;
-pub use rizzma_core as core;
-pub use rizzma_figure as figure;
-pub use rizzma_mathtext as mathtext;
-pub use rizzma_pdf as pdf;
-pub use rizzma_pyplot as pyplot;
-pub use rizzma_render as render;
-pub use rizzma_skia as skia;
-pub use rizzma_svg as svg;
-pub use rizzma_text as text;
-pub use rizzma_wasm as wasm;
+pub mod artist;
+pub mod axis;
+pub mod core;
+pub mod figure;
+pub mod mathtext;
+pub mod pdf;
+pub mod render;
+pub mod skia;
+pub mod svg;
+pub mod text;
 
-// Flatten the most commonly used entry points to the crate root so `use rizzma::Figure`
-// (and friends) works without reaching through the `figure` module.
-pub use rizzma_figure::{Axes, Figure, GridSpec, PolarAxes, SubplotSpec};
+#[cfg(feature = "plot3d")]
+pub mod mplot3d;
+#[cfg(feature = "pyplot")]
+pub mod pyplot;
+#[cfg(feature = "wasm")]
+pub mod wasm;
+
+pub use figure::{Axes, Figure, GridSpec, PolarAxes, SubplotSpec};
 
 /// The version of this crate, from `CARGO_PKG_VERSION`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

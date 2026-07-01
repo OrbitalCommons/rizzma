@@ -227,7 +227,7 @@ fn run_check_gallery_links(args: &[String]) -> ExitCode {
     };
     if generated.is_empty() {
         eprintln!(
-            "error: no gallery_*.png in {} — run `cargo run -p rizzma-figure --example gallery` first",
+            "error: no gallery_*.png in {} — run `cargo run -p rizzma --example gallery` first",
             gallery_dir.display()
         );
         return ExitCode::FAILURE;
@@ -579,7 +579,7 @@ mod tests {
     #[test]
     fn parse_wasm_size_accepts_optional_budget() {
         let args = vec![
-            "target/wasm32-unknown-unknown/release/rizzma_wasm.wasm".to_string(),
+            "target/wasm32-unknown-unknown/release/rizzma.wasm".to_string(),
             "--max-bytes".to_string(),
             "2500000".to_string(),
         ];
@@ -587,7 +587,7 @@ mod tests {
 
         assert_eq!(
             parsed.path,
-            PathBuf::from("target/wasm32-unknown-unknown/release/rizzma_wasm.wasm")
+            PathBuf::from("target/wasm32-unknown-unknown/release/rizzma.wasm")
         );
         assert_eq!(parsed.max_bytes, Some(2_500_000));
     }

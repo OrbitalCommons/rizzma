@@ -26,7 +26,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Render gallery
-        run: cargo run -p rizzma-figure --example gallery
+        run: cargo run -p rizzma --example gallery
 
       - name: Assemble site
         run: |
@@ -36,7 +36,7 @@ jobs:
             echo '<!doctype html><meta charset="utf-8"><title>rizzma gallery</title>'
             echo '<style>body{font-family:system-ui;background:#1a1b26;color:#c0caf5;max-width:1100px;margin:2rem auto}figure{display:inline-block;margin:12px}img{width:480px;border:1px solid #565f89;border-radius:6px}figcaption{text-align:center}</style>'
             echo '<h1>rizzma gallery</h1>'
-            echo '<p>Auto-rendered from <code>crates/rizzma-figure/examples/gallery.rs</code> on every push to <code>main</code>.</p>'
+            echo '<p>Auto-rendered from <code>crates/rizzma/examples/gallery.rs</code> on every push to <code>main</code>.</p>'
             for f in gallery-out/*.png; do
               n=$(basename "$f")
               t=${n#gallery_}; t=${t%.png}
