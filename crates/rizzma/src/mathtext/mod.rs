@@ -9,7 +9,8 @@
 //! Supported in this first pass: ordinary symbols, whitespace glue, `{...}`
 //! groups, superscripts/subscripts, `\frac{...}{...}`, `\binom{...}{...}`,
 //! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
-//! `\overbrace{...}`, `\underbrace{...}`, `\boxed{...}`, `\text{...}`,
+//! `\overbrace{...}`, `\underbrace{...}`, `\boxed{...}`, `\text{...}`/
+//! `\mbox{...}`,
 //! `\operatorname{...}`/`\operatorname*{...}`/`\operatornamewithlimits{...}`/
 //! `\mathrm{...}`/`\textrm{...}`/`\textnormal{...}`/`\textup{...}`/
 //! `\mathregular{...}`/`\mathdefault{...}`,
@@ -656,8 +657,8 @@ impl<'a> Parser<'a> {
             return self.parse_radical(start);
         }
 
-        if name == "text" {
-            return self.parse_text_command(start);
+        if matches!(name, "text" | "mbox") {
+            return self.parse_text_command(start, name);
         }
 
         if name == "operatorname" {
@@ -830,13 +831,13 @@ impl<'a> Parser<'a> {
         Some(self.parse_row(Some(']')))
     }
 
-    fn parse_text_command(&mut self, start: usize) -> Node {
+    fn parse_text_command(&mut self, start: usize, command: &str) -> Node {
         let Some(text) = self.parse_required_raw_group(
             start,
-            "text",
+            command,
             MathTextWarningReason::MissingCommandArgument,
         ) else {
-            return Node::Text("\\text".to_owned());
+            return Node::Text(format!("\\{command}"));
         };
         self.parse_scripts(Node::Text(text))
     }
@@ -2551,7 +2552,7 @@ fn named_spacing_command(name: &str) -> Option<f64> {
 
 fn math_style_command(name: &str) -> Option<MathStyle> {
     match name {
-        "mathbf" => Some(MathStyle::Bold),
+        "mathbf" | "boldsymbol" => Some(MathStyle::Bold),
         "mathit" => Some(MathStyle::Italic),
         "mathsf" => Some(MathStyle::SansSerif),
         "mathtt" => Some(MathStyle::Monospace),
@@ -3129,7 +3130,7 @@ mod tests {
         let blackboard = layout_math("\\mathbb{R2}+\\Bbb{R2}", &font, 20.0);
         let calligraphic = layout_math("\\mathcal{F}+\\mathscr{F}", &font, 20.0);
         let plain_styles = layout_math(
-            "\\mathbf{R}+\\mathit{R}+\\mathsf{R}+\\mathtt{R}",
+            "\\mathbf{R}+\\boldsymbol{R}+\\mathit{R}+\\mathsf{R}+\\mathtt{R}",
             &font,
             20.0,
         );
@@ -3144,7 +3145,8 @@ mod tests {
             })
             .collect();
         let expected_plain_styles = format!(
-            "{}+{}+{}+{}",
+            "{}+{}+{}+{}+{}",
+            apply_math_style(MathStyle::Bold, "R", &font),
             apply_math_style(MathStyle::Bold, "R", &font),
             apply_math_style(MathStyle::Italic, "R", &font),
             apply_math_style(MathStyle::SansSerif, "R", &font),
@@ -4111,6 +4113,22 @@ mod tests {
     }
 
     #[test]
+    fn mbox_alias_preserves_literal_roman_text() {
+        let layout = layout_math("x\\mbox{ if y_1 }", &font(), 20.0);
+        let texts: Vec<_> = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(texts, ["x", " if y_1 "]);
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
     fn operatorname_preserves_literal_text_and_takes_scripts() {
         let layout = layout_math("\\operatorname{Var}_x+1", &font(), 20.0);
         let plain = layout_math("\\operatorname{Var}", &font(), 20.0);
@@ -4311,6 +4329,22 @@ mod tests {
         assert!(layout.elements.iter().any(
             |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\textrm")
         ));
+    }
+
+    #[test]
+    fn mbox_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\mbox+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(
+            layout.elements.iter().any(
+                |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\mbox")
+            )
+        );
     }
 
     #[test]
