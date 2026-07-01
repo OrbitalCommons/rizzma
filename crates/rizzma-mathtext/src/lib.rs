@@ -11,7 +11,7 @@
 //! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
 //! `\text{...}`, `\operatorname{...}`, common named operators,
 //! `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`,
-//! `\begin{matrix}`/`pmatrix`/`bmatrix` environments,
+//! `\begin{matrix}`/`pmatrix`/`bmatrix`/`cases` environments,
 //! `\left...\right` delimiters, large operators, and a table of common named
 //! symbols and accents. Unsupported commands are preserved as literal fallback
 //! text and reported as structured warnings. The
@@ -855,6 +855,7 @@ impl<'a> Parser<'a> {
             "matrix" => (DelimiterKind::None, DelimiterKind::None),
             "pmatrix" => (DelimiterKind::Paren, DelimiterKind::Paren),
             "bmatrix" => (DelimiterKind::Bracket, DelimiterKind::Bracket),
+            "cases" => (DelimiterKind::Brace, DelimiterKind::None),
             _ => {
                 let source = format!("\\begin{{{environment}}}");
                 self.warnings.push(MathTextWarning {
@@ -2613,6 +2614,49 @@ mod tests {
         assert!(pmatrix.width > plain.width);
         assert!(pmatrix.warnings.is_empty());
         assert!(bmatrix.warnings.is_empty());
+    }
+
+    #[test]
+    fn cases_environment_adds_left_brace_only() {
+        let plain = layout_math("\\begin{matrix}x&x>0\\\\-x&x<0\\end{matrix}", &font(), 24.0);
+        let cases = layout_math("\\begin{cases}x&x>0\\\\-x&x<0\\end{cases}", &font(), 24.0);
+        let brace_count = cases
+            .elements
+            .iter()
+            .filter(|element| {
+                matches!(
+                    element,
+                    MathElement::Delimiter {
+                        kind: DelimiterKind::Brace,
+                        ..
+                    }
+                )
+            })
+            .count();
+        let texts: Vec<_> = cases
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(brace_count, 1);
+        assert_eq!(texts, ["x", "x", ">", "0", "-", "x", "x", "<", "0"]);
+        assert!(cases.width > plain.width);
+        assert_eq!(cases.height(), plain.height());
+        assert!(cases.warnings.is_empty());
+    }
+
+    #[test]
+    fn cases_environment_can_take_scripts() {
+        let cases = layout_math("\\begin{cases}x&x>0\\\\0&x=0\\end{cases}", &font(), 24.0);
+        let scripted = layout_math("\\begin{cases}x&x>0\\\\0&x=0\\end{cases}_i", &font(), 24.0);
+
+        assert!(scripted.width > cases.width);
+        assert!(scripted.descent > cases.descent);
+        assert!(scripted.warnings.is_empty());
     }
 
     #[test]
