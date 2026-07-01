@@ -2424,10 +2424,10 @@ fn lap_kind(name: &str) -> Option<LapKind> {
 
 fn accent_kind(name: &str) -> Option<AccentKind> {
     match name {
-        "hat" => Some(AccentKind::Hat),
+        "hat" | "widehat" => Some(AccentKind::Hat),
         "bar" | "overline" => Some(AccentKind::Bar),
         "vec" => Some(AccentKind::Vec),
-        "tilde" => Some(AccentKind::Tilde),
+        "tilde" | "widetilde" => Some(AccentKind::Tilde),
         "dot" => Some(AccentKind::Dot),
         "ddot" => Some(AccentKind::Ddot),
         _ => None,
@@ -4344,6 +4344,29 @@ mod tests {
     }
 
     #[test]
+    fn wide_accent_aliases_reuse_existing_accent_geometry() {
+        let widehat = layout_math("\\widehat{xy}", &font(), 24.0);
+        let widetilde = layout_math("\\widetilde{xy}", &font(), 24.0);
+
+        assert!(widehat.elements.iter().any(|element| matches!(
+            element,
+            MathElement::Accent {
+                kind: AccentKind::Hat,
+                ..
+            }
+        )));
+        assert!(widetilde.elements.iter().any(|element| matches!(
+            element,
+            MathElement::Accent {
+                kind: AccentKind::Tilde,
+                ..
+            }
+        )));
+        assert!(widehat.warnings.is_empty());
+        assert!(widetilde.warnings.is_empty());
+    }
+
+    #[test]
     fn vector_accent_can_take_script() {
         let layout = layout_math("\\vec{x}_i", &font(), 24.0);
         assert!(layout.elements.iter().any(|element| matches!(
@@ -4590,6 +4613,20 @@ mod tests {
                 |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\hat")
             )
         );
+    }
+
+    #[test]
+    fn wide_accent_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\widehat", &font(), 20.0);
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert_eq!(layout.warnings[0].source, "\\widehat");
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\widehat")
+        ));
     }
 
     #[test]
