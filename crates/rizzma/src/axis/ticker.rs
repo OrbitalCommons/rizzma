@@ -230,7 +230,7 @@ impl EdgeInteger {
 ///
 /// `Auto` mirrors matplotlib's `nbins='auto'`; with no axis attached it
 /// resolves to 9, matching the reference.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NBins {
     /// A fixed maximum number of intervals (one fewer than the max tick count).
     Fixed(usize),
@@ -344,6 +344,37 @@ impl MaxNLocator {
         self
     }
 
+    /// Return the configured bin-count policy.
+    #[must_use]
+    pub fn nbins(&self) -> NBins {
+        self.nbins
+    }
+
+    /// Return whether this locator is constrained to integer tick steps when
+    /// enough integer values are visible.
+    #[must_use]
+    pub fn integer(&self) -> bool {
+        self.integer
+    }
+
+    /// Return whether this locator mirrors view limits and ticks about zero.
+    #[must_use]
+    pub fn symmetric(&self) -> bool {
+        self.symmetric
+    }
+
+    /// Return the configured minimum visible tick count.
+    #[must_use]
+    pub fn min_n_ticks(&self) -> usize {
+        self.min_n_ticks
+    }
+
+    /// Return the configured edge-pruning mode.
+    #[must_use]
+    pub fn prune(&self) -> TickPrune {
+        self.prune
+    }
+
     /// Validate and normalise a `steps` sequence (port of `_validate_steps`).
     ///
     /// Requires a strictly increasing sequence within `[1, 10]`; prepends `1`
@@ -385,7 +416,7 @@ impl MaxNLocator {
     }
 
     /// Resolve `nbins` to a concrete count (axis-less case: `Auto` -> 9).
-    fn nbins(&self) -> f64 {
+    fn resolved_nbins(&self) -> f64 {
         match self.nbins {
             NBins::Fixed(n) => n as f64,
             NBins::Auto => 9.0,
@@ -398,7 +429,7 @@ impl MaxNLocator {
     /// `tick_values` only via pruning (not implemented here, matching the
     /// default `prune=None`).
     fn raw_ticks(&self, vmin: f64, vmax: f64) -> Vec<f64> {
-        let nbins = self.nbins();
+        let nbins = self.resolved_nbins();
         let (scale, offset) = scale_range(vmin, vmax, nbins, 100.0);
         let vmin_o = vmin - offset;
         let vmax_o = vmax - offset;
@@ -2741,6 +2772,21 @@ mod tests {
             .tick_values(0.0, 1.0);
 
         assert!(!locs.is_empty());
+    }
+
+    #[test]
+    fn maxn_exposes_builder_configuration() {
+        let locator = MaxNLocator::new(NBins::Fixed(4))
+            .with_integer(true)
+            .with_symmetric(true)
+            .with_min_n_ticks(0)
+            .with_prune(TickPrune::Both);
+
+        assert_eq!(locator.nbins(), NBins::Fixed(4));
+        assert!(locator.integer());
+        assert!(locator.symmetric());
+        assert_eq!(locator.min_n_ticks(), 1);
+        assert_eq!(locator.prune(), TickPrune::Both);
     }
 
     #[test]
