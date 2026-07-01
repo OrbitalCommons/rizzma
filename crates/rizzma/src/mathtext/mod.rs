@@ -2451,14 +2451,82 @@ fn resolve_styled_row(style: MathStyle, row: &Row, font: &FontSource) -> Row {
 fn resolve_styled_node(style: MathStyle, node: &Node, font: &FontSource) -> Node {
     match node {
         Node::Text(text) => Node::Text(apply_math_style(style, text, font)),
+        Node::Fraction {
+            numerator,
+            denominator,
+        } => Node::Fraction {
+            numerator: resolve_styled_row(style, numerator, font),
+            denominator: resolve_styled_row(style, denominator, font),
+        },
+        Node::Binomial { upper, lower } => Node::Binomial {
+            upper: resolve_styled_row(style, upper, font),
+            lower: resolve_styled_row(style, lower, font),
+        },
+        Node::Radical { index, body } => Node::Radical {
+            index: index
+                .as_ref()
+                .map(|index| resolve_styled_row(style, index, font)),
+            body: resolve_styled_row(style, body, font),
+        },
+        Node::Matrix { rows, left, right } => Node::Matrix {
+            rows: rows
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|cell| resolve_styled_row(style, cell, font))
+                        .collect()
+                })
+                .collect(),
+            left: *left,
+            right: *right,
+        },
+        Node::Substack { rows } => Node::Substack {
+            rows: rows
+                .iter()
+                .map(|row| resolve_styled_row(style, row, font))
+                .collect(),
+        },
+        Node::Phantom { kind, body } => Node::Phantom {
+            kind: *kind,
+            body: resolve_styled_row(style, body, font),
+        },
+        Node::Stack {
+            placement,
+            annotation,
+            body,
+        } => Node::Stack {
+            placement: *placement,
+            annotation: resolve_styled_row(style, annotation, font),
+            body: resolve_styled_row(style, body, font),
+        },
+        Node::LineDecoration { kind, body } => Node::LineDecoration {
+            kind: *kind,
+            body: resolve_styled_row(style, body, font),
+        },
+        Node::BraceDecoration { kind, body } => Node::BraceDecoration {
+            kind: *kind,
+            body: resolve_styled_row(style, body, font),
+        },
+        Node::Boxed { body } => Node::Boxed {
+            body: resolve_styled_row(style, body, font),
+        },
+        Node::Delimited { left, body, right } => Node::Delimited {
+            left: *left,
+            body: resolve_styled_row(style, body, font),
+            right: *right,
+        },
+        Node::Accent { kind, body } => Node::Accent {
+            kind: *kind,
+            body: resolve_styled_row(style, body, font),
+        },
         Node::Script { base, sup, sub } => Node::Script {
             base: Box::new(resolve_styled_node(style, base, font)),
-            sup: sup.clone(),
-            sub: sub.clone(),
+            sup: sup.as_ref().map(|sup| resolve_styled_row(style, sup, font)),
+            sub: sub.as_ref().map(|sub| resolve_styled_row(style, sub, font)),
         },
         Node::Styled { body, .. } => Node::Styled {
             style,
-            body: body.clone(),
+            body: resolve_styled_row(style, body, font),
         },
         other => other.clone(),
     }
@@ -2798,6 +2866,50 @@ mod tests {
         assert!(styled.width > plain.width);
         assert!(styled.descent > plain.descent);
         assert!(styled.warnings.is_empty());
+    }
+
+    #[test]
+    fn math_style_recurses_into_composite_visible_rows() {
+        let layout = layout_math(
+            "\\mathbb{\\sqrt[2]{R}+\\boxed{R}+\\begin{matrix}R&2\\\\2&R\\end{matrix}_R}",
+            &font(),
+            20.0,
+        );
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "𝟚ℝ+ℝ+ℝ𝟚𝟚ℝℝ");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn math_style_resolver_recurses_into_fraction_rows() {
+        let node = Node::Fraction {
+            numerator: Row {
+                nodes: vec![Node::Text("R".to_string())],
+            },
+            denominator: Row {
+                nodes: vec![Node::Text("2".to_string())],
+            },
+        };
+        let resolved = resolve_styled_node(MathStyle::Blackboard, &node, &font());
+
+        match resolved {
+            Node::Fraction {
+                numerator,
+                denominator,
+            } => {
+                assert_eq!(flatten_row_text(&numerator), "ℝ");
+                assert_eq!(flatten_row_text(&denominator), "𝟚");
+            }
+            other => panic!("expected styled fraction, got {other:?}"),
+        }
     }
 
     #[test]
