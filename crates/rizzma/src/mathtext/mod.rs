@@ -10,7 +10,8 @@
 //! groups, superscripts/subscripts, `\frac{...}{...}`, `\binom{...}{...}`,
 //! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
 //! `\overbrace{...}`, `\underbrace{...}`, `\boxed{...}`, `\text{...}`,
-//! `\operatorname{...}`, `\phantom{...}`/`\hphantom{...}`/`\vphantom{...}`,
+//! `\operatorname{...}`/`\mathrm{...}`,
+//! `\phantom{...}`/`\hphantom{...}`/`\vphantom{...}`,
 //! `\overset{...}{...}`/`\underset{...}{...}`, common named operators,
 //! `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`, `\substack{...}`,
 //! `\begin{matrix}`/`pmatrix`/`bmatrix`/`cases`/`aligned` environments,
@@ -636,6 +637,10 @@ impl<'a> Parser<'a> {
             return self.parse_operatorname(start);
         }
 
+        if name == "mathrm" {
+            return self.parse_roman_text_command(start, name);
+        }
+
         if name == "substack" {
             return self.parse_substack(start);
         }
@@ -792,12 +797,16 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_operatorname(&mut self, start: usize) -> Node {
+        self.parse_roman_text_command(start, "operatorname")
+    }
+
+    fn parse_roman_text_command(&mut self, start: usize, command: &str) -> Node {
         let Some(text) = self.parse_required_raw_group(
             start,
-            "operatorname",
+            command,
             MathTextWarningReason::MissingCommandArgument,
         ) else {
-            return Node::Text("\\operatorname".to_owned());
+            return Node::Text(format!("\\{command}"));
         };
         self.parse_scripts(Node::Text(text))
     }
@@ -3690,6 +3699,37 @@ mod tests {
     }
 
     #[test]
+    fn mathrm_preserves_literal_text_and_takes_scripts() {
+        let layout = layout_math("\\mathrm{H_2O}^{+}", &font(), 20.0);
+        let plain = layout_math("\\mathrm{H_2O}", &font(), 20.0);
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "H_2O+");
+        assert!(layout.width > plain.width);
+        assert!(layout.ascent > plain.ascent);
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn mathrm_allows_nested_braces_and_escapes() {
+        let layout = layout_math("\\mathrm{set \\{A\\} and {B}}", &font(), 20.0);
+        let text = layout.elements.iter().find_map(|element| match element {
+            MathElement::Glyph { text, .. } => Some(text.as_str()),
+            _ => None,
+        });
+
+        assert_eq!(text, Some("set {A} and {B}"));
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
     fn named_operators_render_without_fallback_warnings() {
         let layout = layout_math("\\sin x+\\log y+\\lim_{n} a_n", &font(), 20.0);
         let text: String = layout
@@ -3716,6 +3756,20 @@ mod tests {
         );
         assert!(layout.elements.iter().any(
             |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\operatorname")
+        ));
+    }
+
+    #[test]
+    fn mathrm_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\mathrm+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\mathrm")
         ));
     }
 
