@@ -13,7 +13,7 @@
 //! `\operatorname{...}`/`\operatorname*{...}`/`\operatornamewithlimits{...}`/
 //! `\mathrm{...}`/`\textrm{...}`/`\textnormal{...}`/`\textup{...}`/
 //! `\mathregular{...}`/`\mathdefault{...}`,
-//! `\phantom{...}`/`\hphantom{...}`/`\vphantom{...}`,
+//! `\phantom{...}`/`\hphantom{...}`/`\vphantom{...}`/`\smash{...}`,
 //! `\overset{...}{...}`/`\underset{...}{...}`, common named operators,
 //! `\mathbb{...}`/`\Bbb{...}`/`\mathcal{...}`/`\mathscr{...}`/
 //! `\mathfrak{...}`, `\substack{...}`, `\begin{matrix}`/`pmatrix`/
@@ -420,6 +420,9 @@ enum Node {
         kind: PhantomKind,
         body: Row,
     },
+    Smash {
+        body: Row,
+    },
     Stack {
         placement: StackPlacement,
         annotation: Row,
@@ -674,6 +677,10 @@ impl<'a> Parser<'a> {
             return self.parse_phantom(start, name, PhantomKind::Vertical);
         }
 
+        if name == "smash" {
+            return self.parse_smash(start);
+        }
+
         if name == "overset" {
             return self.parse_stack(start, name, StackPlacement::Over);
         }
@@ -852,6 +859,17 @@ impl<'a> Parser<'a> {
             return Node::Text(format!("\\{command}"));
         };
         self.parse_scripts(Node::Phantom { kind, body })
+    }
+
+    fn parse_smash(&mut self, start: usize) -> Node {
+        let Some(body) = self.parse_required_group(
+            start,
+            "smash",
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text("\\smash".to_owned());
+        };
+        self.parse_scripts(Node::Smash { body })
     }
 
     fn parse_stack(&mut self, start: usize, command: &str, placement: StackPlacement) -> Node {
@@ -1417,6 +1435,7 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
         }
         Node::Substack { rows } => layout_substack(rows, font, font_size_px),
         Node::Phantom { kind, body } => layout_phantom(*kind, body, font, font_size_px),
+        Node::Smash { body } => layout_smash(body, font, font_size_px),
         Node::Stack {
             placement,
             annotation,
@@ -1756,6 +1775,16 @@ fn layout_phantom(
             ascent: base.ascent,
             descent: base.descent,
         },
+    }
+}
+
+fn layout_smash(body: &Row, font: &FontSource, font_size_px: f64) -> LayoutBox {
+    let base = layout_row(&body.nodes, font, font_size_px);
+    LayoutBox {
+        elements: base.elements,
+        width: base.width,
+        ascent: 0.0,
+        descent: 0.0,
     }
 }
 
@@ -2260,6 +2289,7 @@ fn flatten_row_text(row: &Row) -> String {
             Node::Matrix { rows, .. } => out.push_str(&flatten_matrix_text(rows)),
             Node::Substack { rows } => out.push_str(&flatten_substack_text(rows)),
             Node::Phantom { .. } => {}
+            Node::Smash { body } => out.push_str(&flatten_row_text(body)),
             Node::Stack { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::LineDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::BraceDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
@@ -2285,6 +2315,7 @@ fn flatten_node_text(node: &Node) -> String {
         Node::Matrix { rows, .. } => flatten_matrix_text(rows),
         Node::Substack { rows } => flatten_substack_text(rows),
         Node::Phantom { .. } => String::new(),
+        Node::Smash { body } => flatten_row_text(body),
         Node::Stack { body, .. } => flatten_row_text(body),
         Node::LineDecoration { body, .. } => flatten_row_text(body),
         Node::BraceDecoration { body, .. } => flatten_row_text(body),
@@ -2518,6 +2549,9 @@ fn resolve_styled_node(style: MathStyle, node: &Node, font: &FontSource) -> Node
         },
         Node::Phantom { kind, body } => Node::Phantom {
             kind: *kind,
+            body: resolve_styled_row(style, body, font),
+        },
+        Node::Smash { body } => Node::Smash {
             body: resolve_styled_row(style, body, font),
         },
         Node::Stack {
@@ -3473,6 +3507,53 @@ mod tests {
         );
         assert!(layout.elements.iter().any(
             |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\hphantom")
+        ));
+    }
+
+    #[test]
+    fn smash_keeps_body_geometry_but_zeroes_height() {
+        let plain = layout_math("\\frac{1}{2}", &font(), 24.0);
+        let smashed = layout_math("\\smash{\\frac{1}{2}}", &font(), 24.0);
+
+        assert!(!smashed.elements.is_empty());
+        assert_eq!(smashed.width, plain.width);
+        assert_eq!(smashed.ascent, 0.0);
+        assert_eq!(smashed.descent, 0.0);
+        assert!(smashed.warnings.is_empty());
+    }
+
+    #[test]
+    fn smash_can_take_scripts_on_zero_height_body() {
+        let smashed = layout_math("\\smash{x}", &font(), 24.0);
+        let scripted = layout_math("\\smash{x}_i", &font(), 24.0);
+        let texts: Vec<_> = scripted
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(texts, vec!["x", "i"]);
+        assert_eq!(smashed.ascent, 0.0);
+        assert_eq!(smashed.descent, 0.0);
+        assert!(scripted.width > smashed.width);
+        assert!(scripted.descent > smashed.descent);
+        assert!(scripted.warnings.is_empty());
+    }
+
+    #[test]
+    fn smash_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\smash+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\smash")
         ));
     }
 
