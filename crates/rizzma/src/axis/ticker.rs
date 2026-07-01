@@ -1518,6 +1518,19 @@ impl ScalarFormatter {
         sigfigs += 1;
         self.decimals = sigfigs.max(0) as usize;
     }
+
+    /// Return the current number of decimal places.
+    #[must_use]
+    pub fn decimals(&self) -> usize {
+        self.decimals
+    }
+
+    /// Return whether [`set_locs`](ScalarFormatter::set_locs) has selected a
+    /// format for this instance.
+    #[must_use]
+    pub fn has_format(&self) -> bool {
+        self.have_format
+    }
 }
 
 impl Default for ScalarFormatter {
@@ -2099,6 +2112,24 @@ impl EngFormatter {
         self
     }
 
+    /// Return the configured unit suffix.
+    #[must_use]
+    pub fn unit(&self) -> &str {
+        &self.unit
+    }
+
+    /// Return the fixed decimal-place count, if configured.
+    #[must_use]
+    pub fn places(&self) -> Option<usize> {
+        self.places
+    }
+
+    /// Return the configured separator between number and prefix/unit.
+    #[must_use]
+    pub fn separator(&self) -> &str {
+        &self.separator
+    }
+
     fn prefix(exponent: i32) -> &'static str {
         match exponent {
             -24 => "y",
@@ -2204,6 +2235,24 @@ impl PercentFormatter {
         self.symbol = symbol.into();
         self
     }
+
+    /// Return the data value corresponding to 100 percent.
+    #[must_use]
+    pub fn xmax(&self) -> f64 {
+        self.xmax
+    }
+
+    /// Return the fixed decimal-place count.
+    #[must_use]
+    pub fn decimals(&self) -> usize {
+        self.decimals
+    }
+
+    /// Return the configured percent-symbol suffix.
+    #[must_use]
+    pub fn symbol(&self) -> &str {
+        &self.symbol
+    }
 }
 
 impl Default for PercentFormatter {
@@ -2261,6 +2310,12 @@ impl FixedFormatter {
     pub fn new(seq: Vec<String>) -> Self {
         FixedFormatter { seq }
     }
+
+    /// Return the configured fixed label sequence.
+    #[must_use]
+    pub fn labels(&self) -> &[String] {
+        &self.seq
+    }
 }
 
 impl Formatter for FixedFormatter {
@@ -2285,6 +2340,12 @@ impl IndexFormatter {
     /// Create an index formatter from the sequence of label strings.
     pub fn new(labels: Vec<String>) -> Self {
         IndexFormatter { labels }
+    }
+
+    /// Return the configured index label sequence.
+    #[must_use]
+    pub fn labels(&self) -> &[String] {
+        &self.labels
     }
 }
 
@@ -3284,6 +3345,9 @@ mod tests {
             .with_separator(" ")
             .with_places(2);
 
+        assert_eq!(formatter.unit(), "Hz");
+        assert_eq!(formatter.separator(), " ");
+        assert_eq!(formatter.places(), Some(2));
         assert_eq!(formatter.format(12_300.0, None), "12.30 kHz");
         assert_eq!(formatter.format(0.0, None), "0 Hz");
     }
@@ -3298,10 +3362,15 @@ mod tests {
 
     #[test]
     fn percent_formatter_supports_fractional_xmax_and_decimals() {
-        let formatter = PercentFormatter::with_xmax(1.0).with_decimals(1);
+        let formatter = PercentFormatter::with_xmax(1.0)
+            .with_decimals(1)
+            .with_symbol(" pct");
 
-        assert_eq!(formatter.format(0.125, None), "12.5%");
-        assert_eq!(formatter.format(1.0, None), "100.0%");
+        assert_eq!(formatter.xmax(), 1.0);
+        assert_eq!(formatter.decimals(), 1);
+        assert_eq!(formatter.symbol(), " pct");
+        assert_eq!(formatter.format(0.125, None), "12.5 pct");
+        assert_eq!(formatter.format(1.0, None), "100.0 pct");
     }
 
     #[test]
@@ -3318,8 +3387,11 @@ mod tests {
     fn scalar_formatter_picks_precision() {
         let locs = MaxNLocator::default().tick_values(0.0, 1.0);
         let mut f = ScalarFormatter::new();
+        assert!(!f.has_format());
         f.set_locs(&locs);
         // Spacing of 0.1 over [0,1] -> one decimal place.
+        assert!(f.has_format());
+        assert_eq!(f.decimals(), 1);
         assert_eq!(f.format(0.5, Some(5)), "0.5");
         assert_eq!(f.format(0.0, Some(0)), "0.0");
     }
@@ -3330,6 +3402,7 @@ mod tests {
         let mut f = ScalarFormatter::new();
         f.set_locs(&locs);
         // Integer spacing -> zero decimals.
+        assert_eq!(f.decimals(), 0);
         assert_eq!(f.format(50.0, Some(5)), "50");
         assert_eq!(f.format(0.0, Some(0)), "0");
     }
@@ -3337,6 +3410,7 @@ mod tests {
     #[test]
     fn fixed_formatter_by_position() {
         let f = FixedFormatter::new(vec!["a".into(), "b".into()]);
+        assert_eq!(f.labels(), &["a".to_string(), "b".to_string()]);
         assert_eq!(f.format(0.0, Some(0)), "a");
         assert_eq!(f.format(99.0, Some(1)), "b");
         assert_eq!(f.format(0.0, Some(2)), "");
@@ -3346,6 +3420,10 @@ mod tests {
     #[test]
     fn index_formatter_uses_rounded_tick_value() {
         let f = IndexFormatter::new(vec!["zero".into(), "one".into(), "two".into()]);
+        assert_eq!(
+            f.labels(),
+            &["zero".to_string(), "one".to_string(), "two".to_string()]
+        );
         assert_eq!(f.format(0.2, Some(99)), "zero");
         assert_eq!(f.format(0.6, None), "one");
         assert_eq!(f.format(2.49, None), "two");
