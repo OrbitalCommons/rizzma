@@ -567,6 +567,13 @@ impl AutoMinorLocator {
             subdivisions: Some(subdivisions),
         }
     }
+
+    /// Return the explicit subdivision count, or `None` for automatic
+    /// matplotlib-style selection.
+    #[must_use]
+    pub fn subdivisions(&self) -> Option<usize> {
+        self.subdivisions
+    }
 }
 
 impl Default for AutoMinorLocator {
@@ -668,6 +675,18 @@ impl MultipleLocator {
             offset,
         }
     }
+
+    /// Return the configured tick spacing.
+    #[must_use]
+    pub fn base(&self) -> f64 {
+        self.edge.step
+    }
+
+    /// Return the configured additive tick offset.
+    #[must_use]
+    pub fn offset(&self) -> f64 {
+        self.offset
+    }
 }
 
 impl Locator for MultipleLocator {
@@ -706,6 +725,12 @@ impl LinearLocator {
     /// Create a locator with the given number of ticks.
     pub fn new(numticks: usize) -> Self {
         LinearLocator { numticks }
+    }
+
+    /// Return the configured number of ticks.
+    #[must_use]
+    pub fn numticks(&self) -> usize {
+        self.numticks
     }
 }
 
@@ -757,6 +782,21 @@ impl FixedLocator {
             locs,
             nbins: Some(nbins.max(2)),
         }
+    }
+
+    /// Return the fixed tick locations before optional subsampling.
+    #[must_use]
+    pub fn locations(&self) -> &[f64] {
+        &self.locs
+    }
+
+    /// Return the optional maximum bin count used for subsampling.
+    ///
+    /// When present, this is the clamped matplotlib-style `nbins` value; the
+    /// locator emits at most `nbins + 1` ticks.
+    #[must_use]
+    pub fn nbins(&self) -> Option<usize> {
+        self.nbins
     }
 }
 
@@ -1316,6 +1356,18 @@ impl IndexLocator {
             },
             offset,
         }
+    }
+
+    /// Return the configured index spacing.
+    #[must_use]
+    pub fn base(&self) -> f64 {
+        self.base
+    }
+
+    /// Return the configured additive index offset.
+    #[must_use]
+    pub fn offset(&self) -> f64 {
+        self.offset
     }
 }
 
@@ -2745,6 +2797,15 @@ mod tests {
     }
 
     #[test]
+    fn auto_minor_exposes_configured_subdivisions() {
+        assert_eq!(AutoMinorLocator::new().subdivisions(), None);
+        assert_eq!(
+            AutoMinorLocator::with_subdivisions(4).subdivisions(),
+            Some(4)
+        );
+    }
+
+    #[test]
     fn auto_minor_handles_reversed_ranges() {
         let locs = AutoMinorLocator::with_subdivisions(2).tick_values(1.0, 0.0);
 
@@ -2778,6 +2839,14 @@ mod tests {
     }
 
     #[test]
+    fn multiple_locator_exposes_base_and_offset() {
+        let locator = MultipleLocator::with_offset(0.5, 0.25);
+
+        assert_eq!(locator.base(), 0.5);
+        assert_eq!(locator.offset(), 0.25);
+    }
+
+    #[test]
     fn linear_default_0_10() {
         let locs = LinearLocator::default().tick_values(0.0, 10.0);
         assert_ticks(
@@ -2788,7 +2857,10 @@ mod tests {
 
     #[test]
     fn linear_5_0_1() {
-        let locs = LinearLocator::new(5).tick_values(0.0, 1.0);
+        let locator = LinearLocator::new(5);
+        let locs = locator.tick_values(0.0, 1.0);
+
+        assert_eq!(locator.numticks(), 5);
         assert_ticks(&locs, &[0.0, 0.25, 0.5, 0.75, 1.0]);
     }
 
@@ -2821,8 +2893,21 @@ mod tests {
     }
 
     #[test]
+    fn fixed_locator_exposes_configured_locations_and_nbins() {
+        let locator = FixedLocator::with_nbins(vec![-1.0, 0.0, 1.0], 1);
+
+        assert_eq!(locator.locations(), &[-1.0, 0.0, 1.0]);
+        assert_eq!(locator.nbins(), Some(2));
+        assert_eq!(FixedLocator::new(vec![2.0]).nbins(), None);
+    }
+
+    #[test]
     fn index_locator_uses_base_and_offset() {
-        let locs = IndexLocator::new(2.0, 1.0).tick_values(0.0, 8.0);
+        let locator = IndexLocator::new(2.0, 1.0);
+        let locs = locator.tick_values(0.0, 8.0);
+
+        assert_eq!(locator.base(), 2.0);
+        assert_eq!(locator.offset(), 1.0);
         assert_ticks(&locs, &[1.0, 3.0, 5.0, 7.0]);
     }
 
