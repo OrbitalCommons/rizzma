@@ -65,6 +65,18 @@ impl FontSource {
         self.faces.is_empty()
     }
 
+    /// Returns `true` when the primary face has an outline glyph for `ch`.
+    ///
+    /// Callers can use this to detect missing codepoints and fall back to an
+    /// alternative character before laying out geometry. Returns `false` when no
+    /// face is registered or the primary face lacks a glyph for `ch`.
+    #[must_use]
+    pub fn has_glyph(&self, ch: char) -> bool {
+        self.primary_face()
+            .and_then(|face| face.glyph_index(ch))
+            .is_some()
+    }
+
     /// Parses and returns the primary (first-registered) face, if any.
     ///
     /// Returns `None` when no face is registered or the primary buffer fails to

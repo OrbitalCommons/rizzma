@@ -380,6 +380,10 @@ enum Node {
         kind: AccentKind,
         body: Row,
     },
+    Styled {
+        style: MathStyle,
+        body: Row,
+    },
     LargeOperator {
         kind: LargeOperatorKind,
     },
@@ -684,14 +688,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_math_style_command(&mut self, start: usize, command: &str, style: MathStyle) -> Node {
-        let Some(text) = self.parse_required_raw_group(
+        let Some(body) = self.parse_required_group(
             start,
             command,
             MathTextWarningReason::MissingCommandArgument,
         ) else {
             return Node::Text(format!("\\{command}"));
         };
-        self.parse_scripts(Node::Text(apply_math_style(style, &text)))
+        self.parse_scripts(Node::Styled { style, body })
     }
 
     fn parse_line_decoration(
@@ -1146,6 +1150,10 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
             layout_delimited(*left, body, *right, font, font_size_px)
         }
         Node::Accent { kind, body } => layout_accent(*kind, body, font, font_size_px),
+        Node::Styled { style, body } => {
+            let resolved = resolve_styled_row(*style, body, font);
+            layout_row(&resolved.nodes, font, font_size_px)
+        }
         Node::LargeOperator { kind } => layout_large_operator(*kind, font, font_size_px),
         Node::Script { base, sup, sub } => {
             layout_script(base, sup.as_ref(), sub.as_ref(), font, font_size_px)
@@ -1766,6 +1774,7 @@ fn flatten_row_text(row: &Row) -> String {
             Node::LineDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Delimited { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Accent { body, .. } => out.push_str(&flatten_row_text(body)),
+            Node::Styled { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::LargeOperator { kind } => out.push_str(large_operator_symbol(*kind)),
             Node::Script { base, .. } => out.push_str(&flatten_node_text(base)),
         }
@@ -1785,6 +1794,7 @@ fn flatten_node_text(node: &Node) -> String {
         Node::LineDecoration { body, .. } => flatten_row_text(body),
         Node::Delimited { body, .. } => flatten_row_text(body),
         Node::Accent { body, .. } => flatten_row_text(body),
+        Node::Styled { body, .. } => flatten_row_text(body),
         Node::LargeOperator { kind } => large_operator_symbol(*kind).to_owned(),
         Node::Script { base, .. } => flatten_node_text(base),
     }
@@ -1904,9 +1914,46 @@ fn math_style_command(name: &str) -> Option<MathStyle> {
     }
 }
 
-fn apply_math_style(style: MathStyle, text: &str) -> String {
+/// Rewrites a styled group's body so each glyph uses the styled Unicode
+/// codepoint when the font can render it, and the plain character otherwise.
+///
+/// The style substitution happens here, at layout time, because only then is the
+/// [`FontSource`] available to check glyph coverage. Styling recurses into nested
+/// text-bearing constructs so that, for example, a scripted styled atom keeps its
+/// styling. Non-letters and codepoints the font lacks a glyph for degrade to the
+/// plain character, which guarantees no styled character ever renders blank.
+fn resolve_styled_row(style: MathStyle, row: &Row, font: &FontSource) -> Row {
+    Row {
+        nodes: row
+            .nodes
+            .iter()
+            .map(|node| resolve_styled_node(style, node, font))
+            .collect(),
+    }
+}
+
+fn resolve_styled_node(style: MathStyle, node: &Node, font: &FontSource) -> Node {
+    match node {
+        Node::Text(text) => Node::Text(apply_math_style(style, text, font)),
+        Node::Script { base, sup, sub } => Node::Script {
+            base: Box::new(resolve_styled_node(style, base, font)),
+            sup: sup.clone(),
+            sub: sub.clone(),
+        },
+        Node::Styled { body, .. } => Node::Styled {
+            style,
+            body: body.clone(),
+        },
+        other => other.clone(),
+    }
+}
+
+fn apply_math_style(style: MathStyle, text: &str, font: &FontSource) -> String {
     text.chars()
-        .map(|ch| math_style_char(style, ch).unwrap_or(ch))
+        .map(|ch| match math_style_char(style, ch) {
+            Some(styled) if font.has_glyph(styled) => styled,
+            _ => ch,
+        })
         .collect()
 }
 
@@ -2164,7 +2211,9 @@ mod tests {
     }
 
     #[test]
-    fn math_style_commands_map_ascii_letters_to_unicode_fallbacks() {
+    fn math_style_commands_map_covered_letters_to_unicode() {
+        // ℝ, 𝟚 and ℱ all exist in DejaVu Sans, so they keep the styled codepoint;
+        // fraktur `g` (𝔤) is absent and must fall back to the plain ASCII glyph.
         let layout = layout_math("\\mathbb{R2}+\\mathcal{F}+\\mathfrak{g}", &font(), 20.0);
         let text: String = layout
             .elements
@@ -2175,7 +2224,44 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(text, "ℝ𝟚+ℱ+𝔤");
+        assert_eq!(text, "ℝ𝟚+ℱ+g");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn math_style_falls_back_to_plain_glyph_when_font_lacks_styled_codepoint() {
+        // DejaVu Sans has no fraktur glyphs, so `\mathfrak{g}` must render the
+        // plain "g" rather than a blank/notdef box.
+        let layout = layout_math("\\mathfrak{g}", &font(), 20.0);
+        let glyphs: Vec<&str> = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(glyphs, vec!["g"]);
+        assert!(!font().has_glyph('𝔤'));
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn math_style_keeps_styled_codepoint_when_font_has_glyph() {
+        // ℝ (double-struck R) is present in DejaVu Sans, so it stays styled.
+        assert!(font().has_glyph('ℝ'));
+        let layout = layout_math("\\mathbb{R}", &font(), 20.0);
+        let glyphs: Vec<&str> = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(glyphs, vec!["ℝ"]);
         assert!(layout.warnings.is_empty());
     }
 
