@@ -1489,6 +1489,17 @@ impl ScalarFormatter {
         }
     }
 
+    /// Construct a formatter with a fixed number of decimal places.
+    ///
+    /// Calling [`set_locs`](ScalarFormatter::set_locs) later may still replace
+    /// this precision with spacing-derived precision.
+    pub fn with_decimals(decimals: usize) -> Self {
+        ScalarFormatter {
+            decimals,
+            have_format: false,
+        }
+    }
+
     /// Choose the number of decimal places from the tick locations.
     ///
     /// Port of `ScalarFormatter._set_format` with `offset = 0` and
@@ -3498,6 +3509,15 @@ mod tests {
         assert_eq!(f.decimals(), 1);
         assert_eq!(f.format(0.5, Some(5)), "0.5");
         assert_eq!(f.format(0.0, Some(0)), "0.0");
+    }
+
+    #[test]
+    fn scalar_formatter_can_start_with_fixed_decimals() {
+        let f = ScalarFormatter::with_decimals(3);
+
+        assert_eq!(f.decimals(), 3);
+        assert!(!f.has_format());
+        assert_eq!(f.format(1.25, Some(0)), "1.250");
     }
 
     #[test]
