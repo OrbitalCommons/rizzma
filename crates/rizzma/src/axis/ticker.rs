@@ -2495,6 +2495,18 @@ impl IndexFormatter {
         IndexFormatter { labels }
     }
 
+    /// Create an index formatter from labels that can be converted into
+    /// strings.
+    pub fn from_labels<I, S>(labels: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        IndexFormatter {
+            labels: labels.into_iter().map(Into::into).collect(),
+        }
+    }
+
     /// Return the configured index label sequence.
     #[must_use]
     pub fn labels(&self) -> &[String] {
@@ -3707,6 +3719,17 @@ mod tests {
         assert_eq!(f.format(0.2, Some(99)), "zero");
         assert_eq!(f.format(0.6, None), "one");
         assert_eq!(f.format(2.49, None), "two");
+    }
+
+    #[test]
+    fn index_formatter_accepts_convertible_labels() {
+        let f = IndexFormatter::from_labels(["zero", "one", "two"]);
+        assert_eq!(
+            f.labels(),
+            &["zero".to_string(), "one".to_string(), "two".to_string()]
+        );
+        assert_eq!(f.format(1.4, None), "one");
+        assert_eq!(f.format(2.6, None), "");
     }
 
     #[test]
