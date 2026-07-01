@@ -12,7 +12,7 @@
 //! `\overbrace{...}`, `\underbrace{...}`, `\boxed{...}`, `\text{...}`,
 //! `\operatorname{...}`, `\phantom{...}`/`\hphantom{...}`/`\vphantom{...}`,
 //! common named operators, `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`, `\substack{...}`,
-//! `\begin{matrix}`/`pmatrix`/`bmatrix`/`cases` environments,
+//! `\begin{matrix}`/`pmatrix`/`bmatrix`/`cases`/`aligned` environments,
 //! `\left...\right` delimiters, large operators, and a table of common named
 //! symbols and accents. Unsupported commands are preserved as literal fallback
 //! text and reported as structured warnings. The
@@ -981,6 +981,7 @@ impl<'a> Parser<'a> {
 
         let (left, right) = match environment.as_str() {
             "matrix" => (DelimiterKind::None, DelimiterKind::None),
+            "aligned" => (DelimiterKind::None, DelimiterKind::None),
             "pmatrix" => (DelimiterKind::Paren, DelimiterKind::Paren),
             "bmatrix" => (DelimiterKind::Bracket, DelimiterKind::Bracket),
             "cases" => (DelimiterKind::Brace, DelimiterKind::None),
@@ -2939,6 +2940,45 @@ mod tests {
         assert!(matrix.width > single_row.width);
         assert!(matrix.height() > single_row.height());
         assert!(matrix.warnings.is_empty());
+    }
+
+    #[test]
+    fn aligned_environment_lays_out_cells_without_delimiters() {
+        let one_row = layout_math("x=1", &font(), 24.0);
+        let aligned = layout_math("\\begin{aligned}x&=1\\\\y&=2\\end{aligned}", &font(), 24.0);
+        let texts: Vec<_> = aligned
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(texts, ["x", "=", "1", "y", "=", "2"]);
+        assert!(
+            !aligned
+                .elements
+                .iter()
+                .any(|element| matches!(element, MathElement::Delimiter { .. }))
+        );
+        assert!(aligned.width > one_row.width);
+        assert!(aligned.height() > one_row.height());
+        assert!(aligned.warnings.is_empty());
+    }
+
+    #[test]
+    fn aligned_environment_can_take_scripts() {
+        let aligned = layout_math("\\begin{aligned}x&=1\\\\y&=2\\end{aligned}", &font(), 24.0);
+        let scripted = layout_math(
+            "\\begin{aligned}x&=1\\\\y&=2\\end{aligned}_i",
+            &font(),
+            24.0,
+        );
+
+        assert!(scripted.width > aligned.width);
+        assert!(scripted.descent > aligned.descent);
+        assert!(scripted.warnings.is_empty());
     }
 
     #[test]
