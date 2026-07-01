@@ -2838,6 +2838,9 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "otimes" => Some("⊗"),
         "oslash" => Some("⊘"),
         "odot" => Some("⊙"),
+        "bigoplus" => Some("⨁"),
+        "bigotimes" => Some("⨂"),
+        "bigodot" => Some("⨀"),
         "uplus" => Some("⊎"),
         "sqcap" => Some("⊓"),
         "sqcup" => Some("⊔"),
@@ -3028,6 +3031,11 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "backslash" => Some("\\"),
         "cup" => Some("∪"),
         "cap" => Some("∩"),
+        "bigcup" => Some("⋃"),
+        "bigcap" => Some("⋂"),
+        "bigvee" => Some("⋁"),
+        "bigwedge" => Some("⋀"),
+        "coprod" => Some("∐"),
         "emptyset" => Some("∅"),
         "empty" => Some("∅"),
         "varnothing" => Some("∅"),
@@ -3389,6 +3397,34 @@ mod tests {
             .collect();
 
         assert_eq!(text, "⇠⇢↶↷↺↻⇚⇛↜");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn big_operator_aliases_map_to_covered_unicode_glyphs() {
+        let font = font();
+        for ch in ['⨁', '⨂', '⨀', '⋃', '⋂', '⋁', '⋀', '∐'] {
+            assert!(font.has_glyph(ch), "expected DejaVu coverage for {ch}");
+        }
+
+        let layout = layout_math(
+            concat!(
+                "\\bigoplus\\bigotimes\\bigodot",
+                "\\bigcup\\bigcap\\bigvee\\bigwedge\\coprod"
+            ),
+            &font,
+            20.0,
+        );
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "⨁⨂⨀⋃⋂⋁⋀∐");
         assert!(layout.warnings.is_empty());
     }
 
