@@ -613,7 +613,23 @@ fn main() {
         fig.save_png("target/gallery_logit.png").unwrap();
     }
 
-    // 37. date axis (numeric date values with concise tick labels)
+    // 37. asinh (linear near zero with logarithmic tails)
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let x = linspace(-100.0, 100.0, 201);
+        let y: Vec<f64> = x.iter().map(|v| v * v * v).collect();
+        let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
+        ax.plot(&x, &y);
+        ax.set_yscale_asinh(1.0)
+            .set_xlim(-100.0, 100.0)
+            .set_ylim(-1_000_000.0, 1_000_000.0);
+        ax.set_title("asinh");
+        ax.set_xlabel("x");
+        ax.set_ylabel("$x^3$");
+        fig.save_png("target/gallery_asinh.png").unwrap();
+    }
+
+    // 38. date axis (numeric date values with concise tick labels)
     {
         let mut fig = Figure::new(5.0, 3.5);
         let x = [
@@ -635,7 +651,7 @@ fn main() {
         fig.save_png("target/gallery_dates.png").unwrap();
     }
 
-    // 38. polar (4-petal rose r = |cos(2*theta)|)
+    // 39. polar (4-petal rose r = |cos(2*theta)|)
     {
         let theta: Vec<f64> = (0..=720).map(|i| i as f64 * TAU / 720.0).collect();
         let r: Vec<f64> = theta.iter().map(|t| (2.0 * t).cos().abs()).collect();
@@ -645,7 +661,7 @@ fn main() {
             .unwrap();
     }
 
-    // 39. polar scatter (points sampled along an Archimedean spiral)
+    // 40. polar scatter (points sampled along an Archimedean spiral)
     {
         let theta: Vec<f64> = (0..=48).map(|i| i as f64 * 4.0 * TAU / 48.0).collect();
         let r: Vec<f64> = theta.iter().map(|t| t / TAU).collect();
@@ -655,7 +671,7 @@ fn main() {
             .unwrap();
     }
 
-    // 40. polar fill (filled 4-petal rose r = |cos(2*theta)|)
+    // 41. polar fill (filled 4-petal rose r = |cos(2*theta)|)
     {
         let theta: Vec<f64> = (0..=720).map(|i| i as f64 * TAU / 720.0).collect();
         let r: Vec<f64> = theta.iter().map(|t| (2.0 * t).cos().abs()).collect();
@@ -665,7 +681,7 @@ fn main() {
             .unwrap();
     }
 
-    // 41. contourf (filled contour bands of a smooth gaussian-bump field)
+    // 42. contourf (filled contour bands of a smooth gaussian-bump field)
     {
         let mut fig = Figure::new(5.0, 3.8);
         let (nr, nc) = (60usize, 60usize);
