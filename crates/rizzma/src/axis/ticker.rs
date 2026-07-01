@@ -746,6 +746,13 @@ impl MultipleLocator {
     }
 }
 
+impl Default for MultipleLocator {
+    /// Create a locator with unit tick spacing and zero offset.
+    fn default() -> Self {
+        MultipleLocator::new(1.0)
+    }
+}
+
 impl Locator for MultipleLocator {
     fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
         let (mut vmin, mut vmax) = (vmin, vmax);
@@ -3175,6 +3182,15 @@ mod tests {
 
         assert_eq!(locator.base(), 0.5);
         assert_eq!(locator.offset(), 0.25);
+    }
+
+    #[test]
+    fn multiple_locator_default_uses_unit_spacing() {
+        let locator = MultipleLocator::default();
+
+        assert_eq!(locator.base(), 1.0);
+        assert_eq!(locator.offset(), 0.0);
+        assert_ticks(&locator.tick_values(0.0, 2.0), &[-1.0, 0.0, 1.0, 2.0, 3.0]);
     }
 
     #[test]
