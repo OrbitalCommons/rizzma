@@ -7,7 +7,7 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
-## [Unreleased]
+## [1.0.1] - 2026-07-01
 
 ### Changed
 - Titles, axis labels, and tick labels now render with matplotlib-grade
