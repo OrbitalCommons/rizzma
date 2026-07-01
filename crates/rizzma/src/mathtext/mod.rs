@@ -10,8 +10,8 @@
 //! groups, superscripts/subscripts, `\frac{...}{...}`, `\binom{...}{...}`,
 //! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
 //! `\overbrace{...}`, `\underbrace{...}`, `\boxed{...}`, `\text{...}`,
-//! `\operatorname{...}`/`\operatorname*{...}`/`\mathrm{...}`/
-//! `\mathregular{...}`/`\mathdefault{...}`,
+//! `\operatorname{...}`/`\operatorname*{...}`/`\operatornamewithlimits{...}`/
+//! `\mathrm{...}`/`\mathregular{...}`/`\mathdefault{...}`,
 //! `\phantom{...}`/`\hphantom{...}`/`\vphantom{...}`,
 //! `\overset{...}{...}`/`\underset{...}{...}`, common named operators,
 //! `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`, `\substack{...}`,
@@ -641,7 +641,11 @@ impl<'a> Parser<'a> {
             if self.peek_char() == Some('*') {
                 self.pos += 1;
             }
-            return self.parse_operatorname(start);
+            return self.parse_operatorname(start, name);
+        }
+
+        if name == "operatornamewithlimits" {
+            return self.parse_operatorname(start, name);
         }
 
         if name == "mathrm" || name == "mathregular" || name == "mathdefault" {
@@ -803,8 +807,8 @@ impl<'a> Parser<'a> {
         self.parse_scripts(Node::Text(text))
     }
 
-    fn parse_operatorname(&mut self, start: usize) -> Node {
-        self.parse_roman_text_command(start, "operatorname")
+    fn parse_operatorname(&mut self, start: usize, command: &str) -> Node {
+        self.parse_roman_text_command(start, command)
     }
 
     fn parse_roman_text_command(&mut self, start: usize, command: &str) -> Node {
@@ -3730,6 +3734,25 @@ mod tests {
     }
 
     #[test]
+    fn operatornamewithlimits_preserves_literal_text_and_takes_scripts() {
+        let layout = layout_math("\\operatornamewithlimits{arg\\ max}_{x}", &font(), 20.0);
+        let plain = layout_math("\\operatornamewithlimits{arg\\ max}", &font(), 20.0);
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "arg maxx");
+        assert!(layout.width > plain.width);
+        assert!(layout.descent > plain.descent);
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
     fn mathrm_preserves_literal_text_and_takes_scripts() {
         let layout = layout_math("\\mathrm{H_2O}^{+}", &font(), 20.0);
         let plain = layout_math("\\mathrm{H_2O}", &font(), 20.0);
@@ -3817,6 +3840,20 @@ mod tests {
         );
         assert!(layout.elements.iter().any(
             |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\operatorname")
+        ));
+    }
+
+    #[test]
+    fn operatornamewithlimits_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\operatornamewithlimits+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\operatornamewithlimits")
         ));
     }
 
