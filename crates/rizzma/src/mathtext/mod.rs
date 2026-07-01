@@ -11,6 +11,7 @@
 //! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
 //! `\text{...}`, `\operatorname{...}`, common named operators,
 //! `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`,
+//! `\substack{...}`,
 //! `\begin{matrix}`/`pmatrix`/`bmatrix`/`cases` environments,
 //! `\left...\right` delimiters, large operators, and a table of common named
 //! symbols and accents. Unsupported commands are preserved as literal fallback
@@ -368,6 +369,9 @@ enum Node {
         left: DelimiterKind,
         right: DelimiterKind,
     },
+    Substack {
+        rows: Vec<Row>,
+    },
     LineDecoration {
         kind: LineDecorationKind,
         body: Row,
@@ -577,6 +581,10 @@ impl<'a> Parser<'a> {
             return self.parse_operatorname(start);
         }
 
+        if name == "substack" {
+            return self.parse_substack(start);
+        }
+
         if let Some(style) = math_style_command(name) {
             return self.parse_math_style_command(start, name, style);
         }
@@ -705,6 +713,21 @@ impl<'a> Parser<'a> {
             return Node::Text("\\operatorname".to_owned());
         };
         self.parse_scripts(Node::Text(text))
+    }
+
+    fn parse_substack(&mut self, start: usize) -> Node {
+        if self.peek_char() != Some('{') {
+            self.warnings.push(MathTextWarning {
+                range: Some(start..self.pos),
+                reason: MathTextWarningReason::MissingCommandArgument,
+                source: "\\substack".to_owned(),
+            });
+            return Node::Text("\\substack".to_owned());
+        }
+
+        self.pos += 1;
+        let rows = self.parse_substack_rows();
+        self.parse_scripts(Node::Substack { rows })
     }
 
     fn parse_math_style_command(&mut self, start: usize, command: &str, style: MathStyle) -> Node {
@@ -869,6 +892,60 @@ impl<'a> Parser<'a> {
 
         let rows = self.parse_matrix_rows(&environment);
         self.parse_scripts(Node::Matrix { rows, left, right })
+    }
+
+    fn parse_substack_rows(&mut self) -> Vec<Row> {
+        let mut rows = Vec::new();
+        let mut nodes = Vec::new();
+
+        while self.pos < self.source.len() {
+            if self.peek_char() == Some('}') {
+                self.pos += 1;
+                rows.push(Row { nodes });
+                return rows;
+            }
+
+            if self.source[self.pos..].starts_with("\\\\") {
+                self.pos += 2;
+                rows.push(Row { nodes });
+                nodes = Vec::new();
+                continue;
+            }
+
+            match self.peek_char() {
+                Some('}') => unreachable!("handled above"),
+                Some('{') => {
+                    self.pos += 1;
+                    let group = self.parse_group_from_open();
+                    nodes.extend(group.nodes);
+                }
+                Some('^') | Some('_') => {
+                    let source = self.peek_slice().to_owned();
+                    self.warn_here(MathTextWarningReason::MissingScript, &source);
+                    self.pos += 1;
+                }
+                Some('\\') => nodes.push(self.parse_command()),
+                Some(ch) if ch.is_whitespace() => {
+                    self.pos += ch.len_utf8();
+                    if !matches!(nodes.last(), Some(Node::Space)) {
+                        nodes.push(Node::Space);
+                    }
+                }
+                Some(_) => {
+                    let base = self.parse_atom();
+                    nodes.push(self.parse_scripts(base));
+                }
+                None => break,
+            }
+        }
+
+        self.warnings.push(MathTextWarning {
+            range: Some(self.source.len()..self.source.len()),
+            reason: MathTextWarningReason::UnclosedGroup,
+            source: String::new(),
+        });
+        rows.push(Row { nodes });
+        rows
     }
 
     fn parse_matrix_rows(&mut self, environment: &str) -> Vec<Vec<Row>> {
@@ -1164,6 +1241,7 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
         Node::Matrix { rows, left, right } => {
             layout_matrix(rows, *left, *right, font, font_size_px)
         }
+        Node::Substack { rows } => layout_substack(rows, font, font_size_px),
         Node::LineDecoration { kind, body } => {
             layout_line_decoration(*kind, body, font, font_size_px)
         }
@@ -1418,6 +1496,46 @@ fn layout_matrix(
             ),
         });
         width += delimiter_width;
+    }
+
+    LayoutBox {
+        elements,
+        width,
+        ascent,
+        descent,
+    }
+}
+
+fn layout_substack(rows: &[Row], font: &FontSource, font_size_px: f64) -> LayoutBox {
+    if rows.is_empty() {
+        return LayoutBox {
+            elements: Vec::new(),
+            width: 0.0,
+            ascent: 0.0,
+            descent: 0.0,
+        };
+    }
+
+    let row_gap = font_size_px * 0.12;
+    let laid_out: Vec<_> = rows
+        .iter()
+        .map(|row| layout_row(&row.nodes, font, font_size_px))
+        .collect();
+    let width = laid_out.iter().fold(0.0_f64, |acc, row| acc.max(row.width));
+    let total_height = laid_out.iter().map(LayoutBox::height).sum::<f64>()
+        + row_gap * rows.len().saturating_sub(1) as f64;
+    let ascent = total_height / 2.0;
+    let descent = total_height - ascent;
+
+    let mut elements = Vec::new();
+    let mut baseline = ascent - laid_out[0].ascent;
+    for row_index in 0..laid_out.len() {
+        let row = &laid_out[row_index];
+        let x = (width - row.width) / 2.0;
+        elements.extend(shift_elements(row.elements.clone(), x, baseline));
+        if row_index + 1 < rows.len() {
+            baseline -= row.descent + row_gap + laid_out[row_index + 1].ascent;
+        }
     }
 
     LayoutBox {
@@ -1792,6 +1910,7 @@ fn flatten_row_text(row: &Row) -> String {
             Node::Binomial { .. } => out.push_str("\\binom"),
             Node::Radical { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Matrix { rows, .. } => out.push_str(&flatten_matrix_text(rows)),
+            Node::Substack { rows } => out.push_str(&flatten_substack_text(rows)),
             Node::LineDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Delimited { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Accent { body, .. } => out.push_str(&flatten_row_text(body)),
@@ -1812,6 +1931,7 @@ fn flatten_node_text(node: &Node) -> String {
         Node::Binomial { .. } => "\\binom".to_owned(),
         Node::Radical { body, .. } => flatten_row_text(body),
         Node::Matrix { rows, .. } => flatten_matrix_text(rows),
+        Node::Substack { rows } => flatten_substack_text(rows),
         Node::LineDecoration { body, .. } => flatten_row_text(body),
         Node::Delimited { body, .. } => flatten_row_text(body),
         Node::Accent { body, .. } => flatten_row_text(body),
@@ -1824,6 +1944,13 @@ fn flatten_node_text(node: &Node) -> String {
 fn flatten_matrix_text(rows: &[Vec<Row>]) -> String {
     rows.iter()
         .flat_map(|row| row.iter())
+        .map(flatten_row_text)
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn flatten_substack_text(rows: &[Row]) -> String {
+    rows.iter()
         .map(flatten_row_text)
         .collect::<Vec<_>>()
         .join("")
@@ -2657,6 +2784,65 @@ mod tests {
         assert!(scripted.width > cases.width);
         assert!(scripted.descent > cases.descent);
         assert!(scripted.warnings.is_empty());
+    }
+
+    #[test]
+    fn substack_lays_out_centered_rows_without_delimiters() {
+        let one_row = layout_math("i=0", &font(), 20.0);
+        let substack = layout_math("\\substack{i=0\\\\j<n}", &font(), 20.0);
+        let texts: Vec<_> = substack
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(texts.join(""), "i=0j<n");
+        assert!(substack.width >= one_row.width);
+        assert!(substack.height() > one_row.height());
+        assert!(
+            !substack
+                .elements
+                .iter()
+                .any(|element| matches!(element, MathElement::Delimiter { .. }))
+        );
+        assert!(substack.warnings.is_empty());
+    }
+
+    #[test]
+    fn substack_works_as_large_operator_script() {
+        let plain = layout_math("\\sum", &font(), 24.0);
+        let scripted = layout_math("\\sum_{\\substack{i=0\\\\j<n}} x", &font(), 24.0);
+        let texts: String = scripted
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(texts.contains("i=0"));
+        assert!(texts.contains("j<n"));
+        assert!(scripted.width > plain.width);
+        assert!(scripted.descent > plain.descent);
+        assert!(scripted.warnings.is_empty());
+    }
+
+    #[test]
+    fn substack_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\substack+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\substack")
+        ));
     }
 
     #[test]
