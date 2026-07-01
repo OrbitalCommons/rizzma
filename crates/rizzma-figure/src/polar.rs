@@ -44,6 +44,28 @@ struct PolarLine {
     width: f64,
 }
 
+/// A set of marker points added with [`PolarAxes::scatter`].
+#[derive(Debug, Clone)]
+struct PolarScatter {
+    /// Parallel `(theta_radians, r)` samples, one marker per entry.
+    points: Vec<(f64, f64)>,
+    color: Rgba,
+}
+
+/// A filled polar region added with [`PolarAxes::fill`].
+#[derive(Debug, Clone)]
+struct PolarFill {
+    /// Boundary `(theta_radians, r)` samples; the polygon is auto-closed.
+    points: Vec<(f64, f64)>,
+    color: Rgba,
+}
+
+/// Marker radius in pixels for [`PolarAxes::scatter`] points.
+const SCATTER_MARKER_RADIUS: f64 = 4.0;
+
+/// Alpha applied to the face color of a [`PolarAxes::fill`] region.
+const FILL_ALPHA: f64 = 0.4;
+
 /// Light gray used for the polar grid rings and spokes.
 const GRID_COLOR: Rgba = Rgba::new(0.7, 0.7, 0.7, 1.0);
 
@@ -66,6 +88,8 @@ const RING_SEGMENTS: usize = 180;
 #[derive(Debug, Clone)]
 pub struct PolarAxes {
     lines: Vec<PolarLine>,
+    scatters: Vec<PolarScatter>,
+    fills: Vec<PolarFill>,
     /// Largest `r` seen so far across all curves (drives the auto `rmax`).
     data_rmax: f64,
     /// Explicit radial maximum, overriding the data-derived value when set.
@@ -80,6 +104,8 @@ impl PolarAxes {
     pub fn new() -> Self {
         Self {
             lines: Vec::new(),
+            scatters: Vec::new(),
+            fills: Vec::new(),
             data_rmax: 0.0,
             rmax_override: None,
             cycle: 0,
@@ -124,6 +150,61 @@ impl PolarAxes {
             color,
             width: 1.5,
         });
+        self
+    }
+
+    /// Scatter marker points at the parallel `theta` (radians) and `r` samples.
+    ///
+    /// Each `(theta, r)` is projected through the same mapping as [`plot`](Self::plot)
+    /// and drawn as a filled circular marker in the next cycle color. Only the
+    /// common prefix length is used when the slices differ in length; empty input
+    /// adds nothing. Negative `r` values are clamped to `0`.
+    ///
+    /// ![polar scatter](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_scatter.png)
+    pub fn scatter(&mut self, theta: &[f64], r: &[f64]) -> &mut Self {
+        let n = theta.len().min(r.len());
+        let mut points = Vec::with_capacity(n);
+        for i in 0..n {
+            let ri = if r[i].is_finite() { r[i].max(0.0) } else { 0.0 };
+            if theta[i].is_finite() {
+                self.data_rmax = self.data_rmax.max(ri);
+                points.push((theta[i], ri));
+            }
+        }
+        if points.is_empty() {
+            return self;
+        }
+        let color = self.next_color();
+        self.scatters.push(PolarScatter { points, color });
+        self
+    }
+
+    /// Fill the closed polar region bounded by the parallel `theta` (radians) and
+    /// `r` samples.
+    ///
+    /// The boundary points are projected through the same mapping as
+    /// [`plot`](Self::plot), the polygon is auto-closed, and it is drawn as a
+    /// semi-transparent filled region with a solid edge in the next cycle color.
+    /// Only the common prefix length is used when the slices differ in length;
+    /// empty input (or fewer than three usable points) adds nothing. Negative `r`
+    /// values are clamped to `0`.
+    ///
+    /// ![polar fill](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_fill.png)
+    pub fn fill(&mut self, theta: &[f64], r: &[f64]) -> &mut Self {
+        let n = theta.len().min(r.len());
+        let mut points = Vec::with_capacity(n);
+        for i in 0..n {
+            let ri = if r[i].is_finite() { r[i].max(0.0) } else { 0.0 };
+            if theta[i].is_finite() {
+                self.data_rmax = self.data_rmax.max(ri);
+                points.push((theta[i], ri));
+            }
+        }
+        if points.len() < 3 {
+            return self;
+        }
+        let color = self.next_color();
+        self.fills.push(PolarFill { points, color });
         self
     }
 
@@ -260,7 +341,32 @@ impl PolarAxes {
             .collect();
         Self::stroke_polyline(renderer, &perimeter, SPINE_COLOR, 1.2);
 
-        // 4. Data curves, over the grid.
+        // 4. Filled polar regions, over the grid but under the curves/markers.
+        for fill in &self.fills {
+            let mut verts: Vec<[f64; 2]> = fill
+                .points
+                .iter()
+                .map(|&(t, r)| {
+                    let (px, py) = self.to_pixel(t, r, width, height);
+                    [px, py]
+                })
+                .collect();
+            if verts.len() < 3 {
+                continue;
+            }
+            // Close the polygon so the fill is a proper region.
+            if verts.first() != verts.last() {
+                verts.push(verts[0]);
+            }
+            let path = Path::from_polyline(&verts);
+            let face = fill.color.with_alpha(fill.color.a * FILL_ALPHA);
+            let gc = GraphicsContext::new()
+                .with_stroke(fill.color)
+                .with_line_width(1.5);
+            renderer.draw_path(&gc, &path, &Affine2D::identity(), Some(face));
+        }
+
+        // 5. Data curves, over the grid.
         for line in &self.lines {
             let pts: Vec<[f64; 2]> = line
                 .points
@@ -273,7 +379,31 @@ impl PolarAxes {
             Self::stroke_polyline(renderer, &pts, line.color, line.width);
         }
 
-        // 5. Angular tick labels just outside the perimeter at each spoke.
+        // 6. Scatter marker points, on top of curves.
+        let marker = Path::unit_circle();
+        let marker_transform = Affine2D::from_scale(SCATTER_MARKER_RADIUS, SCATTER_MARKER_RADIUS);
+        for sc in &self.scatters {
+            let offsets: Vec<[f64; 2]> = sc
+                .points
+                .iter()
+                .map(|&(t, r)| {
+                    let (px, py) = self.to_pixel(t, r, width, height);
+                    [px, py]
+                })
+                .collect();
+            let offset_path = Path::from_polyline(&offsets);
+            let gc = GraphicsContext::new().with_stroke(sc.color);
+            renderer.draw_markers(
+                &gc,
+                &marker,
+                &marker_transform,
+                &offset_path,
+                &Affine2D::identity(),
+                Some(sc.color),
+            );
+        }
+
+        // 7. Angular tick labels just outside the perimeter at each spoke.
         let label_r = radius * 1.08;
         let label_size = 11.0;
         for k in 0..8 {
@@ -284,7 +414,7 @@ impl PolarAxes {
             Self::draw_label(renderer, font, &format!("{deg}\u{b0}"), lx, ly, label_size);
         }
 
-        // 6. Radial tick labels along the 0-degree (horizontal) spoke.
+        // 8. Radial tick labels along the 0-degree (horizontal) spoke.
         let radial_size = 9.0;
         for &tick in &self.radial_ticks() {
             let frac = (tick / rmax).clamp(0.0, 1.0);
@@ -450,6 +580,55 @@ mod tests {
         ax.set_rmax(10.0);
         ax.plot(&[0.0], &[1.0]);
         assert_eq!(ax.rmax(), 10.0);
+    }
+
+    /// `scatter` stores a marker set and expands `rmax` to cover its `r` values.
+    #[test]
+    fn scatter_stores_markers_and_expands_rmax() {
+        let mut ax = PolarAxes::new();
+        ax.plot(&[0.0], &[1.0]);
+        ax.scatter(&[0.0, FRAC_PI_2], &[2.0, 3.0]);
+        assert_eq!(ax.scatters.len(), 1);
+        assert_eq!(ax.scatters[0].points.len(), 2);
+        assert_eq!(ax.rmax(), 3.0, "scatter must grow rmax to its data");
+    }
+
+    /// `fill` stores a filled region and expands `rmax`; too-few points add nothing.
+    #[test]
+    fn fill_stores_region_and_expands_rmax() {
+        let mut ax = PolarAxes::new();
+        ax.fill(&[0.0, FRAC_PI_2, std::f64::consts::PI], &[1.0, 2.0, 4.0]);
+        assert_eq!(ax.fills.len(), 1);
+        assert_eq!(ax.rmax(), 4.0, "fill must grow rmax to its data");
+
+        // Fewer than three usable points is not a fillable region.
+        let mut ax2 = PolarAxes::new();
+        ax2.fill(&[0.0, FRAC_PI_2], &[1.0, 1.0]);
+        assert!(ax2.fills.is_empty());
+    }
+
+    /// Empty input to `scatter`/`fill` adds nothing and still renders the grid.
+    #[test]
+    fn empty_scatter_and_fill_draw_grid_only() {
+        let mut ax = PolarAxes::new();
+        ax.scatter(&[], &[]);
+        ax.fill(&[], &[]);
+        assert!(ax.scatters.is_empty());
+        assert!(ax.fills.is_empty());
+        let r = ax.render_png(128, 128, 72.0);
+        assert_eq!(r.pixmap().width(), 128);
+    }
+
+    /// Scatter and fill both use the property cycle and render without panic.
+    #[test]
+    fn scatter_and_fill_render() {
+        let theta: Vec<f64> = (0..=36).map(|i| i as f64 * TAU / 36.0).collect();
+        let r: Vec<f64> = theta.iter().map(|t| (2.0 * t).cos().abs()).collect();
+        let mut ax = PolarAxes::new();
+        ax.fill(&theta, &r);
+        ax.scatter(&theta, &r);
+        let rend = ax.render_png(256, 256, 72.0);
+        assert_eq!(rend.pixmap().width(), 256);
     }
 
     /// A populated polar axes renders without panicking.

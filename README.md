@@ -58,8 +58,10 @@ every push to `main` and published to the `gh-pages` branch (so these images nev
 | `quiver` | `streamplot` | `triplot` |
 | ![tripcolor](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_tripcolor.png) | ![symlog](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_symlog.png) | ![logit](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_logit.png) |
 | `tripcolor` | `symlog` | `logit` |
-| ![dates](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_dates.png) | ![polar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar.png) | |
-| date axis | `polar` | |
+| ![dates](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_dates.png) | ![polar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar.png) | ![polar scatter](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_scatter.png) |
+| date axis | `polar` | `polar scatter` |
+| ![polar fill](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_fill.png) | | |
+| `polar fill` | | |
 
 Regenerate locally with `cargo run -p rizzma-figure --example gallery` (writes
 `target/gallery_*.png`).
