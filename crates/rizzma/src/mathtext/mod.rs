@@ -2872,11 +2872,14 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "nleq" => Some("≰"),
         "ngeq" => Some("≱"),
         "approx" => Some("≈"),
+        "napprox" => Some("≉"),
         "sim" => Some("∼"),
+        "nsim" => Some("≁"),
         "simeq" => Some("≃"),
         "equiv" => Some("≡"),
         "propto" => Some("∝"),
         "cong" => Some("≅"),
+        "ncong" => Some("≇"),
         "asymp" => Some("≍"),
         "doteq" => Some("≐"),
         "models" => Some("⊨"),
@@ -3192,6 +3195,27 @@ mod tests {
             .collect();
 
         assert_eq!(text, "∤∦");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn negated_similarity_aliases_map_to_covered_unicode_glyphs() {
+        let font = font();
+        for ch in ['≁', '≉', '≇'] {
+            assert!(font.has_glyph(ch), "expected DejaVu coverage for {ch}");
+        }
+
+        let layout = layout_math("\\nsim\\napprox\\ncong", &font, 20.0);
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "≁≉≇");
         assert!(layout.warnings.is_empty());
     }
 
