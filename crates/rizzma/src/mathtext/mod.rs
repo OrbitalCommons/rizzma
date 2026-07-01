@@ -16,6 +16,7 @@
 //! `\phantom{...}`/`\hphantom{...}`/`\vphantom{...}`/`\smash{...}`,
 //! `\rlap{...}`/`\llap{...}`/`\clap{...}`,
 //! `\overset{...}{...}`/`\underset{...}{...}`, common named operators,
+//! `\mathbf{...}`/`\mathit{...}`/`\mathsf{...}`/`\mathtt{...}`/
 //! `\mathbb{...}`/`\Bbb{...}`/`\mathcal{...}`/`\mathscr{...}`/
 //! `\mathfrak{...}`, `\substack{...}`, `\begin{matrix}`/`pmatrix`/
 //! `bmatrix`/`cases`/`aligned` environments, `\left...\right` delimiters,
@@ -286,6 +287,10 @@ pub enum BraceDecorationKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MathStyle {
+    Bold,
+    Italic,
+    SansSerif,
+    Monospace,
     Blackboard,
     Calligraphic,
     Fraktur,
@@ -2538,6 +2543,10 @@ fn named_spacing_command(name: &str) -> Option<f64> {
 
 fn math_style_command(name: &str) -> Option<MathStyle> {
     match name {
+        "mathbf" => Some(MathStyle::Bold),
+        "mathit" => Some(MathStyle::Italic),
+        "mathsf" => Some(MathStyle::SansSerif),
+        "mathtt" => Some(MathStyle::Monospace),
         "mathbb" | "Bbb" => Some(MathStyle::Blackboard),
         "mathcal" | "mathscr" => Some(MathStyle::Calligraphic),
         "mathfrak" => Some(MathStyle::Fraktur),
@@ -2665,6 +2674,10 @@ fn apply_math_style(style: MathStyle, text: &str, font: &FontSource) -> String {
 
 fn math_style_char(style: MathStyle, ch: char) -> Option<char> {
     match style {
+        MathStyle::Bold => bold_char(ch),
+        MathStyle::Italic => italic_char(ch),
+        MathStyle::SansSerif => sans_serif_char(ch),
+        MathStyle::Monospace => monospace_char(ch),
         MathStyle::Blackboard => blackboard_char(ch),
         MathStyle::Calligraphic => calligraphic_char(ch),
         MathStyle::Fraktur => fraktur_char(ch),
@@ -2674,6 +2687,42 @@ fn math_style_char(style: MathStyle, ch: char) -> Option<char> {
 fn char_from_base(base: u32, ch: char, start: char) -> Option<char> {
     let offset = u32::from(ch).checked_sub(u32::from(start))?;
     char::from_u32(base + offset)
+}
+
+fn bold_char(ch: char) -> Option<char> {
+    match ch {
+        'A'..='Z' => char_from_base(0x1D400, ch, 'A'),
+        'a'..='z' => char_from_base(0x1D41A, ch, 'a'),
+        '0'..='9' => char_from_base(0x1D7CE, ch, '0'),
+        _ => None,
+    }
+}
+
+fn italic_char(ch: char) -> Option<char> {
+    match ch {
+        'h' => Some('ℎ'),
+        'A'..='Z' => char_from_base(0x1D434, ch, 'A'),
+        'a'..='z' => char_from_base(0x1D44E, ch, 'a'),
+        _ => None,
+    }
+}
+
+fn sans_serif_char(ch: char) -> Option<char> {
+    match ch {
+        'A'..='Z' => char_from_base(0x1D5A0, ch, 'A'),
+        'a'..='z' => char_from_base(0x1D5BA, ch, 'a'),
+        '0'..='9' => char_from_base(0x1D7E2, ch, '0'),
+        _ => None,
+    }
+}
+
+fn monospace_char(ch: char) -> Option<char> {
+    match ch {
+        'A'..='Z' => char_from_base(0x1D670, ch, 'A'),
+        'a'..='z' => char_from_base(0x1D68A, ch, 'a'),
+        '0'..='9' => char_from_base(0x1D7F6, ch, '0'),
+        _ => None,
+    }
 }
 
 fn blackboard_char(ch: char) -> Option<char> {
@@ -2967,6 +3016,34 @@ mod tests {
     }
 
     #[test]
+    fn math_font_style_commands_use_coverage_aware_fallback() {
+        let font = font();
+        let layout = layout_math(
+            "\\mathbf{Ab9}+\\mathit{hx}+\\mathsf{R2}+\\mathtt{z0}",
+            &font,
+            20.0,
+        );
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        let expected = format!(
+            "{}+{}+{}+{}",
+            apply_math_style(MathStyle::Bold, "Ab9", &font),
+            apply_math_style(MathStyle::Italic, "hx", &font),
+            apply_math_style(MathStyle::SansSerif, "R2", &font),
+            apply_math_style(MathStyle::Monospace, "z0", &font),
+        );
+
+        assert_eq!(text, expected);
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
     fn math_style_falls_back_to_plain_glyph_when_font_lacks_styled_codepoint() {
         // DejaVu Sans has no fraktur glyphs, so `\mathfrak{g}` must render the
         // plain "g" rather than a blank/notdef box.
@@ -3024,21 +3101,36 @@ mod tests {
 
     #[test]
     fn math_style_aliases_match_canonical_commands() {
-        let blackboard = layout_math("\\mathbb{R2}+\\Bbb{R2}", &font(), 20.0);
-        let calligraphic = layout_math("\\mathcal{F}+\\mathscr{F}", &font(), 20.0);
+        let font = font();
+        let blackboard = layout_math("\\mathbb{R2}+\\Bbb{R2}", &font, 20.0);
+        let calligraphic = layout_math("\\mathcal{F}+\\mathscr{F}", &font, 20.0);
+        let plain_styles = layout_math(
+            "\\mathbf{R}+\\mathit{R}+\\mathsf{R}+\\mathtt{R}",
+            &font,
+            20.0,
+        );
         let text: String = blackboard
             .elements
             .iter()
             .chain(calligraphic.elements.iter())
+            .chain(plain_styles.elements.iter())
             .filter_map(|element| match element {
                 MathElement::Glyph { text, .. } => Some(text.as_str()),
                 _ => None,
             })
             .collect();
+        let expected_plain_styles = format!(
+            "{}+{}+{}+{}",
+            apply_math_style(MathStyle::Bold, "R", &font),
+            apply_math_style(MathStyle::Italic, "R", &font),
+            apply_math_style(MathStyle::SansSerif, "R", &font),
+            apply_math_style(MathStyle::Monospace, "R", &font),
+        );
 
-        assert_eq!(text, "ℝ𝟚+ℝ𝟚ℱ+ℱ");
+        assert_eq!(text, format!("ℝ𝟚+ℝ𝟚ℱ+ℱ{expected_plain_styles}"));
         assert!(blackboard.warnings.is_empty());
         assert!(calligraphic.warnings.is_empty());
+        assert!(plain_styles.warnings.is_empty());
     }
 
     #[test]
