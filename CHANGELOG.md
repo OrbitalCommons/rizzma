@@ -7,6 +7,18 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [Unreleased]
+
+### Changed
+- Titles, axis labels, and tick labels now render with matplotlib-grade
+  typography. Text layout and measurement apply the font's `kern` table (the
+  same pairwise kerning FreeType uses), so pairs like `Ta`/`AV`/`Wo` tuck in
+  correctly. The y-axis label is now rotated 90° and centered along the axis
+  (previously drawn horizontally and clipped off the canvas), tick and axis
+  labels are placed against measured text extents, and `axes.titlepad`/
+  `axes.labelpad`/`xtick.major.pad`/`ytick.major.pad` are configurable via
+  `RcParams`.
+
 ## [1.0.0] - 2026-07-01
 
 **rizzma is now a single crate.** The former 14-crate workspace is collapsed into
