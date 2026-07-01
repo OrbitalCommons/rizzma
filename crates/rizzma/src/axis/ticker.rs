@@ -45,6 +45,7 @@
 //! - [`PercentFormatter`] — labels values as percentages.
 //! - [`NullFormatter`] — always the empty string.
 //! - [`FixedFormatter`] — fixed strings indexed by position.
+//! - [`IndexFormatter`] — fixed strings indexed by rounded tick value.
 //! - [`FuncFormatter`] — a user-supplied boxed closure.
 //! - [`StrMethodFormatter`] — a `{x}`/`{pos}` template string.
 
@@ -1726,6 +1727,36 @@ impl Formatter for FixedFormatter {
     }
 }
 
+/// Return fixed label strings indexed by rounded tick value.
+///
+/// Port of matplotlib's `IndexFormatter`. A tick value is rounded to the
+/// nearest integer and used as an index into the label vector. Non-finite,
+/// negative, or out-of-range values yield the empty string.
+pub struct IndexFormatter {
+    labels: Vec<String>,
+}
+
+impl IndexFormatter {
+    /// Create an index formatter from the sequence of label strings.
+    pub fn new(labels: Vec<String>) -> Self {
+        IndexFormatter { labels }
+    }
+}
+
+impl Formatter for IndexFormatter {
+    fn format(&self, value: f64, _pos: Option<usize>) -> String {
+        if !value.is_finite() {
+            return String::new();
+        }
+        let index = value.round();
+        if index < 0.0 {
+            return String::new();
+        }
+        let index = index as usize;
+        self.labels.get(index).cloned().unwrap_or_default()
+    }
+}
+
 /// Format ticks with a user-supplied closure.
 ///
 /// Port of matplotlib's `FuncFormatter`. The closure receives the value and the
@@ -2208,6 +2239,22 @@ mod tests {
         assert_eq!(f.format(99.0, Some(1)), "b");
         assert_eq!(f.format(0.0, Some(2)), "");
         assert_eq!(f.format(0.0, None), "");
+    }
+
+    #[test]
+    fn index_formatter_uses_rounded_tick_value() {
+        let f = IndexFormatter::new(vec!["zero".into(), "one".into(), "two".into()]);
+        assert_eq!(f.format(0.2, Some(99)), "zero");
+        assert_eq!(f.format(0.6, None), "one");
+        assert_eq!(f.format(2.49, None), "two");
+    }
+
+    #[test]
+    fn index_formatter_out_of_range_is_empty() {
+        let f = IndexFormatter::new(vec!["zero".into(), "one".into()]);
+        assert_eq!(f.format(-0.6, None), "");
+        assert_eq!(f.format(2.0, None), "");
+        assert_eq!(f.format(f64::NAN, None), "");
     }
 
     #[test]
