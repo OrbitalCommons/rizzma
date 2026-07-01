@@ -27,6 +27,7 @@
 //! - [`LogLocator`] — logarithmic ticks at powers of a base, optionally with
 //!   subticks.
 //! - [`SymlogLocator`] — symmetric-log ticks with a linear region around zero.
+//! - [`AsinhLocator`] — inverse-hyperbolic-sine ticks across zero.
 //! - [`LogitLocator`] — probability ticks clustered toward zero and one.
 //! - [`NullLocator`] — no ticks.
 //!
@@ -975,6 +976,148 @@ impl Locator for SymlogLocator {
                     (self.linthresh, -self.linthresh)
                 }
             }
+        }
+    }
+}
+
+/// Place ticks on an inverse-hyperbolic-sine axis.
+///
+/// The locator mirrors the qualitative shape of [`crate::axis::scale::AsinhScale`]:
+/// a linear region around zero and logarithmic ticks in both tails. It is a
+/// primitive locator only; concrete Axes integration can decide how to pair it
+/// with a formatter and scale state later.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AsinhLocator {
+    base: f64,
+    linear_width: f64,
+    linear_ticks: usize,
+}
+
+impl AsinhLocator {
+    /// Construct an asinh locator with base-10 tails and ticks at
+    /// `-linear_width`, `0`, and `linear_width` in the center.
+    ///
+    /// `linear_width` must be finite and positive.
+    pub fn new(linear_width: f64) -> Self {
+        Self::with_linear_ticks(10.0, linear_width, 3)
+    }
+
+    /// Construct an asinh locator with explicit base and center tick count.
+    ///
+    /// `base` must be finite and greater than one; `linear_width` must be
+    /// finite and positive. `linear_ticks` is clamped to at least two.
+    pub fn with_linear_ticks(base: f64, linear_width: f64, linear_ticks: usize) -> Self {
+        assert!(
+            base.is_finite() && base > 1.0,
+            "asinh locator base must be finite and > 1"
+        );
+        assert!(
+            linear_width.is_finite() && linear_width > 0.0,
+            "asinh locator linear_width must be finite and > 0"
+        );
+        AsinhLocator {
+            base,
+            linear_width,
+            linear_ticks: linear_ticks.max(2),
+        }
+    }
+
+    /// Return this locator's logarithm base.
+    #[must_use]
+    pub fn base(&self) -> f64 {
+        self.base
+    }
+
+    /// Return the width of the quasi-linear region around zero.
+    #[must_use]
+    pub fn linear_width(&self) -> f64 {
+        self.linear_width
+    }
+}
+
+impl Default for AsinhLocator {
+    /// Default base-10 locator with a unit-width linear region.
+    fn default() -> Self {
+        Self::new(1.0)
+    }
+}
+
+impl Locator for AsinhLocator {
+    fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
+        if !vmin.is_finite() || !vmax.is_finite() {
+            return Vec::new();
+        }
+
+        let (lo, hi, reversed) = if vmin <= vmax {
+            (vmin, vmax, false)
+        } else {
+            (vmax, vmin, true)
+        };
+        let mut ticks = Vec::new();
+
+        if lo < -self.linear_width {
+            let max_abs = (-lo).max(self.linear_width);
+            let max_exp = (max_abs / self.linear_width).log(self.base).ceil() as i32;
+            for exponent in (1..=max_exp).rev() {
+                let tick = -self.linear_width * self.base.powi(exponent);
+                if tick >= lo * (1.0 + 1e-12) && tick <= hi * (1.0 - 1e-12) {
+                    ticks.push(tick);
+                }
+            }
+        }
+
+        let linear_lo = lo.max(-self.linear_width);
+        let linear_hi = hi.min(self.linear_width);
+        if linear_lo <= linear_hi {
+            let step = 2.0 * self.linear_width / (self.linear_ticks - 1) as f64;
+            for i in 0..self.linear_ticks {
+                let tick = -self.linear_width + i as f64 * step;
+                if tick >= linear_lo - 1e-12 && tick <= linear_hi + 1e-12 {
+                    ticks.push(if tick.abs() < 1e-12 { 0.0 } else { tick });
+                }
+            }
+        }
+
+        if hi > self.linear_width {
+            let max_exp = (hi / self.linear_width).log(self.base).ceil() as i32;
+            for exponent in 1..=max_exp {
+                let tick = self.linear_width * self.base.powi(exponent);
+                if tick >= lo * (1.0 - 1e-12) && tick <= hi * (1.0 + 1e-12) {
+                    ticks.push(tick);
+                }
+            }
+        }
+
+        ticks.sort_by(|a, b| a.partial_cmp(b).expect("finite ticks are comparable"));
+        ticks.dedup_by(|a, b| (*a - *b).abs() <= 1e-12 * a.abs().max(b.abs()).max(1.0));
+        if reversed {
+            ticks.reverse();
+        }
+        ticks
+    }
+
+    fn view_limits(&self, vmin: f64, vmax: f64) -> (f64, f64) {
+        let (lo, hi) = nonsingular(vmin, vmax, self.linear_width, 1e-13, true);
+        let lower = if lo < -self.linear_width {
+            -self.linear_width
+                * self
+                    .base
+                    .powi(((-lo) / self.linear_width).log(self.base).ceil() as i32)
+        } else {
+            -self.linear_width
+        };
+        let upper = if hi > self.linear_width {
+            self.linear_width
+                * self
+                    .base
+                    .powi((hi / self.linear_width).log(self.base).ceil() as i32)
+        } else {
+            self.linear_width
+        };
+        if vmin <= vmax {
+            (lower, upper)
+        } else {
+            (upper, lower)
         }
     }
 }
@@ -2585,6 +2728,43 @@ mod tests {
         assert_eq!(formatter.format(2.0, None), "2");
         assert_eq!(formatter.format(20.0, None), "20");
         assert_eq!(formatter.format(40.0, None), "");
+    }
+
+    #[test]
+    fn asinh_locator_spans_negative_linear_and_positive_regions() {
+        let locs = AsinhLocator::new(1.0).tick_values(-100.0, 100.0);
+
+        assert_ticks(&locs, &[-100.0, -10.0, -1.0, 0.0, 1.0, 10.0, 100.0]);
+    }
+
+    #[test]
+    fn asinh_locator_honors_base_and_linear_width() {
+        let locs = AsinhLocator::with_linear_ticks(2.0, 0.5, 3).tick_values(-4.0, 4.0);
+
+        assert_ticks(&locs, &[-4.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 4.0]);
+    }
+
+    #[test]
+    fn asinh_locator_handles_reversed_ranges() {
+        let locs = AsinhLocator::new(1.0).tick_values(100.0, -100.0);
+
+        assert_ticks(&locs, &[100.0, 10.0, 1.0, 0.0, -1.0, -10.0, -100.0]);
+    }
+
+    #[test]
+    fn asinh_locator_rejects_nonfinite_domain() {
+        assert!(
+            AsinhLocator::new(1.0)
+                .tick_values(f64::NEG_INFINITY, 100.0)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn asinh_locator_view_limits_snap_to_ticks() {
+        let (lo, hi) = AsinhLocator::new(1.0).view_limits(-32.0, 32.0);
+
+        assert_eq!((lo, hi), (-100.0, 100.0));
     }
 
     #[test]
