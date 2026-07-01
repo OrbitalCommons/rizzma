@@ -1410,8 +1410,9 @@ impl IndexLocator {
     /// Create an index locator with positive `base` spacing and additive
     /// `offset`.
     ///
-    /// Non-positive or non-finite bases are coerced to `1.0`, matching the
-    /// crate's no-panic locator convention.
+    /// Non-positive or non-finite bases are coerced to `1.0`, and non-finite
+    /// offsets are coerced to `0.0`, matching the crate's no-panic locator
+    /// convention.
     pub fn new(base: f64, offset: f64) -> Self {
         IndexLocator {
             base: if base.is_finite() && base > 0.0 {
@@ -1419,7 +1420,7 @@ impl IndexLocator {
             } else {
                 1.0
             },
-            offset,
+            offset: if offset.is_finite() { offset } else { 0.0 },
         }
     }
 
@@ -3191,6 +3192,9 @@ mod tests {
     fn index_locator_guards_invalid_inputs() {
         let locs = IndexLocator::new(0.0, 0.0).tick_values(0.0, 3.0);
         assert_ticks(&locs, &[0.0, 1.0, 2.0, 3.0]);
+        let locs = IndexLocator::new(2.0, f64::NAN).tick_values(0.0, 4.0);
+        assert_ticks(&locs, &[0.0, 2.0, 4.0]);
+        assert_eq!(IndexLocator::new(2.0, f64::INFINITY).offset(), 0.0);
         assert!(
             IndexLocator::new(2.0, 0.0)
                 .tick_values(f64::NAN, 3.0)
