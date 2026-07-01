@@ -605,32 +605,36 @@ impl AutoMinorLocator {
     pub fn subdivisions(&self) -> Option<usize> {
         self.subdivisions
     }
-}
 
-impl Default for AutoMinorLocator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Locator for AutoMinorLocator {
-    fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
+    /// Return automatic minor ticks for an explicit set of major ticks.
+    ///
+    /// This mirrors the normal [`Locator::tick_values`] behavior, but uses the
+    /// caller-provided major tick positions instead of deriving them from
+    /// [`AutoLocator`]. This is useful when an axis has already selected major
+    /// ticks with a custom locator and wants the matching linear minor ticks.
+    pub fn tick_values_from_major(&self, major_locs: &[f64], vmin: f64, vmax: f64) -> Vec<f64> {
         if !vmin.is_finite() || !vmax.is_finite() || vmin == vmax {
             return Vec::new();
         }
 
         let reversed = vmax < vmin;
         let (lo, hi) = if reversed { (vmax, vmin) } else { (vmin, vmax) };
-        let major_locs = AutoLocator::new().tick_values(lo, hi);
-        let major_locs: Vec<f64> = major_locs
-            .into_iter()
+        let mut major_locs: Vec<f64> = major_locs
+            .iter()
+            .copied()
             .filter(|value| value.is_finite())
             .collect();
+        major_locs.sort_by(|a, b| a.partial_cmp(b).expect("finite majors are comparable"));
+        major_locs.dedup_by(|a, b| same_tick(*a, *b));
         if major_locs.len() < 2 {
             return Vec::new();
         }
 
-        let major_step = (major_locs[1] - major_locs[0]).abs();
+        let major_step = major_locs
+            .windows(2)
+            .map(|pair| (pair[1] - pair[0]).abs())
+            .find(|step| *step > 0.0 && step.is_finite())
+            .unwrap_or(0.0);
         if major_step <= 0.0 || !major_step.is_finite() {
             return Vec::new();
         }
@@ -664,6 +668,24 @@ impl Locator for AutoMinorLocator {
             ticks.reverse();
         }
         ticks
+    }
+}
+
+impl Default for AutoMinorLocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Locator for AutoMinorLocator {
+    fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
+        let (lo, hi) = if vmax < vmin {
+            (vmax, vmin)
+        } else {
+            (vmin, vmax)
+        };
+        let major_locs = AutoLocator::new().tick_values(lo, hi);
+        self.tick_values_from_major(&major_locs, vmin, vmax)
     }
 }
 
@@ -3011,6 +3033,30 @@ mod tests {
     }
 
     #[test]
+    fn auto_minor_can_use_explicit_major_ticks() {
+        let locator = AutoMinorLocator::new();
+        let locs = locator.tick_values_from_major(&[0.0, 0.5, 1.0], 0.0, 1.0);
+
+        assert_ticks(&locs, &[0.1, 0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 0.9]);
+    }
+
+    #[test]
+    fn auto_minor_explicit_major_ticks_sort_dedup_and_filter_coincidences() {
+        let locator = AutoMinorLocator::with_subdivisions(2);
+        let locs = locator.tick_values_from_major(&[1.0, 0.0, 0.5, 0.5, f64::NAN], 0.0, 1.0);
+
+        assert_ticks(&locs, &[0.25, 0.75]);
+    }
+
+    #[test]
+    fn auto_minor_explicit_major_ticks_handle_reversed_ranges() {
+        let locator = AutoMinorLocator::with_subdivisions(2);
+        let locs = locator.tick_values_from_major(&[0.0, 0.5, 1.0], 1.0, 0.0);
+
+        assert_ticks(&locs, &[0.75, 0.25]);
+    }
+
+    #[test]
     fn auto_minor_exposes_configured_subdivisions() {
         assert_eq!(AutoMinorLocator::new().subdivisions(), None);
         assert_eq!(
@@ -3042,6 +3088,16 @@ mod tests {
         assert!(
             AutoMinorLocator::with_subdivisions(1)
                 .tick_values(0.0, 1.0)
+                .is_empty()
+        );
+        assert!(
+            AutoMinorLocator::new()
+                .tick_values_from_major(&[0.0], 0.0, 1.0)
+                .is_empty()
+        );
+        assert!(
+            AutoMinorLocator::new()
+                .tick_values_from_major(&[0.0, 1.0], 0.0, f64::INFINITY)
                 .is_empty()
         );
     }
