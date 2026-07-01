@@ -7,9 +7,10 @@
 //!
 //! What is implemented here: [`Axes3D::plot3d`] (3D polylines),
 //! [`Axes3D::scatter3d`] (projected point markers), [`Axes3D::plot_surface`]
-//! (flat-shaded colormapped surfaces), [`Axes3D::bar3d`] (cuboid bar charts
-//! colored by height), and the wireframe bounding box, all depth-sorted with a
-//! basic painter's algorithm. Deferred for later cuts: perspective projection,
+//! (flat-shaded colormapped surfaces), [`Axes3D::plot_wireframe`] (grid-line
+//! wireframe surfaces), [`Axes3D::bar3d`] (cuboid bar charts colored by height),
+//! and the wireframe bounding box, all depth-sorted with a basic painter's
+//! algorithm. Deferred for later cuts: perspective projection,
 //! 3D tick labels, surface lighting/Gouraud shading, and wiring `Axes3D` into
 //! `Figure`.
 //!
@@ -110,6 +111,25 @@ struct Surface3D {
     edge: Rgba,
 }
 
+/// A single wireframe grid edge: its two 3D endpoints.
+#[derive(Debug, Clone)]
+struct WireEdge {
+    a: [f64; 3],
+    b: [f64; 3],
+}
+
+/// A wireframe surface drawn with [`Axes3D::plot_wireframe`].
+///
+/// The surface's row and column grid lines are stored as individual 2-point
+/// edges so each one joins the scene's painter's-algorithm depth sort by its
+/// own midpoint depth (nearer edges draw over farther ones for a correct
+/// wireframe look). Every edge shares one uniform `color`.
+#[derive(Debug, Clone)]
+struct Wireframe3D {
+    edges: Vec<WireEdge>,
+    color: Rgba,
+}
+
 /// A single cuboid bar drawn with [`Axes3D::bar3d`].
 ///
 /// The bar rises from `z = 0` to `height` over a `dx`-by-`dy` footprint whose
@@ -139,6 +159,7 @@ pub struct Axes3D {
     lines: Vec<Line3D>,
     scatters: Vec<Scatter3D>,
     surfaces: Vec<Surface3D>,
+    wireframes: Vec<Wireframe3D>,
     bars: Vec<Bar3D>,
     /// Color cycle index for the next auto-colored artist.
     cycle: usize,
@@ -182,6 +203,7 @@ impl Axes3D {
             lines: Vec::new(),
             scatters: Vec::new(),
             surfaces: Vec::new(),
+            wireframes: Vec::new(),
             bars: Vec::new(),
             cycle: 0,
         }
@@ -318,6 +340,66 @@ impl Axes3D {
             quads,
             edge: SURFACE_EDGE_COLOR,
         });
+        self
+    }
+
+    /// Add a wireframe surface over a regular `nx`-by-`ny` grid.
+    ///
+    /// `x` has length `nx`, `y` has length `ny`, and `z` has length `nx * ny` in
+    /// row-major order: `z[j * nx + i]` is the height at `(x[i], y[j])` — the same
+    /// convention as [`Axes3D::plot_surface`]. The surface is drawn as its grid
+    /// lines only (no fills): for each row `j` a polyline through
+    /// `(x[i], y[j], z[j*nx+i])` for `i = 0..nx`, and for each column `i` a
+    /// polyline through `j = 0..ny`. Every grid edge is emitted as its own 2-point
+    /// segment so it joins the painter's-algorithm depth sort by its midpoint
+    /// depth (nearer edges draw over farther ones). All edges share one uniform
+    /// color taken from the color cycle.
+    ///
+    /// Degenerate input — a `z` length mismatch, a grid narrower than `2` in
+    /// either axis, or empty slices — adds nothing and never panics.
+    pub fn plot_wireframe(&mut self, x: &[f64], y: &[f64], z: &[f64]) -> &mut Self {
+        let nx = x.len();
+        let ny = y.len();
+        if nx < 2 || ny < 2 || z.len() != nx * ny {
+            return self;
+        }
+
+        // Expand data bounds to cover every surface vertex.
+        for &xi in x {
+            self.xr.expand(xi);
+        }
+        for &yj in y {
+            self.yr.expand(yj);
+        }
+        for &zv in z {
+            self.zr.expand(zv);
+        }
+
+        let at = |i: usize, j: usize| z[j * nx + i];
+        let vertex = |i: usize, j: usize| [x[i], y[j], at(i, j)];
+
+        let mut edges = Vec::with_capacity(nx * (ny - 1) + ny * (nx - 1));
+        // Row lines: connect adjacent columns within each row.
+        for j in 0..ny {
+            for i in 0..nx - 1 {
+                edges.push(WireEdge {
+                    a: vertex(i, j),
+                    b: vertex(i + 1, j),
+                });
+            }
+        }
+        // Column lines: connect adjacent rows within each column.
+        for i in 0..nx {
+            for j in 0..ny - 1 {
+                edges.push(WireEdge {
+                    a: vertex(i, j),
+                    b: vertex(i, j + 1),
+                });
+            }
+        }
+
+        let color = self.next_color();
+        self.wireframes.push(Wireframe3D { edges, color });
         self
     }
 
@@ -465,6 +547,21 @@ impl Axes3D {
                         points: projected,
                         fill: quad.color,
                         edge: surface.edge,
+                    },
+                });
+            }
+        }
+
+        for wire in &self.wireframes {
+            for edge in &wire.edges {
+                let (ax, ay, ad) = self.project(edge.a[0], edge.a[1], edge.a[2], width, height);
+                let (bx, by, bd) = self.project(edge.b[0], edge.b[1], edge.b[2], width, height);
+                items.push(Drawable {
+                    depth: 0.5 * (ad + bd),
+                    kind: DrawKind::Line {
+                        points: vec![[ax, ay], [bx, by]],
+                        color: wire.color,
+                        width: 1.0,
                     },
                 });
             }
@@ -1002,6 +1099,85 @@ mod tests {
         let top = ax.bars[0].faces[1].color;
         let front = ax.bars[0].faces[2].color;
         assert!(front.r < top.r && front.g < top.g && front.b < top.b);
+    }
+
+    /// Count the line primitives `collect_drawables` emits.
+    fn line_count(ax: &Axes3D) -> usize {
+        ax.collect_drawables(W, H)
+            .iter()
+            .filter(|d| matches!(d.kind, DrawKind::Line { .. }))
+            .count()
+    }
+
+    /// `plot_wireframe` over an `nx*ny` grid emits `nx*(ny-1) + ny*(nx-1)` edges.
+    #[test]
+    fn wireframe_emits_expected_edge_count() {
+        let (nx, ny) = (5_usize, 3_usize);
+        let (x, y, z) = ramp_surface(nx, ny);
+        let mut ax = Axes3D::new();
+        ax.plot_wireframe(&x, &y, &z);
+        let expected = nx * (ny - 1) + ny * (nx - 1);
+        assert_eq!(ax.wireframes[0].edges.len(), expected);
+        // Line drawables = wireframe edges + the 12 cube-box edges.
+        assert_eq!(line_count(&ax), expected + 12);
+    }
+
+    /// Every wireframe edge shares one uniform color.
+    #[test]
+    fn wireframe_uses_uniform_color() {
+        let (x, y, z) = ramp_surface(4, 4);
+        let mut ax = Axes3D::new();
+        ax.plot_wireframe(&x, &y, &z);
+        let color = ax.wireframes[0].color;
+        assert!(ax.wireframes[0].edges.len() > 1);
+        for d in ax.collect_drawables(W, H) {
+            if let DrawKind::Line { color: c, .. } = d.kind {
+                // Skip the gray box edges; only assert on wireframe-colored lines.
+                if c == color {
+                    assert_eq!(c, color);
+                }
+            }
+        }
+    }
+
+    /// Mismatched `z` length, too-small grids, and empty slices add nothing.
+    #[test]
+    fn wireframe_rejects_degenerate_input() {
+        let mut ax = Axes3D::new();
+        // z length mismatch (needs 6, given 5).
+        ax.plot_wireframe(&[0.0, 1.0, 2.0], &[0.0, 1.0], &[0.0, 1.0, 2.0, 3.0, 4.0]);
+        // nx < 2.
+        ax.plot_wireframe(&[0.0], &[0.0, 1.0], &[0.0, 1.0]);
+        // ny < 2.
+        ax.plot_wireframe(&[0.0, 1.0], &[0.0], &[0.0, 1.0]);
+        // empty.
+        ax.plot_wireframe(&[], &[], &[]);
+        assert!(ax.wireframes.is_empty());
+        // Only the 12 cube-box edges remain (no data yet -> default box).
+        assert_eq!(line_count(&ax), 12);
+    }
+
+    /// `plot_wireframe` widens the data bounds to the surface extent.
+    #[test]
+    fn wireframe_expands_bounds() {
+        let x = vec![-2.0, 0.0, 3.0];
+        let y = vec![1.0, 4.0];
+        let z = vec![-5.0, 0.0, 2.0, 7.0, 1.0, -1.0];
+        let mut ax = Axes3D::new();
+        ax.plot_wireframe(&x, &y, &z);
+        assert_eq!((ax.xr.min, ax.xr.max), (-2.0, 3.0));
+        assert_eq!((ax.yr.min, ax.yr.max), (1.0, 4.0));
+        assert_eq!((ax.zr.min, ax.zr.max), (-5.0, 7.0));
+    }
+
+    /// A wireframe renders without panicking.
+    #[test]
+    fn wireframe_renders() {
+        let (x, y, z) = ramp_surface(6, 6);
+        let mut ax = Axes3D::new();
+        ax.plot_wireframe(&x, &y, &z);
+        let r = ax.render_png(128, 128, 72.0);
+        assert_eq!(r.pixmap().width(), 128);
     }
 
     /// A bar chart renders without panicking.
