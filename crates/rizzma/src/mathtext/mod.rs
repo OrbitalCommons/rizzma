@@ -11,7 +11,8 @@
 //! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
 //! `\overbrace{...}`, `\underbrace{...}`, `\boxed{...}`, `\text{...}`,
 //! `\operatorname{...}`, `\phantom{...}`/`\hphantom{...}`/`\vphantom{...}`,
-//! common named operators, `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`, `\substack{...}`,
+//! `\overset{...}{...}`/`\underset{...}{...}`, common named operators,
+//! `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`, `\substack{...}`,
 //! `\begin{matrix}`/`pmatrix`/`bmatrix`/`cases`/`aligned` environments,
 //! `\left...\right` delimiters, large operators, and a table of common named
 //! symbols and accents. Unsupported commands are preserved as literal fallback
@@ -255,6 +256,12 @@ enum PhantomKind {
     Vertical,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StackPlacement {
+    Over,
+    Under,
+}
+
 /// Supported horizontal brace decorations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BraceDecorationKind {
@@ -406,6 +413,11 @@ enum Node {
     },
     Phantom {
         kind: PhantomKind,
+        body: Row,
+    },
+    Stack {
+        placement: StackPlacement,
+        annotation: Row,
         body: Row,
     },
     LineDecoration {
@@ -640,6 +652,14 @@ impl<'a> Parser<'a> {
             return self.parse_phantom(start, name, PhantomKind::Vertical);
         }
 
+        if name == "overset" {
+            return self.parse_stack(start, name, StackPlacement::Over);
+        }
+
+        if name == "underset" {
+            return self.parse_stack(start, name, StackPlacement::Under);
+        }
+
         if let Some(style) = math_style_command(name) {
             return self.parse_math_style_command(start, name, style);
         }
@@ -806,6 +826,28 @@ impl<'a> Parser<'a> {
             return Node::Text(format!("\\{command}"));
         };
         self.parse_scripts(Node::Phantom { kind, body })
+    }
+
+    fn parse_stack(&mut self, start: usize, command: &str, placement: StackPlacement) -> Node {
+        let Some(annotation) = self.parse_required_group(
+            start,
+            command,
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text(format!("\\{command}"));
+        };
+        let Some(body) = self.parse_required_group(
+            start,
+            command,
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text(format!("\\{command}"));
+        };
+        self.parse_scripts(Node::Stack {
+            placement,
+            annotation,
+            body,
+        })
     }
 
     fn parse_math_style_command(&mut self, start: usize, command: &str, style: MathStyle) -> Node {
@@ -1349,6 +1391,11 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
         }
         Node::Substack { rows } => layout_substack(rows, font, font_size_px),
         Node::Phantom { kind, body } => layout_phantom(*kind, body, font, font_size_px),
+        Node::Stack {
+            placement,
+            annotation,
+            body,
+        } => layout_stack(*placement, annotation, body, font, font_size_px),
         Node::LineDecoration { kind, body } => {
             layout_line_decoration(*kind, body, font, font_size_px)
         }
@@ -1683,6 +1730,49 @@ fn layout_phantom(
             ascent: base.ascent,
             descent: base.descent,
         },
+    }
+}
+
+fn layout_stack(
+    placement: StackPlacement,
+    annotation: &Row,
+    body: &Row,
+    font: &FontSource,
+    font_size_px: f64,
+) -> LayoutBox {
+    let body_box = layout_row(&body.nodes, font, font_size_px);
+    let annotation_box = layout_row(&annotation.nodes, font, font_size_px * SCRIPT_SCALE);
+    let gap = font_size_px * SCRIPT_GAP_EM;
+    let width = body_box.width.max(annotation_box.width);
+    let body_x = (width - body_box.width) / 2.0;
+    let annotation_x = (width - annotation_box.width) / 2.0;
+    let mut elements = shift_elements(body_box.elements, body_x, 0.0);
+
+    let (annotation_baseline, ascent, descent) = match placement {
+        StackPlacement::Over => {
+            let baseline = body_box.ascent + gap + annotation_box.descent;
+            (baseline, baseline + annotation_box.ascent, body_box.descent)
+        }
+        StackPlacement::Under => {
+            let baseline = -body_box.descent - gap - annotation_box.ascent;
+            (
+                baseline,
+                body_box.ascent,
+                -baseline + annotation_box.descent,
+            )
+        }
+    };
+    elements.extend(shift_elements(
+        annotation_box.elements,
+        annotation_x,
+        annotation_baseline,
+    ));
+
+    LayoutBox {
+        elements,
+        width,
+        ascent,
+        descent,
     }
 }
 
@@ -2144,6 +2234,7 @@ fn flatten_row_text(row: &Row) -> String {
             Node::Matrix { rows, .. } => out.push_str(&flatten_matrix_text(rows)),
             Node::Substack { rows } => out.push_str(&flatten_substack_text(rows)),
             Node::Phantom { .. } => {}
+            Node::Stack { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::LineDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::BraceDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Boxed { body } => out.push_str(&flatten_row_text(body)),
@@ -2168,6 +2259,7 @@ fn flatten_node_text(node: &Node) -> String {
         Node::Matrix { rows, .. } => flatten_matrix_text(rows),
         Node::Substack { rows } => flatten_substack_text(rows),
         Node::Phantom { .. } => String::new(),
+        Node::Stack { body, .. } => flatten_row_text(body),
         Node::LineDecoration { body, .. } => flatten_row_text(body),
         Node::BraceDecoration { body, .. } => flatten_row_text(body),
         Node::Boxed { body } => flatten_row_text(body),
@@ -3188,6 +3280,82 @@ mod tests {
         );
         assert!(layout.elements.iter().any(
             |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\hphantom")
+        ));
+    }
+
+    #[test]
+    fn overset_places_annotation_above_body() {
+        let plain = layout_math("x", &font(), 24.0);
+        let stacked = layout_math("\\overset{*}{x}", &font(), 24.0);
+        let texts: Vec<_> = stacked
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(texts, vec!["x", "*"]);
+        assert!(stacked.ascent > plain.ascent);
+        assert_eq!(stacked.descent, plain.descent);
+        assert!(stacked.width >= plain.width);
+        assert!(stacked.warnings.is_empty());
+    }
+
+    #[test]
+    fn underset_places_annotation_below_body() {
+        let plain = layout_math("x", &font(), 24.0);
+        let stacked = layout_math("\\underset{i=0}{x}", &font(), 24.0);
+        let texts: String = stacked
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(texts.starts_with('x'));
+        assert!(texts.contains("i=0"));
+        assert_eq!(stacked.ascent, plain.ascent);
+        assert!(stacked.descent > plain.descent);
+        assert!(stacked.width > plain.width);
+        assert!(stacked.warnings.is_empty());
+    }
+
+    #[test]
+    fn overset_can_take_scripts_on_whole_stack() {
+        let stacked = layout_math("\\overset{*}{x}", &font(), 24.0);
+        let scripted = layout_math("\\overset{*}{x}_i", &font(), 24.0);
+        let texts: Vec<_> = scripted
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(texts.contains(&"x"));
+        assert!(texts.contains(&"*"));
+        assert!(texts.contains(&"i"));
+        assert!(scripted.width > stacked.width);
+        assert!(scripted.descent > stacked.descent);
+        assert!(scripted.warnings.is_empty());
+    }
+
+    #[test]
+    fn overset_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\overset{*}+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\overset")
         ));
     }
 
