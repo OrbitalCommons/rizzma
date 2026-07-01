@@ -2890,15 +2890,27 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "aleph" => Some("ℵ"),
         "rightarrow" | "to" => Some("→"),
         "leftarrow" | "gets" => Some("←"),
+        "nrightarrow" => Some("↛"),
+        "nleftarrow" => Some("↚"),
+        "nleftrightarrow" => Some("↮"),
         "uparrow" => Some("↑"),
         "downarrow" => Some("↓"),
         "updownarrow" => Some("↕"),
         "mapsto" => Some("↦"),
+        "longmapsto" => Some("⟼"),
         "longrightarrow" => Some("⟶"),
         "longleftarrow" => Some("⟵"),
         "longleftrightarrow" => Some("⟷"),
+        "Longrightarrow" => Some("⟹"),
+        "Longleftarrow" => Some("⟸"),
+        "Longleftrightarrow" => Some("⟺"),
         "hookrightarrow" => Some("↪"),
         "hookleftarrow" => Some("↩"),
+        "leftharpoonup" => Some("↼"),
+        "leftharpoondown" => Some("↽"),
+        "rightharpoonup" => Some("⇀"),
+        "rightharpoondown" => Some("⇁"),
+        "rightleftharpoons" => Some("⇌"),
         "nearrow" => Some("↗"),
         "searrow" => Some("↘"),
         "swarrow" => Some("↙"),
@@ -3019,6 +3031,26 @@ mod tests {
             text,
             "≤≈∇→⊆⊕↦∥ℵ∥∣∣∥……⋯:.⋅{}[]()ıȷ−≤≥⇒⇐⇔∋∋∌⊆⊇∖\\∅¬∴∵≺≻≼≽≰≱⊏⊐⊑⊒⊢⊣⊩"
         );
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn arrow_symbol_aliases_map_to_unicode_glyphs() {
+        let layout = layout_math(
+            "\\nrightarrow\\nleftarrow\\nleftrightarrow\\longmapsto\\Longrightarrow\\Longleftarrow\\Longleftrightarrow\\leftharpoonup\\leftharpoondown\\rightharpoonup\\rightharpoondown\\rightleftharpoons",
+            &font(),
+            20.0,
+        );
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "↛↚↮⟼⟹⟸⟺↼↽⇀⇁⇌");
         assert!(layout.warnings.is_empty());
     }
 
