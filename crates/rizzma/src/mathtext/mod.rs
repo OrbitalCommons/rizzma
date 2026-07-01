@@ -2847,6 +2847,12 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "gt" => Some(">"),
         "ll" => Some("≪"),
         "gg" => Some("≫"),
+        "prec" => Some("≺"),
+        "succ" => Some("≻"),
+        "preceq" => Some("≼"),
+        "succeq" => Some("≽"),
+        "nleq" => Some("≰"),
+        "ngeq" => Some("≱"),
         "approx" => Some("≈"),
         "sim" => Some("∼"),
         "simeq" => Some("≃"),
@@ -2919,6 +2925,10 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "supseteq" => Some("⊇"),
         "supseteqq" => Some("⊇"),
         "nsupseteq" => Some("⊉"),
+        "sqsubset" => Some("⊏"),
+        "sqsupset" => Some("⊐"),
+        "sqsubseteq" => Some("⊑"),
+        "sqsupseteq" => Some("⊒"),
         "setminus" => Some("∖"),
         "smallsetminus" => Some("∖"),
         "backslash" => Some("\\"),
@@ -2940,6 +2950,9 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "because" => Some("∵"),
         "top" => Some("⊤"),
         "bot" => Some("⊥"),
+        "vdash" => Some("⊢"),
+        "dashv" => Some("⊣"),
+        "Vdash" => Some("⊩"),
         "lbrace" => Some("{"),
         "rbrace" => Some("}"),
         "lbrack" => Some("["),
@@ -2989,7 +3002,7 @@ mod tests {
     #[test]
     fn expanded_symbol_table_maps_common_commands() {
         let layout = layout_math(
-            "\\leq\\approx\\nabla\\rightarrow\\subseteq\\oplus\\mapsto\\parallel\\aleph\\|\\lvert\\rvert\\Vert\\dots\\ldots\\cdots\\colon\\ldotp\\cdotp\\lbrace\\rbrace\\lbrack\\rbrack\\lparen\\rparen\\imath\\jmath\\minus\\leqslant\\geqslant\\implies\\impliedby\\iff\\ni\\owns\\notni\\subseteqq\\supseteqq\\smallsetminus\\backslash\\empty\\lnot\\therefore\\because",
+            "\\leq\\approx\\nabla\\rightarrow\\subseteq\\oplus\\mapsto\\parallel\\aleph\\|\\lvert\\rvert\\Vert\\dots\\ldots\\cdots\\colon\\ldotp\\cdotp\\lbrace\\rbrace\\lbrack\\rbrack\\lparen\\rparen\\imath\\jmath\\minus\\leqslant\\geqslant\\implies\\impliedby\\iff\\ni\\owns\\notni\\subseteqq\\supseteqq\\smallsetminus\\backslash\\empty\\lnot\\therefore\\because\\prec\\succ\\preceq\\succeq\\nleq\\ngeq\\sqsubset\\sqsupset\\sqsubseteq\\sqsupseteq\\vdash\\dashv\\Vdash",
             &font(),
             20.0,
         );
@@ -3001,7 +3014,10 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(text, "≤≈∇→⊆⊕↦∥ℵ∥∣∣∥……⋯:.⋅{}[]()ıȷ−≤≥⇒⇐⇔∋∋∌⊆⊇∖\\∅¬∴∵");
+        assert_eq!(
+            text,
+            "≤≈∇→⊆⊕↦∥ℵ∥∣∣∥……⋯:.⋅{}[]()ıȷ−≤≥⇒⇐⇔∋∋∌⊆⊇∖\\∅¬∴∵≺≻≼≽≰≱⊏⊐⊑⊒⊢⊣⊩"
+        );
         assert!(layout.warnings.is_empty());
     }
 
