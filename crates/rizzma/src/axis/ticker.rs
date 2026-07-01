@@ -1488,6 +1488,7 @@ impl Locator for IndexLocator {
 /// Place no ticks at all.
 ///
 /// Port of matplotlib's `NullLocator`.
+#[derive(Default)]
 pub struct NullLocator;
 
 impl Locator for NullLocator {
@@ -2431,6 +2432,7 @@ fn format_decimal(value: f64) -> String {
 /// Always return the empty string.
 ///
 /// Port of matplotlib's `NullFormatter`.
+#[derive(Default)]
 pub struct NullFormatter;
 
 impl Formatter for NullFormatter {
@@ -3648,11 +3650,24 @@ mod tests {
     #[test]
     fn null_locator_empty() {
         assert!(NullLocator.tick_values(0.0, 10.0).is_empty());
+        assert!(
+            default_value::<NullLocator>()
+                .tick_values(0.0, 10.0)
+                .is_empty()
+        );
     }
 
     #[test]
     fn null_formatter_empty() {
         assert_eq!(NullFormatter.format(2.5, Some(0)), "");
+        assert_eq!(
+            NullFormatter.format(2.5, Some(0)),
+            default_value::<NullFormatter>().format(2.5, Some(0))
+        );
+    }
+
+    fn default_value<T: Default>() -> T {
+        T::default()
     }
 
     #[test]
