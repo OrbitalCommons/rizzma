@@ -11,6 +11,6 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-rizzma-core = { version = "0.0.0", path = "../rizzma-core" }
-rizzma-render = { version = "0.0.0", path = "../rizzma-render" }
+rizzma-core = { version = "0.1.0", path = "../rizzma-core" }
+rizzma-render = { version = "0.1.0", path = "../rizzma-render" }
 tiny-skia = "0.12.0"

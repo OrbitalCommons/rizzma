@@ -1,14 +1,29 @@
 [package]
 name = "rizzma"
-version = "0.0.2"
+version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "A Rust reimplementation of the good parts of matplotlib/pyplot, with first-class wasm support. Early construction; this release reserves the name."
+description = "A Rust reimplementation of the good parts of matplotlib/pyplot, with first-class wasm support. Umbrella crate re-exporting the rizzma-* workspace API."
 readme = "README.md"
 keywords = ["plotting", "matplotlib", "visualization", "charts", "wasm"]
 categories = ["visualization", "graphics", "wasm"]
 
 [lints]
 workspace = true
+
+[dependencies]
+rizzma-3d = { version = "0.1.0", path = "../rizzma-3d" }
+rizzma-artist = { version = "0.1.0", path = "../rizzma-artist" }
+rizzma-axis = { version = "0.1.0", path = "../rizzma-axis" }
+rizzma-core = { version = "0.1.0", path = "../rizzma-core" }
+rizzma-figure = { version = "0.1.0", path = "../rizzma-figure" }
+rizzma-mathtext = { version = "0.1.0", path = "../rizzma-mathtext" }
+rizzma-pdf = { version = "0.1.0", path = "../rizzma-pdf" }
+rizzma-pyplot = { version = "0.1.0", path = "../rizzma-pyplot" }
+rizzma-render = { version = "0.1.0", path = "../rizzma-render" }
+rizzma-skia = { version = "0.1.0", path = "../rizzma-skia" }
+rizzma-svg = { version = "0.1.0", path = "../rizzma-svg" }
+rizzma-text = { version = "0.1.0", path = "../rizzma-text" }
+rizzma-wasm = { version = "0.1.0", path = "../rizzma-wasm" }
