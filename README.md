@@ -60,8 +60,8 @@ every push to `main` and published to the `gh-pages` branch (so these images nev
 | `tripcolor` | `symlog` | `logit` |
 | ![dates](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_dates.png) | ![polar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar.png) | ![polar scatter](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_scatter.png) |
 | date axis | `polar` | `polar scatter` |
-| ![polar fill](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_fill.png) | | |
-| `polar fill` | | |
+| ![polar fill](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_fill.png) | ![contourf](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_contourf.png) | |
+| `polar fill` | `contourf` | |
 
 Regenerate locally with `cargo run -p rizzma-figure --example gallery` (writes
 `target/gallery_*.png`).

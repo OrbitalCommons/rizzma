@@ -43,8 +43,8 @@
 //! | [`Axes::logity`] | | |
 //! | ![dates](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_dates.png) | ![polar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar.png) | ![polar scatter](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_scatter.png) |
 //! | [`Axes::set_xaxis_date`] | [`PolarAxes`] | [`PolarAxes::scatter`] |
-//! | ![polar fill](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_fill.png) | | |
-//! | [`PolarAxes::fill`] | | |
+//! | ![polar fill](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_fill.png) | ![contourf](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_contourf.png) | |
+//! | [`PolarAxes::fill`] | [`Axes::contourf`] | |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
@@ -57,6 +57,7 @@ mod plotting;
 mod plotting_area;
 mod plotting_box;
 mod plotting_contour;
+mod plotting_contourf;
 mod plotting_grouped_bar;
 mod plotting_hexbin;
 mod plotting_image;

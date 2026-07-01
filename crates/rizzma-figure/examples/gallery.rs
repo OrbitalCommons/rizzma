@@ -665,5 +665,26 @@ fn main() {
             .unwrap();
     }
 
+    // 41. contourf (filled contour bands of a smooth gaussian-bump field)
+    {
+        let mut fig = Figure::new(5.0, 3.8);
+        let (nr, nc) = (60usize, 60usize);
+        let mut z = vec![0.0; nr * nc];
+        for r in 0..nr {
+            for col in 0..nc {
+                let yy = -3.0 + r as f64 / (nr - 1) as f64 * 6.0;
+                let xx = -3.0 + col as f64 / (nc - 1) as f64 * 6.0;
+                // Two gaussian bumps of opposite sign for concentric bands.
+                let bump_a = (-((xx - 1.0).powi(2) + (yy - 1.0).powi(2))).exp();
+                let bump_b = (-((xx + 1.0).powi(2) + (yy + 1.0).powi(2)) / 1.5).exp();
+                z[r * nc + col] = bump_a + 0.8 * bump_b;
+            }
+        }
+        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        ax.contourf(&z, nr, nc);
+        ax.set_title("contourf");
+        fig.save_png("target/gallery_contourf.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
