@@ -820,6 +820,7 @@ impl Locator for LinearLocator {
 /// Place ticks at a fixed set of positions, optionally subsampled to `nbins+1`.
 ///
 /// Port of matplotlib's `FixedLocator`.
+#[derive(Default)]
 pub struct FixedLocator {
     locs: Vec<f64>,
     nbins: Option<usize>,
@@ -3229,6 +3230,15 @@ mod tests {
         assert_ticks(locator.locations(), &[0.0, 0.5, 1.0]);
         assert_ticks(&locator.tick_values(-10.0, 10.0), &[0.0, 0.5, 1.0]);
         assert_eq!(locator.nbins(), None);
+    }
+
+    #[test]
+    fn fixed_locator_default_has_no_locations() {
+        let locator = FixedLocator::default();
+
+        assert!(locator.locations().is_empty());
+        assert_eq!(locator.nbins(), None);
+        assert!(locator.tick_values(0.0, 1.0).is_empty());
     }
 
     #[test]
