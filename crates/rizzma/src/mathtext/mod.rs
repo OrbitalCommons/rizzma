@@ -3005,6 +3005,10 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "vdash" => Some("⊢"),
         "dashv" => Some("⊣"),
         "Vdash" => Some("⊩"),
+        "nvdash" => Some("⊬"),
+        "nvDash" => Some("⊭"),
+        "nVdash" => Some("⊮"),
+        "nVDash" => Some("⊯"),
         "lbrace" => Some("{"),
         "rbrace" => Some("}"),
         "lbrack" => Some("["),
@@ -3115,6 +3119,27 @@ mod tests {
             .collect();
 
         assert_eq!(text, "≮≯⊄⊅");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn negated_turnstile_aliases_map_to_covered_unicode_glyphs() {
+        let font = font();
+        for ch in ['⊬', '⊭', '⊮', '⊯'] {
+            assert!(font.has_glyph(ch), "expected DejaVu coverage for {ch}");
+        }
+
+        let layout = layout_math("\\nvdash\\nvDash\\nVdash\\nVDash", &font, 20.0);
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "⊬⊭⊮⊯");
         assert!(layout.warnings.is_empty());
     }
 
