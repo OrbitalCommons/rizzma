@@ -10,8 +10,8 @@
 //! groups, superscripts/subscripts, `\frac{...}{...}`, `\binom{...}{...}`,
 //! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
 //! `\overbrace{...}`, `\underbrace{...}`, `\boxed{...}`, `\text{...}`,
-//! `\operatorname{...}`, common named operators, `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`,
-//! `\substack{...}`,
+//! `\operatorname{...}`, `\phantom{...}`/`\hphantom{...}`/`\vphantom{...}`,
+//! common named operators, `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`, `\substack{...}`,
 //! `\begin{matrix}`/`pmatrix`/`bmatrix`/`cases` environments,
 //! `\left...\right` delimiters, large operators, and a table of common named
 //! symbols and accents. Unsupported commands are preserved as literal fallback
@@ -248,6 +248,13 @@ enum LineDecorationKind {
     Underline,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PhantomKind {
+    Full,
+    Horizontal,
+    Vertical,
+}
+
 /// Supported horizontal brace decorations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BraceDecorationKind {
@@ -396,6 +403,10 @@ enum Node {
     },
     Substack {
         rows: Vec<Row>,
+    },
+    Phantom {
+        kind: PhantomKind,
+        body: Row,
     },
     LineDecoration {
         kind: LineDecorationKind,
@@ -617,6 +628,18 @@ impl<'a> Parser<'a> {
             return self.parse_substack(start);
         }
 
+        if name == "phantom" {
+            return self.parse_phantom(start, name, PhantomKind::Full);
+        }
+
+        if name == "hphantom" {
+            return self.parse_phantom(start, name, PhantomKind::Horizontal);
+        }
+
+        if name == "vphantom" {
+            return self.parse_phantom(start, name, PhantomKind::Vertical);
+        }
+
         if let Some(style) = math_style_command(name) {
             return self.parse_math_style_command(start, name, style);
         }
@@ -772,6 +795,17 @@ impl<'a> Parser<'a> {
         self.pos += 1;
         let rows = self.parse_substack_rows();
         self.parse_scripts(Node::Substack { rows })
+    }
+
+    fn parse_phantom(&mut self, start: usize, command: &str, kind: PhantomKind) -> Node {
+        let Some(body) = self.parse_required_group(
+            start,
+            command,
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text(format!("\\{command}"));
+        };
+        self.parse_scripts(Node::Phantom { kind, body })
     }
 
     fn parse_math_style_command(&mut self, start: usize, command: &str, style: MathStyle) -> Node {
@@ -1313,6 +1347,7 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
             layout_matrix(rows, *left, *right, font, font_size_px)
         }
         Node::Substack { rows } => layout_substack(rows, font, font_size_px),
+        Node::Phantom { kind, body } => layout_phantom(*kind, body, font, font_size_px),
         Node::LineDecoration { kind, body } => {
             layout_line_decoration(*kind, body, font, font_size_px)
         }
@@ -1618,6 +1653,35 @@ fn layout_substack(rows: &[Row], font: &FontSource, font_size_px: f64) -> Layout
         width,
         ascent,
         descent,
+    }
+}
+
+fn layout_phantom(
+    kind: PhantomKind,
+    body: &Row,
+    font: &FontSource,
+    font_size_px: f64,
+) -> LayoutBox {
+    let base = layout_row(&body.nodes, font, font_size_px);
+    match kind {
+        PhantomKind::Full => LayoutBox {
+            elements: Vec::new(),
+            width: base.width,
+            ascent: base.ascent,
+            descent: base.descent,
+        },
+        PhantomKind::Horizontal => LayoutBox {
+            elements: Vec::new(),
+            width: base.width,
+            ascent: 0.0,
+            descent: 0.0,
+        },
+        PhantomKind::Vertical => LayoutBox {
+            elements: Vec::new(),
+            width: 0.0,
+            ascent: base.ascent,
+            descent: base.descent,
+        },
     }
 }
 
@@ -2078,6 +2142,7 @@ fn flatten_row_text(row: &Row) -> String {
             Node::Radical { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Matrix { rows, .. } => out.push_str(&flatten_matrix_text(rows)),
             Node::Substack { rows } => out.push_str(&flatten_substack_text(rows)),
+            Node::Phantom { .. } => {}
             Node::LineDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::BraceDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Boxed { body } => out.push_str(&flatten_row_text(body)),
@@ -2101,6 +2166,7 @@ fn flatten_node_text(node: &Node) -> String {
         Node::Radical { body, .. } => flatten_row_text(body),
         Node::Matrix { rows, .. } => flatten_matrix_text(rows),
         Node::Substack { rows } => flatten_substack_text(rows),
+        Node::Phantom { .. } => String::new(),
         Node::LineDecoration { body, .. } => flatten_row_text(body),
         Node::BraceDecoration { body, .. } => flatten_row_text(body),
         Node::Boxed { body } => flatten_row_text(body),
@@ -3013,6 +3079,75 @@ mod tests {
         );
         assert!(layout.elements.iter().any(
             |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\substack")
+        ));
+    }
+
+    #[test]
+    fn phantom_reserves_full_space_without_geometry() {
+        let plain = layout_math("xy", &font(), 24.0);
+        let phantom = layout_math("\\phantom{xy}", &font(), 24.0);
+
+        assert!(phantom.elements.is_empty());
+        assert_eq!(phantom.width, plain.width);
+        assert_eq!(phantom.ascent, plain.ascent);
+        assert_eq!(phantom.descent, plain.descent);
+        assert!(phantom.warnings.is_empty());
+    }
+
+    #[test]
+    fn hphantom_reserves_width_only() {
+        let plain = layout_math("xy", &font(), 24.0);
+        let phantom = layout_math("\\hphantom{xy}", &font(), 24.0);
+
+        assert!(phantom.elements.is_empty());
+        assert_eq!(phantom.width, plain.width);
+        assert_eq!(phantom.ascent, 0.0);
+        assert_eq!(phantom.descent, 0.0);
+        assert!(phantom.warnings.is_empty());
+    }
+
+    #[test]
+    fn vphantom_reserves_height_only() {
+        let plain = layout_math("\\frac{1}{2}", &font(), 24.0);
+        let phantom = layout_math("\\vphantom{\\frac{1}{2}}", &font(), 24.0);
+
+        assert!(phantom.elements.is_empty());
+        assert_eq!(phantom.width, 0.0);
+        assert_eq!(phantom.ascent, plain.ascent);
+        assert_eq!(phantom.descent, plain.descent);
+        assert!(phantom.warnings.is_empty());
+    }
+
+    #[test]
+    fn phantom_can_take_scripts() {
+        let phantom = layout_math("\\phantom{x}", &font(), 24.0);
+        let scripted = layout_math("\\phantom{x}_i", &font(), 24.0);
+        let texts: Vec<_> = scripted
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(texts, vec!["i"]);
+        assert!(scripted.width > phantom.width);
+        assert!(scripted.descent > phantom.descent);
+        assert!(scripted.warnings.is_empty());
+    }
+
+    #[test]
+    fn phantom_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\hphantom+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\hphantom")
         ));
     }
 
