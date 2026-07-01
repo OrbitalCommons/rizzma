@@ -9,7 +9,8 @@
 //! Supported in this first pass: ordinary symbols, whitespace glue, `{...}`
 //! groups, superscripts/subscripts, `\frac{...}{...}`, `\binom{...}{...}`,
 //! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
-//! `\text{...}`, `\begin{matrix}`/`pmatrix`/`bmatrix` environments,
+//! `\text{...}`, `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`,
+//! `\begin{matrix}`/`pmatrix`/`bmatrix` environments,
 //! `\left...\right` delimiters, large operators, and a table of common named
 //! symbols and accents. Unsupported commands are preserved as literal fallback
 //! text and reported as structured warnings. The
@@ -227,6 +228,13 @@ pub enum AccentKind {
 enum LineDecorationKind {
     Overline,
     Underline,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MathStyle {
+    Blackboard,
+    Calligraphic,
+    Fraktur,
 }
 
 /// Supported delimiter commands for `\left...\right`.
@@ -560,6 +568,10 @@ impl<'a> Parser<'a> {
             return self.parse_text_command(start);
         }
 
+        if let Some(style) = math_style_command(name) {
+            return self.parse_math_style_command(start, name, style);
+        }
+
         if name == "begin" {
             return self.parse_environment(start);
         }
@@ -669,6 +681,17 @@ impl<'a> Parser<'a> {
             return Node::Text("\\text".to_owned());
         };
         self.parse_scripts(Node::Text(text))
+    }
+
+    fn parse_math_style_command(&mut self, start: usize, command: &str, style: MathStyle) -> Node {
+        let Some(text) = self.parse_required_raw_group(
+            start,
+            command,
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text(format!("\\{command}"));
+        };
+        self.parse_scripts(Node::Text(apply_math_style(style, &text)))
     }
 
     fn parse_line_decoration(
@@ -1872,6 +1895,79 @@ fn named_spacing_command(name: &str) -> Option<f64> {
     }
 }
 
+fn math_style_command(name: &str) -> Option<MathStyle> {
+    match name {
+        "mathbb" => Some(MathStyle::Blackboard),
+        "mathcal" => Some(MathStyle::Calligraphic),
+        "mathfrak" => Some(MathStyle::Fraktur),
+        _ => None,
+    }
+}
+
+fn apply_math_style(style: MathStyle, text: &str) -> String {
+    text.chars()
+        .map(|ch| math_style_char(style, ch).unwrap_or(ch))
+        .collect()
+}
+
+fn math_style_char(style: MathStyle, ch: char) -> Option<char> {
+    match style {
+        MathStyle::Blackboard => blackboard_char(ch),
+        MathStyle::Calligraphic => calligraphic_char(ch),
+        MathStyle::Fraktur => fraktur_char(ch),
+    }
+}
+
+fn char_from_base(base: u32, ch: char, start: char) -> Option<char> {
+    let offset = u32::from(ch).checked_sub(u32::from(start))?;
+    char::from_u32(base + offset)
+}
+
+fn blackboard_char(ch: char) -> Option<char> {
+    match ch {
+        'C' => Some('ℂ'),
+        'H' => Some('ℍ'),
+        'N' => Some('ℕ'),
+        'P' => Some('ℙ'),
+        'Q' => Some('ℚ'),
+        'R' => Some('ℝ'),
+        'Z' => Some('ℤ'),
+        'A'..='Z' => char_from_base(0x1D538, ch, 'A'),
+        'a'..='z' => char_from_base(0x1D552, ch, 'a'),
+        '0'..='9' => char_from_base(0x1D7D8, ch, '0'),
+        _ => None,
+    }
+}
+
+fn calligraphic_char(ch: char) -> Option<char> {
+    match ch {
+        'B' => Some('ℬ'),
+        'E' => Some('ℰ'),
+        'F' => Some('ℱ'),
+        'H' => Some('ℋ'),
+        'I' => Some('ℐ'),
+        'L' => Some('ℒ'),
+        'M' => Some('ℳ'),
+        'R' => Some('ℛ'),
+        'A'..='Z' => char_from_base(0x1D49C, ch, 'A'),
+        'a'..='z' => char_from_base(0x1D4B6, ch, 'a'),
+        _ => None,
+    }
+}
+
+fn fraktur_char(ch: char) -> Option<char> {
+    match ch {
+        'C' => Some('ℭ'),
+        'H' => Some('ℌ'),
+        'I' => Some('ℑ'),
+        'R' => Some('ℜ'),
+        'Z' => Some('ℨ'),
+        'A'..='Z' => char_from_base(0x1D504, ch, 'A'),
+        'a'..='z' => char_from_base(0x1D51E, ch, 'a'),
+        _ => None,
+    }
+}
+
 fn command_symbol(name: &str) -> Option<&'static str> {
     match name {
         "alpha" => Some("α"),
@@ -2065,6 +2161,55 @@ mod tests {
             .collect();
         assert_eq!(text, "≤≈∇→⊆⊕↦∥ℵ");
         assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn math_style_commands_map_ascii_letters_to_unicode_fallbacks() {
+        let layout = layout_math("\\mathbb{R2}+\\mathcal{F}+\\mathfrak{g}", &font(), 20.0);
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "ℝ𝟚+ℱ+𝔤");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn math_style_commands_preserve_non_letters_and_take_scripts() {
+        let styled = layout_math("\\mathbb{R}_0", &font(), 20.0);
+        let plain = layout_math("\\mathbb{R}", &font(), 20.0);
+        let text: String = styled
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "ℝ0");
+        assert!(styled.width > plain.width);
+        assert!(styled.descent > plain.descent);
+        assert!(styled.warnings.is_empty());
+    }
+
+    #[test]
+    fn math_style_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\mathcal+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\mathcal")
+        ));
     }
 
     #[test]
