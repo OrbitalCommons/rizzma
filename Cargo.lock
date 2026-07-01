@@ -903,11 +903,26 @@ dependencies = [
 
 [[package]]
 name = "rizzma"
-version = "0.0.2"
+version = "0.1.0"
+dependencies = [
+ "rizzma-3d",
+ "rizzma-artist",
+ "rizzma-axis",
+ "rizzma-core",
+ "rizzma-figure",
+ "rizzma-mathtext",
+ "rizzma-pdf",
+ "rizzma-pyplot",
+ "rizzma-render",
+ "rizzma-skia",
+ "rizzma-svg",
+ "rizzma-text",
+ "rizzma-wasm",
+]
 
 [[package]]
 name = "rizzma-3d"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "rizzma-core",
  "rizzma-render",
@@ -916,7 +931,7 @@ dependencies = [
 
 [[package]]
 name = "rizzma-artist"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "rizzma-core",
  "rizzma-render",
@@ -925,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "rizzma-axis"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "rizzma-core",
@@ -937,7 +952,7 @@ dependencies = [
 
 [[package]]
 name = "rizzma-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -945,7 +960,7 @@ dependencies = [
 
 [[package]]
 name = "rizzma-figure"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "resvg",
@@ -962,7 +977,7 @@ dependencies = [
 
 [[package]]
 name = "rizzma-mathtext"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "rizzma-core",
  "rizzma-text",
@@ -970,7 +985,7 @@ dependencies = [
 
 [[package]]
 name = "rizzma-pdf"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "rizzma-core",
  "rizzma-render",
@@ -978,11 +993,11 @@ dependencies = [
 
 [[package]]
 name = "rizzma-plot"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "rizzma-pyplot"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "rizzma-core",
  "rizzma-figure",
@@ -991,14 +1006,14 @@ dependencies = [
 
 [[package]]
 name = "rizzma-render"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "rizzma-core",
 ]
 
 [[package]]
 name = "rizzma-skia"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "rizzma-core",
  "rizzma-render",
@@ -1007,7 +1022,7 @@ dependencies = [
 
 [[package]]
 name = "rizzma-svg"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64",
  "png",
@@ -1018,7 +1033,7 @@ dependencies = [
 
 [[package]]
 name = "rizzma-text"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "rizzma-core",
  "ttf-parser",
@@ -1026,7 +1041,7 @@ dependencies = [
 
 [[package]]
 name = "rizzma-wasm"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "rizzma-core",
  "rizzma-figure",
@@ -1366,7 +1381,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "image",
 ]

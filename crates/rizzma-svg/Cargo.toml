@@ -13,8 +13,8 @@ workspace = true
 [dependencies]
 base64 = "0.22.1"
 png = "0.18.1"
-rizzma-core = { version = "0.0.0", path = "../rizzma-core" }
-rizzma-render = { version = "0.0.0", path = "../rizzma-render" }
+rizzma-core = { version = "0.1.0", path = "../rizzma-core" }
+rizzma-render = { version = "0.1.0", path = "../rizzma-render" }
 
 [dev-dependencies]
 resvg = { version = "0.47.0", default-features = false, features = ["raster-images"] }

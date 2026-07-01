@@ -11,6 +11,6 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-rizzma-core = { version = "0.0.0", path = "../rizzma-core" }
-rizzma-figure = { version = "0.0.0", path = "../rizzma-figure" }
-rizzma-skia = { version = "0.0.0", path = "../rizzma-skia" }
+rizzma-core = { version = "0.1.0", path = "../rizzma-core" }
+rizzma-figure = { version = "0.1.0", path = "../rizzma-figure" }
+rizzma-skia = { version = "0.1.0", path = "../rizzma-skia" }
