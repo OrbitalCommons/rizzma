@@ -41,8 +41,10 @@
 //! | [`Axes::triplot`] | [`Axes::tripcolor`] | [`Axes::symlogy`] |
 //! | ![logit](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_logit.png) | | |
 //! | [`Axes::logity`] | | |
-//! | ![dates](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_dates.png) | ![polar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar.png) | |
-//! | [`Axes::set_xaxis_date`] | [`PolarAxes`] | |
+//! | ![dates](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_dates.png) | ![polar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar.png) | ![polar scatter](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_scatter.png) |
+//! | [`Axes::set_xaxis_date`] | [`PolarAxes`] | [`PolarAxes::scatter`] |
+//! | ![polar fill](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_fill.png) | | |
+//! | [`PolarAxes::fill`] | | |
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 

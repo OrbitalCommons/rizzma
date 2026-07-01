@@ -645,5 +645,25 @@ fn main() {
             .unwrap();
     }
 
+    // 39. polar scatter (points sampled along an Archimedean spiral)
+    {
+        let theta: Vec<f64> = (0..=48).map(|i| i as f64 * 4.0 * TAU / 48.0).collect();
+        let r: Vec<f64> = theta.iter().map(|t| t / TAU).collect();
+        let mut ax = PolarAxes::new();
+        ax.scatter(&theta, &r);
+        ax.save_png("target/gallery_polar_scatter.png", 500, 500, 100.0)
+            .unwrap();
+    }
+
+    // 40. polar fill (filled 4-petal rose r = |cos(2*theta)|)
+    {
+        let theta: Vec<f64> = (0..=720).map(|i| i as f64 * TAU / 720.0).collect();
+        let r: Vec<f64> = theta.iter().map(|t| (2.0 * t).cos().abs()).collect();
+        let mut ax = PolarAxes::new();
+        ax.fill(&theta, &r);
+        ax.save_png("target/gallery_polar_fill.png", 500, 500, 100.0)
+            .unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
