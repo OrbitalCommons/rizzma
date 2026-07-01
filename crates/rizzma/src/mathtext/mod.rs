@@ -2835,6 +2835,12 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "otimes" => Some("⊗"),
         "oslash" => Some("⊘"),
         "odot" => Some("⊙"),
+        "uplus" => Some("⊎"),
+        "sqcap" => Some("⊓"),
+        "sqcup" => Some("⊔"),
+        "bigcirc" => Some("○"),
+        "diamond" => Some("⋄"),
+        "wr" => Some("≀"),
         "minus" => Some("−"),
         "leq" => Some("≤"),
         "le" => Some("≤"),
@@ -3108,6 +3114,22 @@ mod tests {
             .collect();
 
         assert_eq!(text, "♭♮♯♣♢♡♠✓");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn binary_operator_aliases_map_to_unicode_glyphs() {
+        let layout = layout_math("\\uplus\\sqcap\\sqcup\\bigcirc\\diamond\\wr", &font(), 20.0);
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "⊎⊓⊔○⋄≀");
         assert!(layout.warnings.is_empty());
     }
 
