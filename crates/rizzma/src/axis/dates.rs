@@ -83,6 +83,12 @@ impl AutoDateLocator {
         }
     }
 
+    /// Return the configured maximum target tick count.
+    #[must_use]
+    pub fn maxticks(&self) -> usize {
+        self.maxticks
+    }
+
     /// Select the frequency and interval for a view range.
     #[must_use]
     pub fn select_interval(&self, vmin: f64, vmax: f64) -> (DateFrequency, i32) {
@@ -202,6 +208,12 @@ impl AutoDateMinorLocator {
     pub fn from_major(major: AutoDateLocator) -> Self {
         Self { major }
     }
+
+    /// Return the paired major locator used to choose minor subdivisions.
+    #[must_use]
+    pub fn major_locator(&self) -> &AutoDateLocator {
+        &self.major
+    }
 }
 
 impl Default for AutoDateMinorLocator {
@@ -255,6 +267,12 @@ impl DateFormatter {
     #[must_use]
     pub fn new(fmt: impl Into<String>) -> Self {
         Self { fmt: fmt.into() }
+    }
+
+    /// Return the configured chrono/strftime format string.
+    #[must_use]
+    pub fn format_string(&self) -> &str {
+        &self.fmt
     }
 }
 
@@ -491,6 +509,8 @@ mod tests {
         let start = date2num(dt(2026, 1, 1, 0, 0, 0));
         let end = date2num(dt(2026, 7, 1, 0, 0, 0));
 
+        assert_eq!(locator.maxticks(), 8);
+        assert_eq!(AutoDateLocator::with_maxticks(0).maxticks(), 2);
         assert_eq!(
             locator.select_interval(start, end),
             (DateFrequency::Month, 1)
@@ -521,6 +541,7 @@ mod tests {
         let start = date2num(dt(2026, 6, 30, 0, 0, 0));
         let end = date2num(dt(2026, 6, 30, 12, 0, 0));
 
+        assert_eq!(locator.maxticks(), 7);
         assert_eq!(
             locator.select_interval(start, end),
             (DateFrequency::Hour, 2)
@@ -585,6 +606,7 @@ mod tests {
         let end = date2num(dt(2026, 6, 30, 12, 0, 0));
         let ticks = locator.tick_values(end, start);
 
+        assert_eq!(locator.major_locator().maxticks(), 7);
         assert!(!ticks.is_empty());
         assert!(ticks.windows(2).all(|window| window[0] > window[1]));
     }
@@ -594,6 +616,7 @@ mod tests {
         let formatter = DateFormatter::new("%Y/%m/%d %H:%M");
         let value = date2num(dt(2026, 6, 30, 9, 5, 0));
 
+        assert_eq!(formatter.format_string(), "%Y/%m/%d %H:%M");
         assert_eq!(formatter.format(value, None), "2026/06/30 09:05");
     }
 
