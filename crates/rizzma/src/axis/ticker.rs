@@ -319,6 +319,31 @@ impl MaxNLocator {
         self
     }
 
+    /// Return a copy of this locator constrained to integer tick steps when
+    /// enough integer values are visible.
+    #[must_use]
+    pub fn with_integer(mut self, integer: bool) -> Self {
+        self.integer = integer;
+        self
+    }
+
+    /// Return a copy of this locator whose view limits and ticks are symmetric
+    /// about zero.
+    #[must_use]
+    pub fn with_symmetric(mut self, symmetric: bool) -> Self {
+        self.symmetric = symmetric;
+        self
+    }
+
+    /// Return a copy of this locator with a minimum visible tick count.
+    ///
+    /// Values below one are clamped to one, matching [`MaxNLocator::with_steps`].
+    #[must_use]
+    pub fn with_min_n_ticks(mut self, min_n_ticks: usize) -> Self {
+        self.min_n_ticks = min_n_ticks.max(1);
+        self
+    }
+
     /// Validate and normalise a `steps` sequence (port of `_validate_steps`).
     ///
     /// Requires a strictly increasing sequence within `[1, 10]`; prepends `1`
@@ -2637,6 +2662,33 @@ mod tests {
             .tick_values(0.1, 0.9);
 
         assert_ticks(&locs, &[0.0, 0.2, 0.4, 0.6, 0.8, 1.0]);
+    }
+
+    #[test]
+    fn maxn_integer_builder_uses_integer_steps_when_possible() {
+        let locs = MaxNLocator::new(NBins::Fixed(4))
+            .with_integer(true)
+            .tick_values(0.2, 3.8);
+
+        assert!(locs.iter().all(|tick| (tick - tick.round()).abs() < 1e-12));
+    }
+
+    #[test]
+    fn maxn_symmetric_builder_mirrors_about_zero() {
+        let locs = MaxNLocator::new(NBins::Fixed(4))
+            .with_symmetric(true)
+            .tick_values(-1.0, 3.0);
+
+        assert_ticks(&locs, &[-3.0, -1.5, 0.0, 1.5, 3.0]);
+    }
+
+    #[test]
+    fn maxn_min_ticks_builder_clamps_to_at_least_one() {
+        let locs = MaxNLocator::new(NBins::Fixed(1))
+            .with_min_n_ticks(0)
+            .tick_values(0.0, 1.0);
+
+        assert!(!locs.is_empty());
     }
 
     #[test]
