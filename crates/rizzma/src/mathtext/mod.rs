@@ -2889,6 +2889,14 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "lozenge" | "Diamond" => Some("◊"),
         "prime" => Some("′"),
         "backprime" => Some("‵"),
+        "flat" => Some("♭"),
+        "natural" => Some("♮"),
+        "sharp" => Some("♯"),
+        "clubsuit" => Some("♣"),
+        "diamondsuit" => Some("♢"),
+        "heartsuit" => Some("♡"),
+        "spadesuit" => Some("♠"),
+        "checkmark" => Some("✓"),
         "imath" => Some("ı"),
         "jmath" => Some("ȷ"),
         "ell" => Some("ℓ"),
@@ -3080,6 +3088,26 @@ mod tests {
             .collect();
 
         assert_eq!(text, "∠∡∢△▽◃▹□□◊◊");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn miscellaneous_symbol_aliases_map_to_unicode_glyphs() {
+        let layout = layout_math(
+            "\\flat\\natural\\sharp\\clubsuit\\diamondsuit\\heartsuit\\spadesuit\\checkmark",
+            &font(),
+            20.0,
+        );
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "♭♮♯♣♢♡♠✓");
         assert!(layout.warnings.is_empty());
     }
 
