@@ -2943,6 +2943,14 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "downarrow" => Some("↓"),
         "updownarrow" => Some("↕"),
         "mapsto" => Some("↦"),
+        "twoheadleftarrow" => Some("↞"),
+        "twoheadrightarrow" => Some("↠"),
+        "leftarrowtail" => Some("↢"),
+        "rightarrowtail" => Some("↣"),
+        "looparrowleft" => Some("↫"),
+        "looparrowright" => Some("↬"),
+        "rightsquigarrow" | "leadsto" => Some("↝"),
+        "leftrightsquigarrow" => Some("↭"),
         "longmapsto" => Some("⟼"),
         "longrightarrow" => Some("⟶"),
         "longleftarrow" => Some("⟵"),
@@ -3245,6 +3253,36 @@ mod tests {
             .collect();
 
         assert_eq!(text, "⊲⊳⊴⊵");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn arrow_variant_aliases_map_to_covered_unicode_glyphs() {
+        let font = font();
+        for ch in ['↞', '↠', '↢', '↣', '↫', '↬', '↝', '↭'] {
+            assert!(font.has_glyph(ch), "expected DejaVu coverage for {ch}");
+        }
+
+        let layout = layout_math(
+            concat!(
+                "\\twoheadleftarrow\\twoheadrightarrow",
+                "\\leftarrowtail\\rightarrowtail",
+                "\\looparrowleft\\looparrowright",
+                "\\rightsquigarrow\\leftrightsquigarrow"
+            ),
+            &font,
+            20.0,
+        );
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "↞↠↢↣↫↬↝↭");
         assert!(layout.warnings.is_empty());
     }
 
