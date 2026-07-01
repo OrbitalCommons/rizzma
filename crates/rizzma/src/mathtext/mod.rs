@@ -2721,6 +2721,8 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "degree" => Some("°"),
         "prime" => Some("′"),
         "backprime" => Some("‵"),
+        "imath" => Some("ı"),
+        "jmath" => Some("ȷ"),
         "ell" => Some("ℓ"),
         "hbar" => Some("ℏ"),
         "Re" => Some("ℜ"),
@@ -2821,7 +2823,7 @@ mod tests {
     #[test]
     fn expanded_symbol_table_maps_common_commands() {
         let layout = layout_math(
-            "\\leq\\approx\\nabla\\rightarrow\\subseteq\\oplus\\mapsto\\parallel\\aleph\\|\\lvert\\rvert\\Vert\\dots\\ldots\\cdots\\colon\\ldotp\\cdotp\\lbrace\\rbrace\\lbrack\\rbrack\\lparen\\rparen",
+            "\\leq\\approx\\nabla\\rightarrow\\subseteq\\oplus\\mapsto\\parallel\\aleph\\|\\lvert\\rvert\\Vert\\dots\\ldots\\cdots\\colon\\ldotp\\cdotp\\lbrace\\rbrace\\lbrack\\rbrack\\lparen\\rparen\\imath\\jmath",
             &font(),
             20.0,
         );
@@ -2833,7 +2835,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(text, "≤≈∇→⊆⊕↦∥ℵ∥∣∣∥……⋯:.⋅{}[]()");
+        assert_eq!(text, "≤≈∇→⊆⊕↦∥ℵ∥∣∣∥……⋯:.⋅{}[]()ıȷ");
         assert!(layout.warnings.is_empty());
     }
 
