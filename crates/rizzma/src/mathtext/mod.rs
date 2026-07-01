@@ -15,11 +15,12 @@
 //! `\mathregular{...}`/`\mathdefault{...}`,
 //! `\phantom{...}`/`\hphantom{...}`/`\vphantom{...}`,
 //! `\overset{...}{...}`/`\underset{...}{...}`, common named operators,
-//! `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`, `\substack{...}`,
-//! `\begin{matrix}`/`pmatrix`/`bmatrix`/`cases`/`aligned` environments,
-//! `\left...\right` delimiters, large operators, and a table of common named
-//! symbols and accents. Unsupported commands are preserved as literal fallback
-//! text and reported as structured warnings. The
+//! `\mathbb{...}`/`\Bbb{...}`/`\mathcal{...}`/`\mathscr{...}`/
+//! `\mathfrak{...}`, `\substack{...}`, `\begin{matrix}`/`pmatrix`/
+//! `bmatrix`/`cases`/`aligned` environments, `\left...\right` delimiters,
+//! large operators, and a table of common named symbols and accents.
+//! Unsupported commands are preserved as literal fallback text and reported as
+//! structured warnings. The
 //! [`richtext`] module combines plain text spans and math spans into reusable
 //! label geometry for axes, titles, and other text artists.
 //!
@@ -2452,8 +2453,8 @@ fn named_spacing_command(name: &str) -> Option<f64> {
 
 fn math_style_command(name: &str) -> Option<MathStyle> {
     match name {
-        "mathbb" => Some(MathStyle::Blackboard),
-        "mathcal" => Some(MathStyle::Calligraphic),
+        "mathbb" | "Bbb" => Some(MathStyle::Blackboard),
+        "mathcal" | "mathscr" => Some(MathStyle::Calligraphic),
         "mathfrak" => Some(MathStyle::Fraktur),
         _ => None,
     }
@@ -2902,6 +2903,25 @@ mod tests {
         assert!(styled.width > plain.width);
         assert!(styled.descent > plain.descent);
         assert!(styled.warnings.is_empty());
+    }
+
+    #[test]
+    fn math_style_aliases_match_canonical_commands() {
+        let blackboard = layout_math("\\mathbb{R2}+\\Bbb{R2}", &font(), 20.0);
+        let calligraphic = layout_math("\\mathcal{F}+\\mathscr{F}", &font(), 20.0);
+        let text: String = blackboard
+            .elements
+            .iter()
+            .chain(calligraphic.elements.iter())
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "ℝ𝟚+ℝ𝟚ℱ+ℱ");
+        assert!(blackboard.warnings.is_empty());
+        assert!(calligraphic.warnings.is_empty());
     }
 
     #[test]
