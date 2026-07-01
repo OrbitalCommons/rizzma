@@ -723,6 +723,10 @@ impl MultipleLocator {
 
     /// Create a locator with the given positive `base` and additive `offset`.
     pub fn with_offset(base: f64, offset: f64) -> Self {
+        assert!(
+            base.is_finite() && base > 0.0,
+            "multiple locator base must be finite and > 0"
+        );
         MultipleLocator {
             edge: EdgeInteger::new(base, 0.0),
             offset,
@@ -3115,6 +3119,18 @@ mod tests {
 
         assert_eq!(locator.base(), 0.5);
         assert_eq!(locator.offset(), 0.25);
+    }
+
+    #[test]
+    #[should_panic(expected = "multiple locator base must be finite and > 0")]
+    fn multiple_locator_rejects_nonpositive_base() {
+        let _ = MultipleLocator::new(0.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "multiple locator base must be finite and > 0")]
+    fn multiple_locator_rejects_nonfinite_base() {
+        let _ = MultipleLocator::with_offset(f64::NAN, 0.0);
     }
 
     #[test]
