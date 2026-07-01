@@ -2329,6 +2329,14 @@ impl PercentFormatter {
         Self::with_xmax(100.0)
     }
 
+    /// Construct a formatter where `1.0` maps to `100%`.
+    ///
+    /// This is the common probability/fraction convention, equivalent to
+    /// matplotlib's `PercentFormatter(xmax=1.0)`.
+    pub fn fraction() -> Self {
+        Self::with_xmax(1.0)
+    }
+
     /// Construct a formatter with a custom value for 100 percent.
     ///
     /// `xmax` must be finite and non-zero.
@@ -3561,6 +3569,15 @@ mod tests {
 
         assert_eq!(formatter.format(25.0, None), "25%");
         assert_eq!(formatter.format(100.0, None), "100%");
+    }
+
+    #[test]
+    fn percent_formatter_fraction_maps_one_to_hundred_percent() {
+        let formatter = PercentFormatter::fraction();
+
+        assert_eq!(formatter.xmax(), 1.0);
+        assert_eq!(formatter.format(0.25, None), "25%");
+        assert_eq!(formatter.format(1.0, None), "100%");
     }
 
     #[test]
