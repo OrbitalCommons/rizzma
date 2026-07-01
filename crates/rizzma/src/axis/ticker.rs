@@ -19,6 +19,7 @@
 //! - [`MaxNLocator`] — the nice-number locator (default of most axes).
 //! - [`AutoLocator`] — a [`MaxNLocator`] preset (`nbins = auto`,
 //!   `steps = [1, 2, 2.5, 5, 10]`).
+//! - [`AutoMinorLocator`] — automatic minor ticks between linear major ticks.
 //! - [`MultipleLocator`] — ticks at integer multiples of a base.
 //! - [`LinearLocator`] — evenly spaced ticks via linspace.
 //! - [`FixedLocator`] — a fixed set of positions (optionally subsampled).
@@ -457,6 +458,114 @@ impl Locator for AutoLocator {
     fn view_limits(&self, vmin: f64, vmax: f64) -> (f64, f64) {
         self.inner.view_limits(vmin, vmax)
     }
+}
+
+/// Automatic minor ticks between linear major ticks.
+///
+/// This stateless analogue of matplotlib's `AutoMinorLocator` derives major
+/// ticks from [`AutoLocator`] for the requested view interval, then subdivides
+/// each major interval. With the default setting it uses 5 subdivisions when
+/// the major-step mantissa is 1, 2.5, 5, or 10, and 4 subdivisions otherwise,
+/// matching matplotlib's `n='auto'` behavior.
+pub struct AutoMinorLocator {
+    subdivisions: Option<usize>,
+}
+
+impl AutoMinorLocator {
+    /// Create an automatic minor locator with matplotlib-style subdivision
+    /// selection.
+    pub fn new() -> Self {
+        AutoMinorLocator { subdivisions: None }
+    }
+
+    /// Create an automatic minor locator with an explicit number of
+    /// subdivisions per major interval.
+    ///
+    /// Values below 2 cannot produce minor ticks and therefore return an empty
+    /// vector from [`Locator::tick_values`].
+    pub fn with_subdivisions(subdivisions: usize) -> Self {
+        AutoMinorLocator {
+            subdivisions: Some(subdivisions),
+        }
+    }
+}
+
+impl Default for AutoMinorLocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Locator for AutoMinorLocator {
+    fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
+        if !vmin.is_finite() || !vmax.is_finite() || vmin == vmax {
+            return Vec::new();
+        }
+
+        let reversed = vmax < vmin;
+        let (lo, hi) = if reversed { (vmax, vmin) } else { (vmin, vmax) };
+        let major_locs = AutoLocator::new().tick_values(lo, hi);
+        let major_locs: Vec<f64> = major_locs
+            .into_iter()
+            .filter(|value| value.is_finite())
+            .collect();
+        if major_locs.len() < 2 {
+            return Vec::new();
+        }
+
+        let major_step = (major_locs[1] - major_locs[0]).abs();
+        if major_step <= 0.0 || !major_step.is_finite() {
+            return Vec::new();
+        }
+
+        let subdivisions = self
+            .subdivisions
+            .unwrap_or_else(|| auto_minor_subdivisions(major_step));
+        if subdivisions < 2 {
+            return Vec::new();
+        }
+
+        let minor_step = major_step / subdivisions as f64;
+        let first = (lo / minor_step).ceil() as i64;
+        let last = (hi / minor_step).floor() as i64;
+        if last < first {
+            return Vec::new();
+        }
+
+        let mut ticks = Vec::new();
+        for i in first..=last {
+            let tick = i as f64 * minor_step;
+            if tick < lo - 1e-12 || tick > hi + 1e-12 {
+                continue;
+            }
+            if major_locs.iter().any(|major| same_tick(tick, *major)) {
+                continue;
+            }
+            ticks.push(tick);
+        }
+        if reversed {
+            ticks.reverse();
+        }
+        ticks
+    }
+}
+
+fn auto_minor_subdivisions(major_step: f64) -> usize {
+    let exponent = major_step.abs().log10().floor();
+    let mantissa = major_step / 10f64.powf(exponent);
+    if [1.0, 2.5, 5.0, 10.0]
+        .iter()
+        .any(|candidate| (mantissa - candidate).abs() < 1e-10)
+    {
+        5
+    } else {
+        4
+    }
+}
+
+fn same_tick(a: f64, b: f64) -> bool {
+    let scale = a.abs().max(b.abs()).max(1.0);
+    (a - b).abs() <= scale * 1e-12
 }
 
 /// Place ticks at every integer multiple of a base (plus an offset).
@@ -1880,6 +1989,72 @@ mod tests {
         // yielding a step of 2 and edge ticks at -4 and 8.
         let locs = AutoLocator::new().tick_values(-3.0, 7.0);
         assert_ticks(&locs, &[-4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.0]);
+    }
+
+    #[test]
+    fn auto_minor_uses_four_subdivisions_for_non_12510_major_steps() {
+        // AutoLocator on 0..1 has a 0.2 major step. Since 2 is not in
+        // matplotlib's [1, 2.5, 5, 10] auto-minor set, each interval has 4
+        // subdivisions and therefore 3 visible minor ticks.
+        let locs = AutoMinorLocator::new().tick_values(0.0, 1.0);
+
+        assert_ticks(
+            &locs,
+            &[
+                0.05, 0.10, 0.15, 0.25, 0.30, 0.35, 0.45, 0.50, 0.55, 0.65, 0.70, 0.75, 0.85, 0.90,
+                0.95,
+            ],
+        );
+    }
+
+    #[test]
+    fn auto_minor_uses_five_subdivisions_for_12510_major_steps() {
+        // AutoLocator on 0..0.9 has a 0.1 major step. The mantissa is 1, so
+        // each interval has 5 subdivisions and therefore 4 visible minor ticks.
+        let locs = AutoMinorLocator::new().tick_values(0.0, 0.9);
+
+        assert_ticks(
+            &locs,
+            &[
+                0.02, 0.04, 0.06, 0.08, 0.12, 0.14, 0.16, 0.18, 0.22, 0.24, 0.26, 0.28, 0.32, 0.34,
+                0.36, 0.38, 0.42, 0.44, 0.46, 0.48, 0.52, 0.54, 0.56, 0.58, 0.62, 0.64, 0.66, 0.68,
+                0.72, 0.74, 0.76, 0.78, 0.82, 0.84, 0.86, 0.88,
+            ],
+        );
+    }
+
+    #[test]
+    fn auto_minor_with_explicit_subdivisions_filters_major_ticks() {
+        let locs = AutoMinorLocator::with_subdivisions(2).tick_values(0.0, 1.0);
+
+        assert_ticks(&locs, &[0.1, 0.3, 0.5, 0.7, 0.9]);
+    }
+
+    #[test]
+    fn auto_minor_handles_reversed_ranges() {
+        let locs = AutoMinorLocator::with_subdivisions(2).tick_values(1.0, 0.0);
+
+        assert_ticks(&locs, &[0.9, 0.7, 0.5, 0.3, 0.1]);
+    }
+
+    #[test]
+    fn auto_minor_guards_degenerate_inputs() {
+        assert!(AutoMinorLocator::new().tick_values(1.0, 1.0).is_empty());
+        assert!(
+            AutoMinorLocator::new()
+                .tick_values(f64::NAN, 1.0)
+                .is_empty()
+        );
+        assert!(
+            AutoMinorLocator::new()
+                .tick_values(0.0, f64::INFINITY)
+                .is_empty()
+        );
+        assert!(
+            AutoMinorLocator::with_subdivisions(1)
+                .tick_values(0.0, 1.0)
+                .is_empty()
+        );
     }
 
     #[test]
