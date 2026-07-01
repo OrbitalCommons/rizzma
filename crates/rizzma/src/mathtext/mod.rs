@@ -2702,6 +2702,9 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "partial" => Some("∂"),
         "nabla" => Some("∇"),
         "cdot" => Some("⋅"),
+        "cdotp" => Some("⋅"),
+        "ldotp" => Some("."),
+        "colon" => Some(":"),
         "dots" | "ldots" => Some("…"),
         "cdots" => Some("⋯"),
         "bullet" => Some("•"),
@@ -2803,7 +2806,7 @@ mod tests {
     #[test]
     fn expanded_symbol_table_maps_common_commands() {
         let layout = layout_math(
-            "\\leq\\approx\\nabla\\rightarrow\\subseteq\\oplus\\mapsto\\parallel\\aleph\\|\\lvert\\rvert\\Vert\\dots\\ldots\\cdots",
+            "\\leq\\approx\\nabla\\rightarrow\\subseteq\\oplus\\mapsto\\parallel\\aleph\\|\\lvert\\rvert\\Vert\\dots\\ldots\\cdots\\colon\\ldotp\\cdotp",
             &font(),
             20.0,
         );
@@ -2815,7 +2818,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(text, "≤≈∇→⊆⊕↦∥ℵ∥∣∣∥……⋯");
+        assert_eq!(text, "≤≈∇→⊆⊕↦∥ℵ∥∣∣∥……⋯:.⋅");
         assert!(layout.warnings.is_empty());
     }
 
