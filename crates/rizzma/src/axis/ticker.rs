@@ -2441,6 +2441,17 @@ impl FixedFormatter {
         FixedFormatter { seq }
     }
 
+    /// Create a formatter from labels that can be converted into strings.
+    pub fn from_labels<I, S>(labels: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        FixedFormatter {
+            seq: labels.into_iter().map(Into::into).collect(),
+        }
+    }
+
     /// Return the configured fixed label sequence.
     #[must_use]
     pub fn labels(&self) -> &[String] {
@@ -3652,6 +3663,17 @@ mod tests {
         assert_eq!(f.format(99.0, Some(1)), "b");
         assert_eq!(f.format(0.0, Some(2)), "");
         assert_eq!(f.format(0.0, None), "");
+    }
+
+    #[test]
+    fn fixed_formatter_accepts_convertible_labels() {
+        let f = FixedFormatter::from_labels(["zero", "one", "two"]);
+        assert_eq!(
+            f.labels(),
+            &["zero".to_string(), "one".to_string(), "two".to_string()]
+        );
+        assert_eq!(f.format(0.0, Some(2)), "two");
+        assert_eq!(f.format(0.0, Some(3)), "");
     }
 
     #[test]
