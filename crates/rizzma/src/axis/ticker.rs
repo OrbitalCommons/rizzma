@@ -831,6 +831,18 @@ impl FixedLocator {
         FixedLocator { locs, nbins: None }
     }
 
+    /// Create a locator from values that can be collected into fixed
+    /// locations.
+    pub fn from_locations<I>(locations: I) -> Self
+    where
+        I: IntoIterator<Item = f64>,
+    {
+        FixedLocator {
+            locs: locations.into_iter().collect(),
+            nbins: None,
+        }
+    }
+
     /// Create a locator that subsamples `locs` to at most `nbins + 1` ticks.
     ///
     /// `nbins` is clamped to a minimum of 2, as in matplotlib.
@@ -3192,6 +3204,15 @@ mod tests {
     fn fixed_locator_passthrough() {
         let locs = FixedLocator::new(vec![1.0, 2.0, 3.0]).tick_values(0.0, 10.0);
         assert_ticks(&locs, &[1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn fixed_locator_accepts_iterable_locations() {
+        let locator = FixedLocator::from_locations([0.0, 0.5, 1.0]);
+
+        assert_ticks(locator.locations(), &[0.0, 0.5, 1.0]);
+        assert_ticks(&locator.tick_values(-10.0, 10.0), &[0.0, 0.5, 1.0]);
+        assert_eq!(locator.nbins(), None);
     }
 
     #[test]
