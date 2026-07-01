@@ -1043,6 +1043,12 @@ impl SymlogLocator {
     pub fn linthresh(&self) -> f64 {
         self.linthresh
     }
+
+    /// Return the configured tick count inside the linear region.
+    #[must_use]
+    pub fn linear_ticks(&self) -> usize {
+        self.linear_ticks
+    }
 }
 
 impl Default for SymlogLocator {
@@ -1180,6 +1186,12 @@ impl AsinhLocator {
     #[must_use]
     pub fn linear_width(&self) -> f64 {
         self.linear_width
+    }
+
+    /// Return the configured tick count inside the quasi-linear region.
+    #[must_use]
+    pub fn linear_ticks(&self) -> usize {
+        self.linear_ticks
     }
 }
 
@@ -1569,6 +1581,12 @@ impl LogFormatter {
         LogFormatter { base }
     }
 
+    /// Return this formatter's logarithm base.
+    #[must_use]
+    pub fn base(&self) -> f64 {
+        self.base
+    }
+
     fn exponent(&self, value: f64) -> Option<i32> {
         if !value.is_finite() || value <= 0.0 {
             return None;
@@ -1636,6 +1654,12 @@ impl LogFormatterMathtext {
             inner: LogFormatter::new(base),
         }
     }
+
+    /// Return this formatter's logarithm base.
+    #[must_use]
+    pub fn base(&self) -> f64 {
+        self.inner.base()
+    }
 }
 
 impl Default for LogFormatterMathtext {
@@ -1682,6 +1706,18 @@ impl SymlogFormatter {
             "symlog formatter linthresh must be finite and > 0"
         );
         SymlogFormatter { base, linthresh }
+    }
+
+    /// Return this formatter's logarithm base.
+    #[must_use]
+    pub fn base(&self) -> f64 {
+        self.base
+    }
+
+    /// Return this formatter's half-width of the linear region around zero.
+    #[must_use]
+    pub fn linthresh(&self) -> f64 {
+        self.linthresh
     }
 
     fn tail_exponent(&self, value: f64) -> Option<i32> {
@@ -1750,6 +1786,18 @@ impl SymlogFormatterMathtext {
             inner: SymlogFormatter::new(base, linthresh),
         }
     }
+
+    /// Return this formatter's logarithm base.
+    #[must_use]
+    pub fn base(&self) -> f64 {
+        self.inner.base()
+    }
+
+    /// Return this formatter's half-width of the linear region around zero.
+    #[must_use]
+    pub fn linthresh(&self) -> f64 {
+        self.inner.linthresh()
+    }
 }
 
 impl Default for SymlogFormatterMathtext {
@@ -1813,6 +1861,18 @@ impl AsinhFormatter {
             "asinh formatter linear_width must be finite and > 0"
         );
         AsinhFormatter { base, linear_width }
+    }
+
+    /// Return this formatter's logarithm base.
+    #[must_use]
+    pub fn base(&self) -> f64 {
+        self.base
+    }
+
+    /// Return this formatter's quasi-linear region width around zero.
+    #[must_use]
+    pub fn linear_width(&self) -> f64 {
+        self.linear_width
     }
 
     fn tail_exponent(&self, value: f64) -> Option<i32> {
@@ -1882,6 +1942,18 @@ impl AsinhFormatterMathtext {
             inner: AsinhFormatter::new(base, linear_width),
         }
     }
+
+    /// Return this formatter's logarithm base.
+    #[must_use]
+    pub fn base(&self) -> f64 {
+        self.inner.base()
+    }
+
+    /// Return this formatter's quasi-linear region width around zero.
+    #[must_use]
+    pub fn linear_width(&self) -> f64 {
+        self.inner.linear_width()
+    }
 }
 
 impl Default for AsinhFormatterMathtext {
@@ -1942,6 +2014,12 @@ impl LogitFormatter {
         LogitFormatter {
             max_exponent: max_exponent.max(1),
         }
+    }
+
+    /// Return the largest generated tail-label exponent.
+    #[must_use]
+    pub fn max_exponent(&self) -> i32 {
+        self.max_exponent
     }
 
     fn lower_exponent(&self, value: f64) -> Option<i32> {
@@ -2034,6 +2112,12 @@ impl LogitFormatterMathtext {
         Self {
             inner: LogitFormatter::with_max_exponent(max_exponent),
         }
+    }
+
+    /// Return the largest generated tail-label exponent.
+    #[must_use]
+    pub fn max_exponent(&self) -> i32 {
+        self.inner.max_exponent()
     }
 }
 
@@ -3090,6 +3174,7 @@ mod tests {
     fn log_formatter_base2_labels_powers() {
         let formatter = LogFormatter::new(2.0);
 
+        assert_eq!(formatter.base(), 2.0);
         assert_eq!(formatter.format(1.0, None), "1");
         assert_eq!(formatter.format(8.0, None), "8");
         assert_eq!(formatter.format(128.0, None), "2^{7}");
@@ -3109,6 +3194,7 @@ mod tests {
     fn log_formatter_mathtext_honors_base2() {
         let formatter = LogFormatterMathtext::new(2.0);
 
+        assert_eq!(formatter.base(), 2.0);
         assert_eq!(formatter.format(8.0, None), "8");
         assert_eq!(formatter.format(128.0, None), "$2^{7}$");
     }
@@ -3122,8 +3208,12 @@ mod tests {
 
     #[test]
     fn symlog_locator_honors_base_and_linthresh() {
-        let locs = SymlogLocator::new(2.0, 0.5).tick_values(-4.0, 4.0);
+        let locator = SymlogLocator::new(2.0, 0.5);
+        let locs = locator.tick_values(-4.0, 4.0);
 
+        assert_eq!(locator.base(), 2.0);
+        assert_eq!(locator.linthresh(), 0.5);
+        assert_eq!(locator.linear_ticks(), 3);
         assert_ticks(&locs, &[-4.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 4.0]);
     }
 
@@ -3147,6 +3237,8 @@ mod tests {
     fn symlog_formatter_labels_linear_and_tail_ticks() {
         let formatter = SymlogFormatter::new(10.0, 1.0);
 
+        assert_eq!(formatter.base(), 10.0);
+        assert_eq!(formatter.linthresh(), 1.0);
         assert_eq!(formatter.format(-100.0, None), "-100");
         assert_eq!(formatter.format(-1.0, None), "-1");
         assert_eq!(formatter.format(0.0, None), "0");
@@ -3170,6 +3262,8 @@ mod tests {
     fn symlog_formatter_mathtext_wraps_large_tail_labels() {
         let formatter = SymlogFormatterMathtext::new(10.0, 1.0);
 
+        assert_eq!(formatter.base(), 10.0);
+        assert_eq!(formatter.linthresh(), 1.0);
         assert_eq!(formatter.format(-1.0, None), "-1");
         assert_eq!(formatter.format(0.0, None), "0");
         assert_eq!(formatter.format(1.0, None), "1");
@@ -3197,8 +3291,12 @@ mod tests {
 
     #[test]
     fn asinh_locator_honors_base_and_linear_width() {
-        let locs = AsinhLocator::with_linear_ticks(2.0, 0.5, 3).tick_values(-4.0, 4.0);
+        let locator = AsinhLocator::with_linear_ticks(2.0, 0.5, 3);
+        let locs = locator.tick_values(-4.0, 4.0);
 
+        assert_eq!(locator.base(), 2.0);
+        assert_eq!(locator.linear_width(), 0.5);
+        assert_eq!(locator.linear_ticks(), 3);
         assert_ticks(&locs, &[-4.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 4.0]);
     }
 
@@ -3229,6 +3327,8 @@ mod tests {
     fn asinh_formatter_labels_linear_and_tail_ticks() {
         let formatter = AsinhFormatter::new(10.0, 1.0);
 
+        assert_eq!(formatter.base(), 10.0);
+        assert_eq!(formatter.linear_width(), 1.0);
         assert_eq!(formatter.format(-100.0, None), "-100");
         assert_eq!(formatter.format(-1.0, None), "-1");
         assert_eq!(formatter.format(0.0, None), "0");
@@ -3252,6 +3352,8 @@ mod tests {
     fn asinh_formatter_mathtext_wraps_large_tail_labels() {
         let formatter = AsinhFormatterMathtext::new(10.0, 1.0);
 
+        assert_eq!(formatter.base(), 10.0);
+        assert_eq!(formatter.linear_width(), 1.0);
         assert_eq!(formatter.format(-1.0, None), "-1");
         assert_eq!(formatter.format(0.0, None), "0");
         assert_eq!(formatter.format(1.0, None), "1");
@@ -3306,6 +3408,7 @@ mod tests {
     fn logit_formatter_labels_probability_lattice() {
         let formatter = LogitFormatter::with_max_exponent(4);
 
+        assert_eq!(formatter.max_exponent(), 4);
         assert_eq!(formatter.format(0.1, None), "0.1");
         assert_eq!(formatter.format(0.01, None), "10^{-2}");
         assert_eq!(formatter.format(0.5, None), "1/2");
@@ -3318,6 +3421,7 @@ mod tests {
     fn logit_formatter_mathtext_wraps_tail_labels() {
         let formatter = LogitFormatterMathtext::with_max_exponent(4);
 
+        assert_eq!(formatter.max_exponent(), 4);
         assert_eq!(formatter.format(0.1, None), "0.1");
         assert_eq!(formatter.format(0.01, None), "$10^{-2}$");
         assert_eq!(formatter.format(0.5, None), "1/2");
