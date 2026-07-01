@@ -2878,6 +2878,15 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "bullet" => Some("•"),
         "circ" => Some("∘"),
         "degree" => Some("°"),
+        "angle" => Some("∠"),
+        "measuredangle" => Some("∡"),
+        "sphericalangle" => Some("∢"),
+        "triangle" | "bigtriangleup" => Some("△"),
+        "triangledown" | "bigtriangledown" => Some("▽"),
+        "triangleleft" => Some("◃"),
+        "triangleright" => Some("▹"),
+        "square" | "Box" => Some("□"),
+        "lozenge" | "Diamond" => Some("◊"),
         "prime" => Some("′"),
         "backprime" => Some("‵"),
         "imath" => Some("ı"),
@@ -3051,6 +3060,26 @@ mod tests {
             .collect();
 
         assert_eq!(text, "↛↚↮⟼⟹⟸⟺↼↽⇀⇁⇌");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn geometry_symbol_aliases_map_to_unicode_glyphs() {
+        let layout = layout_math(
+            "\\angle\\measuredangle\\sphericalangle\\triangle\\triangledown\\triangleleft\\triangleright\\square\\Box\\lozenge\\Diamond",
+            &font(),
+            20.0,
+        );
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "∠∡∢△▽◃▹□□◊◊");
         assert!(layout.warnings.is_empty());
     }
 
