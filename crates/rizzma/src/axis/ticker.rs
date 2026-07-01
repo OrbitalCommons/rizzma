@@ -238,6 +238,24 @@ pub enum NBins {
     Auto,
 }
 
+/// Edge-tick pruning mode for [`MaxNLocator`].
+///
+/// This mirrors matplotlib's `prune` option: when an edge tick lands exactly on
+/// the view limit, it can be suppressed to avoid duplicate labels on stacked or
+/// shared axes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TickPrune {
+    /// Keep all ticks.
+    #[default]
+    None,
+    /// Drop a tick that coincides with the lower view limit.
+    Lower,
+    /// Drop a tick that coincides with the upper view limit.
+    Upper,
+    /// Drop ticks that coincide with either view limit.
+    Both,
+}
+
 /// Nice-number tick locator: evenly spaced ticks capped at `nbins + 1` ticks.
 ///
 /// Faithful port of matplotlib's `MaxNLocator`. It finds "nice" tick locations
@@ -252,6 +270,7 @@ pub struct MaxNLocator {
     integer: bool,
     symmetric: bool,
     min_n_ticks: usize,
+    prune: TickPrune,
 }
 
 impl MaxNLocator {
@@ -286,7 +305,18 @@ impl MaxNLocator {
             integer,
             symmetric,
             min_n_ticks: min_n_ticks.max(1),
+            prune: TickPrune::None,
         }
+    }
+
+    /// Return a copy of this locator with edge pruning enabled.
+    ///
+    /// Pruning is opt-in and leaves the default matplotlib-style tick vectors
+    /// unchanged.
+    #[must_use]
+    pub fn with_prune(mut self, prune: TickPrune) -> Self {
+        self.prune = prune;
+        self
     }
 
     /// Validate and normalise a `steps` sequence (port of `_validate_steps`).
@@ -393,6 +423,26 @@ impl MaxNLocator {
 
         ticks.iter().map(|&t| t + offset).collect()
     }
+
+    fn prune_ticks(&self, ticks: Vec<f64>, vmin: f64, vmax: f64) -> Vec<f64> {
+        if self.prune == TickPrune::None || ticks.is_empty() {
+            return ticks;
+        }
+
+        let mut first = 0;
+        let mut last = ticks.len();
+        if matches!(self.prune, TickPrune::Lower | TickPrune::Both) && same_tick(ticks[first], vmin)
+        {
+            first += 1;
+        }
+        if first < last
+            && matches!(self.prune, TickPrune::Upper | TickPrune::Both)
+            && same_tick(ticks[last - 1], vmax)
+        {
+            last -= 1;
+        }
+        ticks[first..last].to_vec()
+    }
 }
 
 impl Locator for MaxNLocator {
@@ -403,7 +453,7 @@ impl Locator for MaxNLocator {
             vmin = -vmax;
         }
         let (vmin, vmax) = nonsingular(vmin, vmax, 1e-13, 1e-14, true);
-        self.raw_ticks(vmin, vmax)
+        self.prune_ticks(self.raw_ticks(vmin, vmax), vmin, vmax)
     }
 
     fn view_limits(&self, dmin: f64, dmax: f64) -> (f64, f64) {
@@ -2557,6 +2607,32 @@ mod tests {
         // the upper edge tick 1.0 lies beyond vmax = 0.9.
         let locs = MaxNLocator::default().tick_values(0.0, 0.9);
         assert_ticks(&locs, &[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]);
+    }
+
+    #[test]
+    fn maxn_prune_lower_upper_and_both() {
+        let lower = MaxNLocator::new(NBins::Fixed(4))
+            .with_prune(TickPrune::Lower)
+            .tick_values(0.0, 1.0);
+        let upper = MaxNLocator::new(NBins::Fixed(4))
+            .with_prune(TickPrune::Upper)
+            .tick_values(0.0, 1.0);
+        let both = MaxNLocator::new(NBins::Fixed(4))
+            .with_prune(TickPrune::Both)
+            .tick_values(0.0, 1.0);
+
+        assert_ticks(&lower, &[0.25, 0.5, 0.75, 1.0]);
+        assert_ticks(&upper, &[0.0, 0.25, 0.5, 0.75]);
+        assert_ticks(&both, &[0.25, 0.5, 0.75]);
+    }
+
+    #[test]
+    fn maxn_prune_keeps_noncoincident_edges() {
+        let locs = MaxNLocator::new(NBins::Fixed(4))
+            .with_prune(TickPrune::Both)
+            .tick_values(0.1, 0.9);
+
+        assert_ticks(&locs, &[0.0, 0.2, 0.4, 0.6, 0.8, 1.0]);
     }
 
     #[test]
