@@ -2495,6 +2495,12 @@ impl FormatStrFormatter {
     pub fn new(fmt: impl Into<String>) -> Self {
         FormatStrFormatter { fmt: fmt.into() }
     }
+
+    /// Return the configured `%`-style template.
+    #[must_use]
+    pub fn template(&self) -> &str {
+        &self.fmt
+    }
 }
 
 impl Formatter for FormatStrFormatter {
@@ -2707,6 +2713,12 @@ impl StrMethodFormatter {
     /// Create a formatter from a template containing `{x}` and/or `{pos}`.
     pub fn new(fmt: impl Into<String>) -> Self {
         StrMethodFormatter { fmt: fmt.into() }
+    }
+
+    /// Return the configured `{x}`/`{pos}` template.
+    #[must_use]
+    pub fn template(&self) -> &str {
+        &self.fmt
     }
 }
 
@@ -3571,6 +3583,7 @@ mod tests {
     fn format_str_formatter_fixed_and_escaped_percent() {
         let f = FormatStrFormatter::new("x=%+.2f%%");
 
+        assert_eq!(f.template(), "x=%+.2f%%");
         assert_eq!(f.format(1.234, None), "x=+1.23%");
         assert_eq!(f.format(-1.234, None), "x=-1.23%");
     }
@@ -3609,6 +3622,7 @@ mod tests {
     #[test]
     fn str_method_formatter_template() {
         let f = StrMethodFormatter::new("{x} m");
+        assert_eq!(f.template(), "{x} m");
         assert_eq!(f.format(3.0, None), "3 m");
         let g = StrMethodFormatter::new("{x}@{pos}");
         assert_eq!(g.format(2.0, Some(4)), "2@4");
