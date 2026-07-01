@@ -2593,6 +2593,13 @@ impl FormatStrFormatter {
     }
 }
 
+impl Default for FormatStrFormatter {
+    /// Create a formatter with matplotlib's default `%g` template.
+    fn default() -> Self {
+        FormatStrFormatter::new("%g")
+    }
+}
+
 impl Formatter for FormatStrFormatter {
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         format_percent_template(&self.fmt, value)
@@ -2809,6 +2816,13 @@ impl StrMethodFormatter {
     #[must_use]
     pub fn template(&self) -> &str {
         &self.fmt
+    }
+}
+
+impl Default for StrMethodFormatter {
+    /// Create a formatter with the default `{x}` template.
+    fn default() -> Self {
+        StrMethodFormatter::new("{x}")
     }
 }
 
@@ -3842,6 +3856,14 @@ mod tests {
     }
 
     #[test]
+    fn format_str_formatter_default_uses_general_template() {
+        let f = FormatStrFormatter::default();
+
+        assert_eq!(f.template(), "%g");
+        assert_eq!(f.format(12.300, None), "12.3");
+    }
+
+    #[test]
     fn format_str_formatter_unsupported_spec_is_preserved() {
         let f = FormatStrFormatter::new("x=%q");
 
@@ -3855,6 +3877,14 @@ mod tests {
         assert_eq!(f.format(3.0, None), "3 m");
         let g = StrMethodFormatter::new("{x}@{pos}");
         assert_eq!(g.format(2.0, Some(4)), "2@4");
+    }
+
+    #[test]
+    fn str_method_formatter_default_uses_x_template() {
+        let f = StrMethodFormatter::default();
+
+        assert_eq!(f.template(), "{x}");
+        assert_eq!(f.format(3.0, Some(2)), "3");
     }
 
     #[test]
