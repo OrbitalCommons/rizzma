@@ -2664,9 +2664,12 @@ fn resolve_styled_node(style: MathStyle, node: &Node, font: &FontSource) -> Node
             sup: sup.as_ref().map(|sup| resolve_styled_row(style, sup, font)),
             sub: sub.as_ref().map(|sub| resolve_styled_row(style, sub, font)),
         },
-        Node::Styled { body, .. } => Node::Styled {
-            style,
-            body: resolve_styled_row(style, body, font),
+        Node::Styled {
+            style: nested_style,
+            body,
+        } => Node::Styled {
+            style: *nested_style,
+            body: resolve_styled_row(*nested_style, body, font),
         },
         other => other.clone(),
     }
@@ -3832,6 +3835,39 @@ mod tests {
             .collect();
 
         assert_eq!(text, "𝟚ℝ+ℝ+ℝ𝟚𝟚ℝℝ");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn math_style_recurses_into_fraction_geometry() {
+        let styled = layout_math("\\mathbb{\\frac{R}{2}}", &font(), 20.0);
+        let direct = layout_math("\\frac{ℝ}{𝟚}", &font(), 20.0);
+
+        assert_eq!(styled.elements, direct.elements);
+        assert_eq!(styled.width, direct.width);
+        assert_eq!(styled.ascent, direct.ascent);
+        assert_eq!(styled.descent, direct.descent);
+        assert!(styled.warnings.is_empty());
+        assert!(direct.warnings.is_empty());
+    }
+
+    #[test]
+    fn nested_math_style_commands_preserve_inner_style() {
+        let layout = layout_math(
+            "\\mathbb{R+\\mathcal{F}+\\begin{matrix}R&\\mathcal{F}\\end{matrix}}",
+            &font(),
+            20.0,
+        );
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "ℝ+ℱ+ℝℱ");
         assert!(layout.warnings.is_empty());
     }
 
