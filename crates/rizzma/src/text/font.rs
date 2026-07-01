@@ -5,7 +5,7 @@
 //! `wasm32-unknown-unknown`. The default source is DejaVu Sans, vendored from
 //! matplotlib's `mpl-data` (see `fonts/LICENSE_DEJAVU`).
 
-use ttf_parser::Face;
+use ttf_parser::{Face, GlyphId};
 
 /// Raw bytes of the vendored DejaVu Sans face, embedded at compile time.
 ///
@@ -86,4 +86,36 @@ impl FontSource {
         let bytes = self.faces.first()?;
         Face::parse(bytes, 0).ok()
     }
+}
+
+/// Horizontal kerning adjustment, in font design units, between two adjacent
+/// glyphs on a baseline.
+///
+/// Reads the legacy `kern` table — the same source FreeType consults for its
+/// default kerning, which is what matplotlib's Agg text rendering uses. GPOS
+/// kerning is intentionally ignored: resolving it correctly needs a shaping
+/// engine, and DejaVu Sans (like most core fonts) ships the same pairs in the
+/// legacy `kern` table that FreeType reads. Returns `0.0` when the font has no
+/// `kern` table or no pair value for `(left, right)`.
+///
+/// The value is in the same font design units as `glyph_hor_advance`, so callers
+/// scale it by `font_size_px / units_per_em` alongside the advance.
+#[must_use]
+pub(crate) fn horizontal_kerning(face: &Face<'_>, left: GlyphId, right: GlyphId) -> f64 {
+    let Some(kern) = face.tables().kern else {
+        return 0.0;
+    };
+    // Sum the horizontal, non-state-machine subtables that cover this pair.
+    // DejaVu Sans has a single format-0 horizontal subtable, so this reduces to
+    // one lookup in practice, matching FreeType's behavior.
+    let mut units: i32 = 0;
+    for subtable in kern.subtables {
+        if !subtable.horizontal || subtable.variable {
+            continue;
+        }
+        if let Some(value) = subtable.glyphs_kerning(left, right) {
+            units += i32::from(value);
+        }
+    }
+    f64::from(units)
 }

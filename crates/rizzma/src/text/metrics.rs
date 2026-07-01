@@ -4,12 +4,14 @@
 //! given pixel size. This is the rizzma analog of matplotlib's
 //! `RendererBase.get_text_width_height_descent`.
 //!
-//! Scope: a single line, left-to-right, with no shaping, kerning, ligatures, or
-//! bidi. Each character contributes its horizontal advance from the font's `hmtx`
-//! table; widths therefore sum per-glyph advances. Multiline layout, complex
-//! script shaping, and bidi reordering are explicitly out of scope for now.
+//! Scope: a single line, left-to-right, with no complex-script shaping,
+//! ligatures, or bidi. Each character contributes its horizontal advance from
+//! the font's `hmtx` table, plus the pairwise `kern`-table adjustment against
+//! the preceding glyph, so measured widths match matplotlib/FreeType kerning.
+//! Multiline layout, complex script shaping, and bidi reordering are explicitly
+//! out of scope for now.
 
-use crate::text::font::FontSource;
+use crate::text::font::{FontSource, horizontal_kerning};
 
 /// The measured extent of a single line of text, in **pixels at the requested
 /// font size**.
@@ -69,12 +71,20 @@ impl FontSource {
         let scale = font_size_px / units_per_em;
 
         let mut advance_units: f64 = 0.0;
+        let mut prev_glyph = None;
         for ch in text.chars() {
-            if let Some(glyph_id) = face.glyph_index(ch)
-                && let Some(advance) = face.glyph_hor_advance(glyph_id)
-            {
+            let Some(glyph_id) = face.glyph_index(ch) else {
+                continue;
+            };
+            // Kern this glyph against its predecessor before adding its advance,
+            // so pairs like "Ta"/"AV"/"Wa" tuck in exactly as FreeType lays them.
+            if let Some(prev) = prev_glyph {
+                advance_units += horizontal_kerning(&face, prev, glyph_id);
+            }
+            if let Some(advance) = face.glyph_hor_advance(glyph_id) {
                 advance_units += f64::from(advance);
             }
+            prev_glyph = Some(glyph_id);
         }
 
         // `hhea` descent is stored negative-down; report it as a magnitude.
@@ -139,6 +149,34 @@ mod tests {
         assert!(extent.ascent > 0.0, "ascent was {}", extent.ascent);
         assert!(extent.descent >= 0.0, "descent was {}", extent.descent);
         assert!((extent.height - (extent.ascent + extent.descent)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn kerning_tucks_in_known_pairs() {
+        // "VA" is a classic negative-kern pair in DejaVu Sans: the measured pair
+        // must be narrower than the sum of the two glyphs' standalone advances.
+        let src = source();
+        let v = src.measure("V", 100.0).width;
+        let a = src.measure("A", 100.0).width;
+        let va = src.measure("VA", 100.0).width;
+        assert!(
+            va < v + a,
+            "expected kerning to narrow 'VA' ({va}) below V+A ({})",
+            v + a
+        );
+        // "Ta" kerns more tightly still; sanity-check the ordering.
+        let t = src.measure("T", 100.0).width;
+        let ta = src.measure("Ta", 100.0).width;
+        assert!(ta < t + a, "expected 'Ta' ({ta}) to kern below T+a");
+    }
+
+    #[test]
+    fn non_kerning_pair_is_plain_sum() {
+        // "xx" has no kern pair, so the pair equals twice the glyph advance.
+        let src = source();
+        let x = src.measure("x", 100.0).width;
+        let xx = src.measure("xx", 100.0).width;
+        assert!((xx - 2.0 * x).abs() < 1e-9, "xx {xx} != 2*x {}", 2.0 * x);
     }
 
     #[test]
