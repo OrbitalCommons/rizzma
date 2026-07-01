@@ -10,7 +10,7 @@
 //! groups, superscripts/subscripts, `\frac{...}{...}`, `\binom{...}{...}`,
 //! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
 //! `\overbrace{...}`, `\underbrace{...}`, `\boxed{...}`, `\text{...}`,
-//! `\operatorname{...}`/`\mathrm{...}`,
+//! `\operatorname{...}`/`\mathrm{...}`/`\mathregular{...}`/`\mathdefault{...}`,
 //! `\phantom{...}`/`\hphantom{...}`/`\vphantom{...}`,
 //! `\overset{...}{...}`/`\underset{...}{...}`, common named operators,
 //! `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`, `\substack{...}`,
@@ -637,7 +637,7 @@ impl<'a> Parser<'a> {
             return self.parse_operatorname(start);
         }
 
-        if name == "mathrm" {
+        if name == "mathrm" || name == "mathregular" || name == "mathdefault" {
             return self.parse_roman_text_command(start, name);
         }
 
@@ -3730,6 +3730,22 @@ mod tests {
     }
 
     #[test]
+    fn mathregular_and_mathdefault_alias_roman_text() {
+        let layout = layout_math("\\mathregular{abc}+\\mathdefault{XYZ}_0", &font(), 20.0);
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "abc+XYZ0");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
     fn named_operators_render_without_fallback_warnings() {
         let layout = layout_math("\\sin x+\\log y+\\lim_{n} a_n", &font(), 20.0);
         let text: String = layout
@@ -3770,6 +3786,20 @@ mod tests {
         );
         assert!(layout.elements.iter().any(
             |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\mathrm")
+        ));
+    }
+
+    #[test]
+    fn mathregular_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\mathregular+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\mathregular")
         ));
     }
 
