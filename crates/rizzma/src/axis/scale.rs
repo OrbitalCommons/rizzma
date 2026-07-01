@@ -163,6 +163,46 @@ impl Scale for SymlogScale {
     }
 }
 
+/// The inverse-hyperbolic-sine scale.
+///
+/// The transform is `asinh(x / linear_width)`, which is approximately linear
+/// around zero and logarithmic in both tails. Unlike [`LogScale`] and
+/// [`LogitScale`], the asinh scale accepts the entire real line.
+#[derive(Debug, Clone, Copy)]
+pub struct AsinhScale {
+    /// Width of the quasi-linear region around zero. Must be finite and
+    /// positive.
+    pub linear_width: f64,
+}
+
+impl AsinhScale {
+    /// Construct an asinh scale with the given positive linear-region width.
+    pub fn new(linear_width: f64) -> Self {
+        assert!(
+            linear_width.is_finite() && linear_width > 0.0,
+            "asinh scale linear_width must be finite and > 0"
+        );
+        AsinhScale { linear_width }
+    }
+}
+
+impl Default for AsinhScale {
+    /// Default to a unit-width linear region.
+    fn default() -> Self {
+        Self::new(1.0)
+    }
+}
+
+impl Scale for AsinhScale {
+    fn transform(&self, x: f64) -> f64 {
+        (x / self.linear_width).asinh()
+    }
+
+    fn inverse(&self, x: f64) -> f64 {
+        self.linear_width * x.sinh()
+    }
+}
+
 /// The logit scale for probabilities in the open interval `(0, 1)`.
 ///
 /// The transform is `log(x / (1 - x))`, mapping `(0, 1)` onto the whole real
@@ -275,6 +315,41 @@ mod tests {
     fn symlog_round_trips_other_params() {
         let s = SymlogScale::new(2.0, 0.5, 2.0);
         for &x in &[-100.0, -0.5, -0.01, 0.0, 0.01, 0.5, 8.0, 64.0] {
+            approx(s.inverse(s.transform(x)), x);
+        }
+    }
+
+    #[test]
+    fn asinh_maps_zero_and_is_odd() {
+        let s = AsinhScale::new(2.0);
+
+        approx(s.transform(0.0), 0.0);
+        approx(s.inverse(0.0), 0.0);
+        approx(s.transform(-10.0), -s.transform(10.0));
+        approx(s.inverse(-2.0), -s.inverse(2.0));
+    }
+
+    #[test]
+    fn asinh_is_linear_near_zero() {
+        let s = AsinhScale::new(4.0);
+
+        let x = 1e-6;
+        assert!((s.transform(x) - x / s.linear_width).abs() < 1e-18);
+    }
+
+    #[test]
+    fn asinh_has_logarithmic_tails() {
+        let s = AsinhScale::new(2.0);
+
+        let x = 1e12;
+        let expected = (2.0 * x / s.linear_width).ln();
+        assert!((s.transform(x) - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn asinh_round_trips_whole_real_line() {
+        let s = AsinhScale::new(0.5);
+        for &x in &[-1e6, -10.0, -0.1, 0.0, 0.1, 10.0, 1e6] {
             approx(s.inverse(s.transform(x)), x);
         }
     }
