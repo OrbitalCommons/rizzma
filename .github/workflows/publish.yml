@@ -18,6 +18,9 @@ on:
       - "Cargo.toml"
       - "crates/rizzma/Cargo.toml"
       - ".github/workflows/publish.yml"
+  # Allow re-running the publish by hand (e.g. after fixing the crates.io token
+  # scope) without needing another version bump.
+  workflow_dispatch:
 
 # Never cancel an in-flight publish, and never run two at once.
 concurrency:

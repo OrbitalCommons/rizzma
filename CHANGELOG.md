@@ -2,12 +2,29 @@
 
 All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
-[Semantic Versioning](https://semver.org/) (pre-1.0, so minor bumps may carry
-breaking changes).
+[Semantic Versioning](https://semver.org/).
 
-The whole workspace shares one version (`workspace.package.version`), and the
-umbrella `rizzma` crate re-exports the `rizzma-*` crates. Bumping the version on a
-push to `main` triggers the publish workflow (`.github/workflows/publish.yml`).
+`rizzma` is a single crate. Bumping the version on a push to `main` triggers the
+publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
+
+## [1.0.0] - 2026-07-01
+
+**rizzma is now a single crate.** The former 14-crate workspace is collapsed into
+one publishable `rizzma` crate: each `rizzma-*` sub-crate becomes a module
+(`rizzma::core`, `rizzma::figure`, `rizzma::axis`, `rizzma::mathtext`,
+`rizzma::skia`/`svg`/`pdf`, …), and the optional pieces are default-on Cargo
+features you can opt out of. `cargo add rizzma` gives you the full 2D + 3D library.
+
+### Changed
+- Collapsed the workspace into a single `rizzma` crate; the `rizzma-*` sub-crates
+  are now modules of `rizzma` (most-used types re-exported at the crate root).
+- Optional, default-on features: `plot3d` (3D axes), `pyplot` (the facade), and
+  `wasm` (browser backend). `default-features = false` builds core 2D + PNG/SVG/PDF.
+
+### Added
+- `contourf` filled contours; polar `scatter`/`fill`; 3D `bar3d` and
+  `plot_wireframe`; mathtext `\operatorname`/named operators and math styles
+  (`\mathbb`/`\mathcal`/`\mathfrak`, with font-coverage fallback).
 
 ## [0.1.0] - 2026-06-30
 
