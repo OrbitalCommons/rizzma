@@ -41,6 +41,8 @@
 //! - [`LogFormatterMathtext`] — labels large logarithmic powers as mathtext.
 //! - [`SymlogFormatter`] — labels symmetric-log ticks across zero.
 //! - [`SymlogFormatterMathtext`] — labels large symmetric-log powers as mathtext.
+//! - [`AsinhFormatter`] — labels inverse-hyperbolic-sine ticks across zero.
+//! - [`AsinhFormatterMathtext`] — labels large asinh tail powers as mathtext.
 //! - [`LogitFormatter`] — labels probability ticks on a logit scale.
 //! - [`LogitFormatterMathtext`] — labels logit probability tails as mathtext.
 //! - [`EngFormatter`] — labels values with SI engineering prefixes.
@@ -1613,6 +1615,138 @@ impl Formatter for SymlogFormatterMathtext {
     }
 }
 
+/// Format inverse-hyperbolic-sine tick values.
+///
+/// Values in the quasi-linear region are formatted as plain decimals. Exact
+/// logarithmic tail ticks are labelled as signed powers of `base` when
+/// `linear_width == 1`; for other widths they fall back to decimal labels.
+/// Off-lattice values return an empty label.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AsinhFormatter {
+    base: f64,
+    linear_width: f64,
+}
+
+impl AsinhFormatter {
+    /// Construct an asinh formatter.
+    ///
+    /// `base` must be finite and greater than one; `linear_width` must be
+    /// finite and positive.
+    pub fn new(base: f64, linear_width: f64) -> Self {
+        assert!(
+            base.is_finite() && base > 1.0,
+            "asinh formatter base must be finite and > 1"
+        );
+        assert!(
+            linear_width.is_finite() && linear_width > 0.0,
+            "asinh formatter linear_width must be finite and > 0"
+        );
+        AsinhFormatter { base, linear_width }
+    }
+
+    fn tail_exponent(&self, value: f64) -> Option<i32> {
+        if !value.is_finite() || value.abs() <= self.linear_width {
+            return None;
+        }
+        let abs = value.abs();
+        let exponent = (abs / self.linear_width).log(self.base).round();
+        let tick = self.linear_width * self.base.powf(exponent);
+        let rel = ((abs - tick) / tick).abs();
+        if rel <= 1e-10 {
+            Some(exponent as i32)
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for AsinhFormatter {
+    /// Default base-10 formatter with `linear_width = 1`.
+    fn default() -> Self {
+        Self::new(10.0, 1.0)
+    }
+}
+
+impl Formatter for AsinhFormatter {
+    fn format(&self, value: f64, _pos: Option<usize>) -> String {
+        if !value.is_finite() {
+            return String::new();
+        }
+        if value.abs() <= self.linear_width * (1.0 + 1e-12) {
+            return format_decimal(if value.abs() < 1e-12 { 0.0 } else { value });
+        }
+
+        let Some(exponent) = self.tail_exponent(value) else {
+            return String::new();
+        };
+        if (self.linear_width - 1.0).abs() > 1e-12 {
+            return format_decimal(value);
+        }
+
+        let sign = if value.is_sign_negative() { "-" } else { "" };
+        let label = LogFormatter::new(self.base).format_exponent(exponent, false);
+        format!("{sign}{label}")
+    }
+}
+
+/// Format inverse-hyperbolic-sine tick values with mathtext for exponent
+/// labels.
+///
+/// This formatter preserves [`AsinhFormatter`]'s decimal labels in the linear
+/// region and near logarithmic tails, hides off-lattice tail ticks, and wraps
+/// large signed power labels in `$...$` so rich-text rendering can draw real
+/// superscripts.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AsinhFormatterMathtext {
+    inner: AsinhFormatter,
+}
+
+impl AsinhFormatterMathtext {
+    /// Construct a mathtext asinh formatter.
+    ///
+    /// `base` must be finite and greater than one; `linear_width` must be
+    /// finite and positive.
+    pub fn new(base: f64, linear_width: f64) -> Self {
+        Self {
+            inner: AsinhFormatter::new(base, linear_width),
+        }
+    }
+}
+
+impl Default for AsinhFormatterMathtext {
+    /// Default base-10 formatter with `linear_width = 1`.
+    fn default() -> Self {
+        Self::new(10.0, 1.0)
+    }
+}
+
+impl Formatter for AsinhFormatterMathtext {
+    fn format(&self, value: f64, _pos: Option<usize>) -> String {
+        if !value.is_finite() {
+            return String::new();
+        }
+        if value.abs() <= self.inner.linear_width * (1.0 + 1e-12) {
+            return format_decimal(if value.abs() < 1e-12 { 0.0 } else { value });
+        }
+
+        let Some(exponent) = self.inner.tail_exponent(value) else {
+            return String::new();
+        };
+        if (self.inner.linear_width - 1.0).abs() > 1e-12 {
+            return format_decimal(value);
+        }
+
+        let label = LogFormatter::new(self.inner.base).format_exponent(exponent, true);
+        if value.is_sign_negative() && label.starts_with('$') && label.ends_with('$') {
+            format!("$-{}$", &label[1..label.len() - 1])
+        } else if value.is_sign_negative() {
+            format!("-{label}")
+        } else {
+            label
+        }
+    }
+}
+
 /// Format logit/probability tick values.
 ///
 /// Exact powers of ten near zero are labelled as decimals for `0.1` and as
@@ -2765,6 +2899,51 @@ mod tests {
         let (lo, hi) = AsinhLocator::new(1.0).view_limits(-32.0, 32.0);
 
         assert_eq!((lo, hi), (-100.0, 100.0));
+    }
+
+    #[test]
+    fn asinh_formatter_labels_linear_and_tail_ticks() {
+        let formatter = AsinhFormatter::new(10.0, 1.0);
+
+        assert_eq!(formatter.format(-100.0, None), "-100");
+        assert_eq!(formatter.format(-1.0, None), "-1");
+        assert_eq!(formatter.format(0.0, None), "0");
+        assert_eq!(formatter.format(1.0, None), "1");
+        assert_eq!(formatter.format(100.0, None), "100");
+        assert_eq!(formatter.format(20.0, None), "");
+        assert_eq!(formatter.format(1e6, None), "10^{6}");
+        assert_eq!(formatter.format(-1e6, None), "-10^{6}");
+    }
+
+    #[test]
+    fn asinh_formatter_nonunit_width_uses_decimal_tail_labels() {
+        let formatter = AsinhFormatter::new(10.0, 2.0);
+
+        assert_eq!(formatter.format(2.0, None), "2");
+        assert_eq!(formatter.format(20.0, None), "20");
+        assert_eq!(formatter.format(40.0, None), "");
+    }
+
+    #[test]
+    fn asinh_formatter_mathtext_wraps_large_tail_labels() {
+        let formatter = AsinhFormatterMathtext::new(10.0, 1.0);
+
+        assert_eq!(formatter.format(-1.0, None), "-1");
+        assert_eq!(formatter.format(0.0, None), "0");
+        assert_eq!(formatter.format(1.0, None), "1");
+        assert_eq!(formatter.format(100.0, None), "100");
+        assert_eq!(formatter.format(1e6, None), "$10^{6}$");
+        assert_eq!(formatter.format(-1e6, None), "$-10^{6}$");
+        assert_eq!(formatter.format(20.0, None), "");
+    }
+
+    #[test]
+    fn asinh_formatter_mathtext_nonunit_width_uses_decimal_tail_labels() {
+        let formatter = AsinhFormatterMathtext::new(10.0, 2.0);
+
+        assert_eq!(formatter.format(2.0, None), "2");
+        assert_eq!(formatter.format(20.0, None), "20");
+        assert_eq!(formatter.format(40.0, None), "");
     }
 
     #[test]
