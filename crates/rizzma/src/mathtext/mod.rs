@@ -2491,7 +2491,10 @@ fn named_operator(name: &str) -> Option<&'static str> {
         "csc" => Some("csc"),
         "deg" => Some("deg"),
         "det" => Some("det"),
+        "diag" => Some("diag"),
         "dim" => Some("dim"),
+        "erf" => Some("erf"),
+        "erfc" => Some("erfc"),
         "exp" => Some("exp"),
         "gcd" => Some("gcd"),
         "hom" => Some("hom"),
@@ -2505,13 +2508,18 @@ fn named_operator(name: &str) -> Option<&'static str> {
         "log" => Some("log"),
         "max" => Some("max"),
         "min" => Some("min"),
+        "mod" => Some("mod"),
         "Pr" => Some("Pr"),
+        "rank" => Some("rank"),
         "sec" => Some("sec"),
+        "sgn" => Some("sgn"),
         "sin" => Some("sin"),
         "sinh" => Some("sinh"),
+        "span" => Some("span"),
         "sup" => Some("sup"),
         "tan" => Some("tan"),
         "tanh" => Some("tanh"),
+        "tr" => Some("tr"),
         _ => None,
     }
 }
@@ -4213,17 +4221,24 @@ mod tests {
     #[test]
     fn named_operators_render_without_fallback_warnings() {
         let layout = layout_math("\\sin x+\\log y+\\lim_{n} a_n", &font(), 20.0);
+        let more = layout_math(
+            "\\rank A+\\diag D+\\sgn x+\\erf z+\\mod n+\\tr M",
+            &font(),
+            20.0,
+        );
         let text: String = layout
             .elements
             .iter()
+            .chain(more.elements.iter())
             .filter_map(|element| match element {
                 MathElement::Glyph { text, .. } => Some(text.as_str()),
                 _ => None,
             })
             .collect();
 
-        assert_eq!(text, "sinx+logy+limnan");
+        assert_eq!(text, "sinx+logy+limnanrankA+diagD+sgnx+erfz+modn+trM");
         assert!(layout.warnings.is_empty());
+        assert!(more.warnings.is_empty());
     }
 
     #[test]
