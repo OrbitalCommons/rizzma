@@ -2777,10 +2777,13 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "otimes" => Some("⊗"),
         "oslash" => Some("⊘"),
         "odot" => Some("⊙"),
+        "minus" => Some("−"),
         "leq" => Some("≤"),
         "le" => Some("≤"),
+        "leqslant" => Some("≤"),
         "geq" => Some("≥"),
         "ge" => Some("≥"),
+        "geqslant" => Some("≥"),
         "neq" => Some("≠"),
         "ne" => Some("≠"),
         "lt" => Some("<"),
@@ -2840,21 +2843,32 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "Rightarrow" => Some("⇒"),
         "Leftarrow" => Some("⇐"),
         "Leftrightarrow" => Some("⇔"),
+        "implies" => Some("⇒"),
+        "impliedby" => Some("⇐"),
+        "iff" => Some("⇔"),
         "Uparrow" => Some("⇑"),
         "Downarrow" => Some("⇓"),
         "Updownarrow" => Some("⇕"),
         "in" => Some("∈"),
         "notin" => Some("∉"),
+        "ni" => Some("∋"),
+        "owns" => Some("∋"),
+        "notni" => Some("∌"),
         "subset" => Some("⊂"),
         "subseteq" => Some("⊆"),
+        "subseteqq" => Some("⊆"),
         "nsubseteq" => Some("⊈"),
         "supset" => Some("⊃"),
         "supseteq" => Some("⊇"),
+        "supseteqq" => Some("⊇"),
         "nsupseteq" => Some("⊉"),
         "setminus" => Some("∖"),
+        "smallsetminus" => Some("∖"),
+        "backslash" => Some("\\"),
         "cup" => Some("∪"),
         "cap" => Some("∩"),
         "emptyset" => Some("∅"),
+        "empty" => Some("∅"),
         "varnothing" => Some("∅"),
         "forall" => Some("∀"),
         "exists" => Some("∃"),
@@ -2864,6 +2878,9 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "lor" => Some("∨"),
         "vee" => Some("∨"),
         "neg" => Some("¬"),
+        "lnot" => Some("¬"),
+        "therefore" => Some("∴"),
+        "because" => Some("∵"),
         "top" => Some("⊤"),
         "bot" => Some("⊥"),
         "lbrace" => Some("{"),
@@ -2915,7 +2932,7 @@ mod tests {
     #[test]
     fn expanded_symbol_table_maps_common_commands() {
         let layout = layout_math(
-            "\\leq\\approx\\nabla\\rightarrow\\subseteq\\oplus\\mapsto\\parallel\\aleph\\|\\lvert\\rvert\\Vert\\dots\\ldots\\cdots\\colon\\ldotp\\cdotp\\lbrace\\rbrace\\lbrack\\rbrack\\lparen\\rparen\\imath\\jmath",
+            "\\leq\\approx\\nabla\\rightarrow\\subseteq\\oplus\\mapsto\\parallel\\aleph\\|\\lvert\\rvert\\Vert\\dots\\ldots\\cdots\\colon\\ldotp\\cdotp\\lbrace\\rbrace\\lbrack\\rbrack\\lparen\\rparen\\imath\\jmath\\minus\\leqslant\\geqslant\\implies\\impliedby\\iff\\ni\\owns\\notni\\subseteqq\\supseteqq\\smallsetminus\\backslash\\empty\\lnot\\therefore\\because",
             &font(),
             20.0,
         );
@@ -2927,7 +2944,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(text, "≤≈∇→⊆⊕↦∥ℵ∥∣∣∥……⋯:.⋅{}[]()ıȷ");
+        assert_eq!(text, "≤≈∇→⊆⊕↦∥ℵ∥∣∣∥……⋯:.⋅{}[]()ıȷ−≤≥⇒⇐⇔∋∋∌⊆⊇∖\\∅¬∴∵");
         assert!(layout.warnings.is_empty());
     }
 
