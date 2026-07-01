@@ -2101,10 +2101,11 @@ fn trim_decimal_zeros(value: &str) -> String {
 
 /// Format ticks with a `{x}` / `{pos}` template string.
 ///
-/// Port of matplotlib's `StrMethodFormatter`, restricted to plain
-/// `{x}`/`{pos}` substitution (no Python format-spec mini-language). Occurrences
-/// of the literal substrings `{x}` and `{pos}` are replaced with the value and
-/// position respectively. A missing position renders as the empty string.
+/// Small deterministic subset of matplotlib's `StrMethodFormatter`.
+/// Occurrences of `{x}` and `{pos}` are replaced with the value and position
+/// respectively, `{{` and `}}` escape literal braces, and numeric value fields
+/// support a compact Python-like format-spec subset such as `{x:.2f}` or
+/// `{x:+08.1e}`. A missing position renders as the empty string.
 pub struct StrMethodFormatter {
     fmt: String,
 }
@@ -2118,10 +2119,102 @@ impl StrMethodFormatter {
 
 impl Formatter for StrMethodFormatter {
     fn format(&self, value: f64, pos: Option<usize>) -> String {
-        let pos_str = pos.map(|p| p.to_string()).unwrap_or_default();
-        self.fmt
-            .replace("{x}", &value.to_string())
-            .replace("{pos}", &pos_str)
+        format_str_method_template(&self.fmt, value, pos)
+    }
+}
+
+fn format_str_method_template(fmt: &str, value: f64, pos: Option<usize>) -> String {
+    let mut out = String::new();
+    let mut chars = fmt.char_indices().peekable();
+
+    while let Some((_, ch)) = chars.next() {
+        match ch {
+            '{' if matches!(chars.peek(), Some((_, '{'))) => {
+                chars.next();
+                out.push('{');
+            }
+            '}' if matches!(chars.peek(), Some((_, '}'))) => {
+                chars.next();
+                out.push('}');
+            }
+            '{' => {
+                let mut field = String::new();
+                let mut closed = false;
+                for (_, field_ch) in chars.by_ref() {
+                    if field_ch == '}' {
+                        closed = true;
+                        break;
+                    }
+                    field.push(field_ch);
+                }
+                if closed {
+                    if let Some(rendered) = format_str_method_field(&field, value, pos) {
+                        out.push_str(&rendered);
+                    } else {
+                        out.push('{');
+                        out.push_str(&field);
+                        out.push('}');
+                    }
+                } else {
+                    out.push('{');
+                    out.push_str(&field);
+                }
+            }
+            _ => out.push(ch),
+        }
+    }
+
+    out
+}
+
+fn format_str_method_field(field: &str, value: f64, pos: Option<usize>) -> Option<String> {
+    let (name, spec) = field.split_once(':').unwrap_or((field, ""));
+    match name {
+        "x" => Some(if spec.is_empty() {
+            value.to_string()
+        } else {
+            format_brace_numeric(value, spec)?
+        }),
+        "pos" => {
+            let Some(pos) = pos else {
+                return Some(String::new());
+            };
+            Some(if spec.is_empty() {
+                pos.to_string()
+            } else {
+                format_brace_integer(pos, spec)?
+            })
+        }
+        _ => None,
+    }
+}
+
+fn format_brace_numeric(value: f64, spec: &str) -> Option<String> {
+    let mut chars = spec.char_indices().peekable();
+    let (percent, raw) = parse_percent_spec(&mut chars);
+    if chars.peek().is_some() {
+        return None;
+    }
+    let mut percent = percent?;
+    if raw != spec {
+        return None;
+    }
+    if percent.conversion == '\0' {
+        percent.conversion = 'g';
+    }
+    Some(format_percent_value(value, percent))
+}
+
+fn format_brace_integer(value: usize, spec: &str) -> Option<String> {
+    let mut chars = spec.char_indices().peekable();
+    let (percent, raw) = parse_percent_spec(&mut chars);
+    if chars.peek().is_some() || raw != spec {
+        return None;
+    }
+    let percent = percent?;
+    match percent.conversion {
+        'f' | 'e' | 'E' | 'g' | 'G' => Some(format_percent_value(value as f64, percent)),
+        _ => None,
     }
 }
 
@@ -2687,6 +2780,44 @@ mod tests {
         assert_eq!(f.format(3.0, None), "3 m");
         let g = StrMethodFormatter::new("{x}@{pos}");
         assert_eq!(g.format(2.0, Some(4)), "2@4");
+    }
+
+    #[test]
+    fn str_method_formatter_numeric_format_spec() {
+        let f = StrMethodFormatter::new("x={x:+08.1f}");
+
+        assert_eq!(f.format(12.0, None), "x=+00012.0");
+        assert_eq!(f.format(-12.0, None), "x=-00012.0");
+    }
+
+    #[test]
+    fn str_method_formatter_exp_and_general_specs() {
+        let exp = StrMethodFormatter::new("{x:.2e}");
+        let general = StrMethodFormatter::new("{x:.3G}");
+
+        assert_eq!(exp.format(1234.0, None), "1.23e3");
+        assert_eq!(general.format(1234.0, None), "1.23E3");
+    }
+
+    #[test]
+    fn str_method_formatter_escapes_braces() {
+        let f = StrMethodFormatter::new("{{{x:.1f}}}");
+
+        assert_eq!(f.format(3.25, None), "{3.2}");
+    }
+
+    #[test]
+    fn str_method_formatter_preserves_unknown_fields() {
+        let f = StrMethodFormatter::new("{label}={x:.1f}");
+
+        assert_eq!(f.format(2.0, None), "{label}=2.0");
+    }
+
+    #[test]
+    fn str_method_formatter_missing_pos_is_empty() {
+        let f = StrMethodFormatter::new("{x}@{pos}");
+
+        assert_eq!(f.format(2.0, None), "2@");
     }
 
     #[test]
