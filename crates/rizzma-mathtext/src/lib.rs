@@ -9,7 +9,8 @@
 //! Supported in this first pass: ordinary symbols, whitespace glue, `{...}`
 //! groups, superscripts/subscripts, `\frac{...}{...}`, `\binom{...}{...}`,
 //! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
-//! `\text{...}`, `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`,
+//! `\text{...}`, `\operatorname{...}`, common named operators,
+//! `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`,
 //! `\begin{matrix}`/`pmatrix`/`bmatrix` environments,
 //! `\left...\right` delimiters, large operators, and a table of common named
 //! symbols and accents. Unsupported commands are preserved as literal fallback
@@ -572,6 +573,10 @@ impl<'a> Parser<'a> {
             return self.parse_text_command(start);
         }
 
+        if name == "operatorname" {
+            return self.parse_operatorname(start);
+        }
+
         if let Some(style) = math_style_command(name) {
             return self.parse_math_style_command(start, name, style);
         }
@@ -599,6 +604,10 @@ impl<'a> Parser<'a> {
 
         if let Some(kind) = large_operator_kind(name) {
             return self.parse_scripts(Node::LargeOperator { kind });
+        }
+
+        if let Some(operator) = named_operator(name) {
+            return self.parse_scripts(Node::Text(operator.to_owned()));
         }
 
         if let Some(kind) = accent_kind(name) {
@@ -683,6 +692,17 @@ impl<'a> Parser<'a> {
             MathTextWarningReason::MissingCommandArgument,
         ) else {
             return Node::Text("\\text".to_owned());
+        };
+        self.parse_scripts(Node::Text(text))
+    }
+
+    fn parse_operatorname(&mut self, start: usize) -> Node {
+        let Some(text) = self.parse_required_raw_group(
+            start,
+            "operatorname",
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text("\\operatorname".to_owned());
         };
         self.parse_scripts(Node::Text(text))
     }
@@ -1883,6 +1903,44 @@ fn large_operator_symbol(kind: LargeOperatorKind) -> &'static str {
     }
 }
 
+fn named_operator(name: &str) -> Option<&'static str> {
+    match name {
+        "arccos" => Some("arccos"),
+        "arcsin" => Some("arcsin"),
+        "arctan" => Some("arctan"),
+        "arg" => Some("arg"),
+        "cos" => Some("cos"),
+        "cosh" => Some("cosh"),
+        "cot" => Some("cot"),
+        "coth" => Some("coth"),
+        "csc" => Some("csc"),
+        "deg" => Some("deg"),
+        "det" => Some("det"),
+        "dim" => Some("dim"),
+        "exp" => Some("exp"),
+        "gcd" => Some("gcd"),
+        "hom" => Some("hom"),
+        "inf" => Some("inf"),
+        "ker" => Some("ker"),
+        "lg" => Some("lg"),
+        "lim" => Some("lim"),
+        "liminf" => Some("liminf"),
+        "limsup" => Some("limsup"),
+        "ln" => Some("ln"),
+        "log" => Some("log"),
+        "max" => Some("max"),
+        "min" => Some("min"),
+        "Pr" => Some("Pr"),
+        "sec" => Some("sec"),
+        "sin" => Some("sin"),
+        "sinh" => Some("sinh"),
+        "sup" => Some("sup"),
+        "tan" => Some("tan"),
+        "tanh" => Some("tanh"),
+        _ => None,
+    }
+}
+
 fn single_char_spacing_command(ch: char) -> Option<f64> {
     match ch {
         ',' => Some(THIN_SPACE_EM),
@@ -2754,6 +2812,55 @@ mod tests {
 
         assert_eq!(text, Some("set {A} and {B}"));
         assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn operatorname_preserves_literal_text_and_takes_scripts() {
+        let layout = layout_math("\\operatorname{Var}_x+1", &font(), 20.0);
+        let plain = layout_math("\\operatorname{Var}", &font(), 20.0);
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "Varx+1");
+        assert!(layout.width > plain.width);
+        assert!(layout.descent > plain.descent);
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn named_operators_render_without_fallback_warnings() {
+        let layout = layout_math("\\sin x+\\log y+\\lim_{n} a_n", &font(), 20.0);
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "sinx+logy+limnan");
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn operatorname_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\operatorname+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\operatorname")
+        ));
     }
 
     #[test]
