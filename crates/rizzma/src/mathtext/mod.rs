@@ -9,7 +9,7 @@
 //! Supported in this first pass: ordinary symbols, whitespace glue, `{...}`
 //! groups, superscripts/subscripts, `\frac{...}{...}`, `\binom{...}{...}`,
 //! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
-//! `\text{...}`, `\operatorname{...}`, common named operators,
+//! `\boxed{...}`, `\text{...}`, `\operatorname{...}`, common named operators,
 //! `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`,
 //! `\begin{matrix}`/`pmatrix`/`bmatrix`/`cases` environments,
 //! `\left...\right` delimiters, large operators, and a table of common named
@@ -43,6 +43,8 @@ const RADICAL_PAD_EM: f64 = 0.08;
 const RADICAL_RULE_EM: f64 = 0.04;
 const LINE_DECORATION_GAP_EM: f64 = 0.08;
 const LINE_DECORATION_RULE_EM: f64 = 0.04;
+const BOXED_PAD_EM: f64 = 0.16;
+const BOXED_RULE_EM: f64 = 0.04;
 const MATRIX_COL_GAP_EM: f64 = 0.75;
 const MATRIX_ROW_GAP_EM: f64 = 0.28;
 const SPACE_EM: f64 = 0.28;
@@ -372,6 +374,9 @@ enum Node {
         kind: LineDecorationKind,
         body: Row,
     },
+    Boxed {
+        body: Row,
+    },
     Delimited {
         left: DelimiterKind,
         body: Row,
@@ -593,6 +598,10 @@ impl<'a> Parser<'a> {
             return self.parse_line_decoration(start, name, LineDecorationKind::Underline);
         }
 
+        if name == "boxed" {
+            return self.parse_boxed(start);
+        }
+
         if name == "left" {
             return self.parse_left_right(start);
         }
@@ -732,6 +741,17 @@ impl<'a> Parser<'a> {
             return Node::Text(format!("\\{command}"));
         };
         self.parse_scripts(Node::LineDecoration { kind, body })
+    }
+
+    fn parse_boxed(&mut self, start: usize) -> Node {
+        let Some(body) = self.parse_required_group(
+            start,
+            "boxed",
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text("\\boxed".to_owned());
+        };
+        self.parse_scripts(Node::Boxed { body })
     }
 
     fn parse_left_right(&mut self, start: usize) -> Node {
@@ -1167,6 +1187,7 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
         Node::LineDecoration { kind, body } => {
             layout_line_decoration(*kind, body, font, font_size_px)
         }
+        Node::Boxed { body } => layout_boxed(body, font, font_size_px),
         Node::Delimited { left, body, right } => {
             layout_delimited(*left, body, *right, font, font_size_px)
         }
@@ -1475,6 +1496,40 @@ fn layout_line_decoration(
     LayoutBox {
         elements,
         width: base.width,
+        ascent,
+        descent,
+    }
+}
+
+fn layout_boxed(body: &Row, font: &FontSource, font_size_px: f64) -> LayoutBox {
+    let base = layout_row(&body.nodes, font, font_size_px);
+    let pad = font_size_px * BOXED_PAD_EM;
+    let rule = (font_size_px * BOXED_RULE_EM).max(1.0);
+    let inner_x = pad + rule;
+    let inner_baseline = 0.0;
+    let width = base.width + 2.0 * (pad + rule);
+    let ascent = base.ascent + pad + rule;
+    let descent = base.descent + pad + rule;
+    let height = ascent + descent;
+    let bottom = -descent;
+
+    let mut elements = shift_elements(base.elements, inner_x, inner_baseline);
+    elements.push(MathElement::Rule {
+        path: rect_path(0.0, bottom, width, rule),
+    });
+    elements.push(MathElement::Rule {
+        path: rect_path(0.0, ascent - rule, width, rule),
+    });
+    elements.push(MathElement::Rule {
+        path: rect_path(0.0, bottom, rule, height),
+    });
+    elements.push(MathElement::Rule {
+        path: rect_path(width - rule, bottom, rule, height),
+    });
+
+    LayoutBox {
+        elements,
+        width,
         ascent,
         descent,
     }
@@ -1793,6 +1848,7 @@ fn flatten_row_text(row: &Row) -> String {
             Node::Radical { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Matrix { rows, .. } => out.push_str(&flatten_matrix_text(rows)),
             Node::LineDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
+            Node::Boxed { body } => out.push_str(&flatten_row_text(body)),
             Node::Delimited { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Accent { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Styled { body, .. } => out.push_str(&flatten_row_text(body)),
@@ -1813,6 +1869,7 @@ fn flatten_node_text(node: &Node) -> String {
         Node::Radical { body, .. } => flatten_row_text(body),
         Node::Matrix { rows, .. } => flatten_matrix_text(rows),
         Node::LineDecoration { body, .. } => flatten_row_text(body),
+        Node::Boxed { body } => flatten_row_text(body),
         Node::Delimited { body, .. } => flatten_row_text(body),
         Node::Accent { body, .. } => flatten_row_text(body),
         Node::Styled { body, .. } => flatten_row_text(body),
@@ -3007,6 +3064,68 @@ mod tests {
         );
         assert!(layout.elements.iter().any(
             |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\overline")
+        ));
+    }
+
+    #[test]
+    fn boxed_adds_four_rules_around_body() {
+        let plain = layout_math("xy", &font(), 24.0);
+        let boxed = layout_math("\\boxed{xy}", &font(), 24.0);
+        let texts: Vec<_> = boxed
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(texts, vec!["x", "y"]);
+        assert_eq!(
+            boxed
+                .elements
+                .iter()
+                .filter(|element| matches!(element, MathElement::Rule { .. }))
+                .count(),
+            4
+        );
+        assert!(boxed.width > plain.width);
+        assert!(boxed.ascent > plain.ascent);
+        assert!(boxed.descent > plain.descent);
+        assert!(boxed.warnings.is_empty());
+    }
+
+    #[test]
+    fn boxed_can_take_scripts() {
+        let boxed = layout_math("\\boxed{x}", &font(), 24.0);
+        let scripted = layout_math("\\boxed{x}_i", &font(), 24.0);
+        let texts: Vec<_> = scripted
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(texts.contains(&"x"));
+        assert!(texts.contains(&"i"));
+        assert!(scripted.width > boxed.width);
+        assert!(scripted.descent > boxed.descent);
+        assert!(scripted.warnings.is_empty());
+    }
+
+    #[test]
+    fn boxed_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\boxed+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\boxed")
         ));
     }
 
