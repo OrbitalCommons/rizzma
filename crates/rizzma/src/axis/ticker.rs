@@ -2445,6 +2445,7 @@ impl Formatter for NullFormatter {
 ///
 /// Port of matplotlib's `FixedFormatter`. Should be paired with a
 /// [`FixedLocator`]. Positions out of range (or `None`) yield the empty string.
+#[derive(Default)]
 pub struct FixedFormatter {
     seq: Vec<String>,
 }
@@ -2487,6 +2488,7 @@ impl Formatter for FixedFormatter {
 /// Port of matplotlib's `IndexFormatter`. A tick value is rounded to the
 /// nearest integer and used as an index into the label vector. Non-finite,
 /// negative, or out-of-range values yield the empty string.
+#[derive(Default)]
 pub struct IndexFormatter {
     labels: Vec<String>,
 }
@@ -3725,6 +3727,14 @@ mod tests {
     }
 
     #[test]
+    fn fixed_formatter_default_has_no_labels() {
+        let f = FixedFormatter::default();
+
+        assert!(f.labels().is_empty());
+        assert_eq!(f.format(0.0, Some(0)), "");
+    }
+
+    #[test]
     fn index_formatter_uses_rounded_tick_value() {
         let f = IndexFormatter::new(vec!["zero".into(), "one".into(), "two".into()]);
         assert_eq!(
@@ -3745,6 +3755,14 @@ mod tests {
         );
         assert_eq!(f.format(1.4, None), "one");
         assert_eq!(f.format(2.6, None), "");
+    }
+
+    #[test]
+    fn index_formatter_default_has_no_labels() {
+        let f = IndexFormatter::default();
+
+        assert!(f.labels().is_empty());
+        assert_eq!(f.format(0.0, None), "");
     }
 
     #[test]
