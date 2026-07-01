@@ -2506,6 +2506,14 @@ impl FuncFormatter {
     pub fn new(func: Box<dyn Fn(f64, Option<usize>) -> String>) -> Self {
         FuncFormatter { func }
     }
+
+    /// Create a formatter from an unboxed closure or function.
+    pub fn from_fn<F>(func: F) -> Self
+    where
+        F: Fn(f64, Option<usize>) -> String + 'static,
+    {
+        Self::new(Box::new(func))
+    }
 }
 
 impl Formatter for FuncFormatter {
@@ -3670,6 +3678,9 @@ mod tests {
     fn func_formatter_closure() {
         let f = FuncFormatter::new(Box::new(|x, _| format!("{x:.0} km")));
         assert_eq!(f.format(10.0, None), "10 km");
+
+        let f = FuncFormatter::from_fn(|x, pos| format!("{pos:?}:{x:.1}"));
+        assert_eq!(f.format(2.25, Some(3)), "Some(3):2.2");
     }
 
     #[test]
