@@ -9,7 +9,7 @@
 [![CI](https://github.com/OrbitalCommons/rizzma/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OrbitalCommons/rizzma/actions/workflows/ci.yml)
 [![Gallery](https://github.com/OrbitalCommons/rizzma/actions/workflows/gallery.yml/badge.svg?branch=main)](https://github.com/OrbitalCommons/rizzma/actions/workflows/gallery.yml)
 [![Publish](https://github.com/OrbitalCommons/rizzma/actions/workflows/publish.yml/badge.svg?branch=main)](https://github.com/OrbitalCommons/rizzma/actions/workflows/publish.yml)
-[![WASM](https://img.shields.io/badge/wasm-first-654ff0.svg)](crates/rizzma-wasm)
+[![WASM](https://img.shields.io/badge/wasm-first-654ff0.svg)](crates/rizzma/src/wasm)
 [![Renderer](https://img.shields.io/badge/renderers-PNG%20%7C%20SVG%20%7C%20Canvas-007d8a.svg)](crates)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-ff8300.svg)](AGENTS.md)
 
@@ -24,7 +24,7 @@ rendered anywhere.
 ## Gallery
 
 One figure per Tier-1 plot type, auto-rendered from
-[`crates/rizzma-figure/examples/gallery.rs`](crates/rizzma-figure/examples/gallery.rs) on
+[`crates/rizzma/examples/gallery.rs`](crates/rizzma/examples/gallery.rs) on
 every push to `main` and published to the `gh-pages` branch (so these images never live in
 `main`'s history). Browse them all at the
 [gallery page](https://orbitalcommons.github.io/rizzma/).
@@ -63,27 +63,30 @@ every push to `main` and published to the `gh-pages` branch (so these images nev
 | ![polar fill](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar_fill.png) | ![contourf](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_contourf.png) | |
 | `polar fill` | `contourf` | |
 
-Regenerate locally with `cargo run -p rizzma-figure --example gallery` (writes
+Regenerate locally with `cargo run -p rizzma --example gallery` (writes
 `target/gallery_*.png`).
 
-## Workspace layout
+## Module layout
 
-| Crate | Responsibility |
-|-------|----------------|
-| `rizzma` | Umbrella / public facade (re-exports, name reservation) |
-| `rizzma-core` | cbook-style utils, typed `RcParams`, `Path`/`Bbox`/`Affine2D`, transform graph, color |
-| `rizzma-render` | The `Renderer` trait + `GraphicsContext`/`Paint` (backend-agnostic) |
-| `rizzma-skia` | Reference raster backend over `tiny-skia` → PNG |
-| `rizzma-text` | Font sourcing + text layout/metrics (`cosmic-text`) |
-| `rizzma-artist` | Artist scene tree + `Line2D`, `Patch`, markers, collections |
-| `rizzma-axis` | Ticker, scales, units, dates, `Axis`/`Tick`/`Spine` |
-| `rizzma-figure` | `GridSpec`, `Figure`, `Axes`, layout engines, legend, colorbar |
-| `rizzma-plot` | Axes plotting methods (`plot`/`scatter`/`bar`/`hist`/…) |
-| `rizzma-pyplot` | Stateful pyplot-style facade |
-| `rizzma-svg` | SVG vector backend |
-| `rizzma-wasm` | Canvas backend + DOM event bridge |
-| `rizzma-mathtext` | TeX-subset math layout (later) |
-| `rizzma-3d` | mplot3d-equivalent (later) |
+`rizzma` is a single publishable crate. Each area lives in its own module under
+`crates/rizzma/src/`; the optional leaf modules are enabled by default and gated behind
+the `plot3d`, `pyplot`, and `wasm` features.
+
+| Module | Responsibility |
+|--------|----------------|
+| `core` | cbook-style utils, typed `RcParams`, `Path`/`Bbox`/`Affine2D`, transform graph, color |
+| `render` | The `Renderer` trait + `GraphicsContext`/`Paint` (backend-agnostic) |
+| `skia` | Reference raster backend over `tiny-skia` → PNG |
+| `text` | Font sourcing + text layout/metrics |
+| `artist` | Artist scene tree + `Line2D`, `Patch`, markers, collections |
+| `axis` | Ticker, scales, units, dates, `Axis`/`Tick`/`Spine` |
+| `figure` | `GridSpec`, `Figure`, `Axes`, layout engines, legend, colorbar, plotting methods |
+| `pyplot` | Stateful pyplot-style facade (feature `pyplot`) |
+| `svg` | SVG vector backend |
+| `pdf` | PDF vector backend |
+| `wasm` | Canvas backend + DOM event bridge (feature `wasm`) |
+| `mathtext` | TeX-subset math layout |
+| `mplot3d` | mplot3d-equivalent 3D plotting (feature `plot3d`) |
 
 ## Design docs
 

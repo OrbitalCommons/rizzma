@@ -35,10 +35,13 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Test
         run: cargo test --workspace --all-features
+
+      - name: Build without default features
+        run: cargo build -p rizzma --no-default-features
 
       - name: Wasm check
         run: |
@@ -49,7 +52,7 @@ jobs:
       # referenced in the README / doc comments is actually produced by the
       # gallery example (catches typo'd or stale image URLs).
       - name: Render gallery
-        run: cargo run -p rizzma-figure --example gallery
+        run: cargo run -p rizzma --example gallery
 
       - name: Check gallery doc links
         run: cargo xtask check-gallery-links --strict
@@ -80,5 +83,5 @@ jobs:
 
       - name: Check wasm size budget
         run: |
-          cargo build -p rizzma-wasm --target wasm32-unknown-unknown --release
-          cargo xtask wasm-size target/wasm32-unknown-unknown/release/rizzma_wasm.wasm --max-bytes "$WASM_SIZE_MAX_BYTES"
+          cargo build -p rizzma --features wasm --target wasm32-unknown-unknown --release
+          cargo xtask wasm-size target/wasm32-unknown-unknown/release/rizzma.wasm --max-bytes "$WASM_SIZE_MAX_BYTES"
