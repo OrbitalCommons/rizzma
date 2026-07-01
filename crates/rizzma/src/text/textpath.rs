@@ -5,10 +5,11 @@
 //! single [`Path`]. The result can be fed through the figure transform stack and
 //! drawn by the raster renderer like any other path.
 //!
-//! Scope matches [`crate::text::metrics`]: a single line, left-to-right, no shaping,
-//! ligatures, or bidi. Kerning is **not** applied (the layout advances the pen by
-//! each glyph's `hmtx` horizontal advance only), which keeps the layout width
-//! identical to [`FontSource::measure`].
+//! Scope matches [`crate::text::metrics`]: a single line, left-to-right, no
+//! complex-script shaping, ligatures, or bidi. Pairwise `kern`-table kerning
+//! **is** applied (each glyph tucks against its predecessor by the same amount
+//! [`FontSource::measure`] accounts for), so the laid-out width stays identical
+//! to the measured advance.
 //!
 //! # Coordinate orientation
 //!
@@ -22,7 +23,7 @@
 use crate::core::{Path, PathCode};
 use ttf_parser::OutlineBuilder;
 
-use crate::text::font::FontSource;
+use crate::text::font::{FontSource, horizontal_kerning};
 
 /// Accumulates `ttf-parser` outline callbacks into a [`Path`].
 ///
@@ -98,10 +99,11 @@ impl FontSource {
     ///
     /// Each character's glyph is looked up in the primary face and its outline
     /// appended; the pen then advances by the glyph's horizontal advance from the
-    /// `hmtx` table, scaled by `font_size_px / units_per_em`. Characters with no
-    /// glyph or no outline (spaces, control characters) advance the pen without
-    /// contributing geometry. **Kerning is not applied**, so the total advance
-    /// width equals that reported by [`FontSource::measure`].
+    /// `hmtx` table plus the `kern`-table adjustment against the previous glyph,
+    /// scaled by `font_size_px / units_per_em`. Characters with no glyph or no
+    /// outline (spaces, control characters) advance the pen without contributing
+    /// geometry. The total advance width equals that reported by
+    /// [`FontSource::measure`], which applies the same kerning.
     ///
     /// Outlines are emitted **y-up** (glyphs extend toward positive `y` from the
     /// baseline); see the [module docs](crate::text::textpath) for orientation details.
@@ -129,12 +131,18 @@ impl FontSource {
             offset_y: origin[1],
         };
 
-        // Pen x advances by each glyph's horizontal advance (no kerning).
+        // Pen x advances by each glyph's horizontal advance plus the pairwise
+        // kern against the previous glyph (matching `FontSource::measure`).
         let mut pen_x = origin[0];
+        let mut prev_glyph = None;
         for ch in text.chars() {
             let Some(glyph_id) = face.glyph_index(ch) else {
                 continue;
             };
+            // Tuck this glyph against its predecessor before placing it.
+            if let Some(prev) = prev_glyph {
+                pen_x += horizontal_kerning(&face, prev, glyph_id) * scale;
+            }
             // Position this glyph at the current pen, then append its outline.
             // Glyphs without an outline (e.g. space) produce no segments but
             // still advance the pen below.
@@ -144,6 +152,7 @@ impl FontSource {
             if let Some(advance) = face.glyph_hor_advance(glyph_id) {
                 pen_x += f64::from(advance) * scale;
             }
+            prev_glyph = Some(glyph_id);
         }
 
         Path::new(builder.vertices, Some(builder.codes))
@@ -246,6 +255,23 @@ mod tests {
             (delta_path - delta_measure).abs() < delta_measure * 0.2,
             "path delta {delta_path} vs measure delta {delta_measure}"
         );
+    }
+
+    #[test]
+    fn kerned_pair_path_matches_kerned_measure() {
+        // The laid-out path width of a kerning pair must track the kerned
+        // measurement (both apply the same `kern`-table adjustment), and must be
+        // narrower than the two glyphs placed with no kerning.
+        let size = 100.0;
+        let src = source();
+        let ta = src.text_to_path("Ta", size, [0.0, 0.0]);
+        let measured = src.measure("Ta", size).width;
+        let t = src.measure("T", size).width;
+        let a = src.measure("a", size).width;
+        // Inked path ends within the last glyph's advance, so it is <= the
+        // kerned advance but well above the unkerned pair minus a glyph.
+        assert!(ta.get_extents().xmax() <= measured + 1e-6);
+        assert!(measured < t + a, "'Ta' should kern below T+a");
     }
 
     #[test]

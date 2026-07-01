@@ -67,8 +67,12 @@ pub struct RcParams {
     pub axes_grid: bool,
     /// Font size of the axes title in points (`axes.titlesize`).
     pub axes_titlesize: f64,
+    /// Padding above the axes title in points (`axes.titlepad`).
+    pub axes_titlepad: f64,
     /// Font size of the x/y axis labels in points (`axes.labelsize`).
     pub axes_labelsize: f64,
+    /// Padding between tick labels and axis labels in points (`axes.labelpad`).
+    pub axes_labelpad: f64,
     /// The property cycle of colors used for successive plots
     /// (`axes.prop_cycle`); defaults to the ten-color `tab10` cycle.
     pub axes_prop_cycle: Vec<Rgba>,
@@ -88,6 +92,12 @@ pub struct RcParams {
     pub xtick_major_size: f64,
     /// Length of major y-axis ticks in points (`ytick.major.size`).
     pub ytick_major_size: f64,
+    /// Padding between x-axis major ticks and labels in points
+    /// (`xtick.major.pad`).
+    pub xtick_major_pad: f64,
+    /// Padding between y-axis major ticks and labels in points
+    /// (`ytick.major.pad`).
+    pub ytick_major_pad: f64,
     /// Direction x-axis ticks point (`xtick.direction`).
     pub xtick_direction: TickDirection,
     /// Direction y-axis ticks point (`ytick.direction`).
@@ -122,7 +132,9 @@ impl Default for RcParams {
             axes_linewidth: 0.8,
             axes_grid: false,
             axes_titlesize: 12.0,
+            axes_titlepad: 6.0,
             axes_labelsize: 10.0,
+            axes_labelpad: 4.0,
             axes_prop_cycle: default_prop_cycle(),
 
             lines_linewidth: 1.5,
@@ -132,6 +144,8 @@ impl Default for RcParams {
             ytick_labelsize: 10.0,
             xtick_major_size: 3.5,
             ytick_major_size: 3.5,
+            xtick_major_pad: 3.5,
+            ytick_major_pad: 3.5,
             xtick_direction: TickDirection::Out,
             ytick_direction: TickDirection::Out,
 
@@ -208,7 +222,9 @@ impl RcParams {
         merge_field!(axes_linewidth);
         merge_field!(axes_grid);
         merge_field!(axes_titlesize);
+        merge_field!(axes_titlepad);
         merge_field!(axes_labelsize);
+        merge_field!(axes_labelpad);
         merge_field!(axes_prop_cycle);
         merge_field!(lines_linewidth);
         merge_field!(lines_markersize);
@@ -216,6 +232,8 @@ impl RcParams {
         merge_field!(ytick_labelsize);
         merge_field!(xtick_major_size);
         merge_field!(ytick_major_size);
+        merge_field!(xtick_major_pad);
+        merge_field!(ytick_major_pad);
         merge_field!(xtick_direction);
         merge_field!(ytick_direction);
         merge_field!(font_size);
@@ -243,13 +261,17 @@ mod tests {
         assert_eq!(rc.axes_linewidth, 0.8);
         assert!(!rc.axes_grid);
         assert_eq!(rc.axes_titlesize, 12.0);
+        assert_eq!(rc.axes_titlepad, 6.0);
         assert_eq!(rc.axes_labelsize, 10.0);
+        assert_eq!(rc.axes_labelpad, 4.0);
         assert_eq!(rc.lines_linewidth, 1.5);
         assert_eq!(rc.lines_markersize, 6.0);
         assert_eq!(rc.xtick_labelsize, 10.0);
         assert_eq!(rc.ytick_labelsize, 10.0);
         assert_eq!(rc.xtick_major_size, 3.5);
         assert_eq!(rc.ytick_major_size, 3.5);
+        assert_eq!(rc.xtick_major_pad, 3.5);
+        assert_eq!(rc.ytick_major_pad, 3.5);
         assert_eq!(rc.xtick_direction, TickDirection::Out);
         assert_eq!(rc.font_size, 10.0);
         assert_eq!(rc.font_family, "DejaVu Sans");

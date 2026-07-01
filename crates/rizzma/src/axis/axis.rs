@@ -17,7 +17,7 @@
 //! (decreasing x). [`AxisSide::Top`] and [`AxisSide::Right`] mirror these.
 
 use crate::core::{Affine2D, Bbox, Path, color::Rgba};
-use crate::mathtext::layout_rich_text;
+use crate::mathtext::{RichText, layout_rich_text};
 use crate::render::{GraphicsContext, Renderer};
 use crate::text::FontSource;
 
@@ -66,10 +66,14 @@ pub struct Axis {
     tick_length: f64,
     /// Stroke width of the spine and ticks, in pixels.
     tick_width: f64,
-    /// Font size of tick labels and the axis label, in pixels.
-    label_size: f64,
+    /// Font size of tick labels, in pixels.
+    tick_label_size: f64,
+    /// Font size of the axis label, in pixels.
+    axis_label_size: f64,
     /// Padding between a tick and its label, in pixels.
-    label_pad: f64,
+    tick_label_pad: f64,
+    /// Padding between tick labels and the axis label, in pixels.
+    axis_label_pad: f64,
     /// Whether to draw grid lines spanning the axes at each tick.
     grid: bool,
 }
@@ -77,7 +81,8 @@ pub struct Axis {
 impl Axis {
     /// Create an axis for `side` with sensible defaults: a [`LinearScale`], an
     /// [`AutoLocator`], a [`ScalarFormatter`], black ink, `tick_length = 3.5`,
-    /// `tick_width = 1.0`, `label_size = 10.0`, `label_pad = 2.0`, and no grid.
+    /// `tick_width = 1.0`, 10px tick/axis labels, matplotlib-like label pads,
+    /// and no grid.
     #[must_use]
     pub fn new(side: AxisSide) -> Self {
         Axis {
@@ -89,8 +94,10 @@ impl Axis {
             color: Rgba::BLACK,
             tick_length: 3.5,
             tick_width: 1.0,
-            label_size: 10.0,
-            label_pad: 2.0,
+            tick_label_size: 10.0,
+            axis_label_size: 10.0,
+            tick_label_pad: 3.5,
+            axis_label_pad: 4.0,
             grid: false,
         }
     }
@@ -162,17 +169,50 @@ impl Axis {
         self
     }
 
-    /// Set the label font size in pixels, returning `self` for chaining.
+    /// Set tick-label and axis-label font sizes in pixels, returning `self`
+    /// for chaining.
     #[must_use]
     pub fn with_label_size(mut self, label_size: f64) -> Self {
-        self.label_size = label_size;
+        self.tick_label_size = label_size;
+        self.axis_label_size = label_size;
+        self
+    }
+
+    /// Set the tick-label font size in pixels, returning `self` for chaining.
+    #[must_use]
+    pub fn with_tick_label_size(mut self, tick_label_size: f64) -> Self {
+        self.tick_label_size = tick_label_size;
+        self
+    }
+
+    /// Set the axis-label font size in pixels, returning `self` for chaining.
+    #[must_use]
+    pub fn with_axis_label_size(mut self, axis_label_size: f64) -> Self {
+        self.axis_label_size = axis_label_size;
+        self
+    }
+
+    /// Set tick-to-label and tick-label-to-axis-label padding in pixels,
+    /// returning `self` for chaining.
+    #[must_use]
+    pub fn with_label_pad(mut self, label_pad: f64) -> Self {
+        self.tick_label_pad = label_pad;
+        self.axis_label_pad = label_pad;
         self
     }
 
     /// Set the tick-to-label padding in pixels, returning `self` for chaining.
     #[must_use]
-    pub fn with_label_pad(mut self, label_pad: f64) -> Self {
-        self.label_pad = label_pad;
+    pub fn with_tick_label_pad(mut self, tick_label_pad: f64) -> Self {
+        self.tick_label_pad = tick_label_pad;
+        self
+    }
+
+    /// Set the tick-label-to-axis-label padding in pixels, returning `self`
+    /// for chaining.
+    #[must_use]
+    pub fn with_axis_label_pad(mut self, axis_label_pad: f64) -> Self {
+        self.axis_label_pad = axis_label_pad;
         self
     }
 
@@ -247,7 +287,7 @@ impl Axis {
         self.draw_spine(renderer, axes_bbox, &stroke_gc);
         self.draw_ticks(renderer, axes_bbox, &ticks, vmin, vmax, &stroke_gc);
         self.draw_tick_labels(renderer, axes_bbox, &ticks, vmin, vmax, font);
-        self.draw_axis_label(renderer, axes_bbox, font);
+        self.draw_axis_label(renderer, axes_bbox, &ticks, font);
     }
 
     /// Stroke the spine along the relevant edge.
@@ -335,9 +375,9 @@ impl Axis {
             if text.is_empty() {
                 continue;
             }
-            let rich = layout_rich_text(font, text, self.label_size);
+            let rich = layout_rich_text(font, text, self.tick_label_size);
             let p = self.data_to_pixel(t, axes_bbox, vmin, vmax);
-            let origin = self.label_origin(axes_bbox, p, rich.width, rich.ascent);
+            let origin = self.tick_label_origin(axes_bbox, p, &rich);
             let shift = Affine2D::from_translation(origin[0], origin[1]);
             for path in &rich.paths {
                 renderer.draw_path(
@@ -351,43 +391,58 @@ impl Axis {
     }
 
     /// Compute the baseline origin `(x, y)` for a tick label centered on the
-    /// tick position `p` and offset out of the axes by `label_pad +
-    /// label_size`.
-    ///
-    /// `text_width` centers the label along the axis; `ascent` is used to
-    /// vertically center horizontal-axis labels about their cap region.
-    fn label_origin(&self, axes_bbox: &Bbox, p: f64, text_width: f64, ascent: f64) -> [f64; 2] {
-        let perp = self.label_pad + self.label_size;
+    /// tick position `p` and offset out of the axes by `tick_label_pad`.
+    fn tick_label_origin(&self, axes_bbox: &Bbox, p: f64, rich: &RichText) -> [f64; 2] {
         match self.side {
             AxisSide::Bottom => {
-                // Below the tick: baseline drops by the tick length + pad +
-                // ascent so the glyph tops clear the spine.
-                let x = p - text_width / 2.0;
-                let y = axes_bbox.ymin() - self.tick_length - perp;
+                let x = p - rich.width / 2.0;
+                let y = axes_bbox.ymin() - self.tick_length - self.tick_label_pad - rich.ascent;
                 [x, y]
             }
             AxisSide::Top => {
-                let x = p - text_width / 2.0;
-                let y = axes_bbox.ymax() + self.tick_length + self.label_pad;
+                let x = p - rich.width / 2.0;
+                let y = axes_bbox.ymax() + self.tick_length + self.tick_label_pad + rich.descent;
                 [x, y]
             }
             AxisSide::Left => {
                 // Left of the tick: right-align the text to the offset point.
-                let x = axes_bbox.xmin() - self.tick_length - self.label_pad - text_width;
-                let y = p - ascent / 2.0;
+                let x = axes_bbox.xmin() - self.tick_length - self.tick_label_pad - rich.width;
+                let y = p - (rich.ascent - rich.descent) / 2.0;
                 [x, y]
             }
             AxisSide::Right => {
-                let x = axes_bbox.xmax() + self.tick_length + self.label_pad;
-                let y = p - ascent / 2.0;
+                let x = axes_bbox.xmax() + self.tick_length + self.tick_label_pad;
+                let y = p - (rich.ascent - rich.descent) / 2.0;
                 [x, y]
             }
         }
     }
 
+    fn tick_label_band_extent(&self, ticks: &[f64], font: &FontSource) -> f64 {
+        self.formatter
+            .format_ticks(ticks)
+            .iter()
+            .filter(|label| !label.is_empty())
+            .map(|label| {
+                let rich = layout_rich_text(font, label, self.tick_label_size);
+                if self.side.is_horizontal() {
+                    rich.ascent + rich.descent
+                } else {
+                    rich.width
+                }
+            })
+            .fold(0.0, f64::max)
+    }
+
     /// Fill the axis label (if any), centered along the axis and offset further
     /// out than the tick labels.
-    fn draw_axis_label(&self, renderer: &mut dyn Renderer, axes_bbox: &Bbox, font: &FontSource) {
+    fn draw_axis_label(
+        &self,
+        renderer: &mut dyn Renderer,
+        axes_bbox: &Bbox,
+        ticks: &[f64],
+        font: &FontSource,
+    ) {
         let Some(label) = &self.label else {
             return;
         };
@@ -395,39 +450,38 @@ impl Axis {
             return;
         }
         let gc = GraphicsContext::new();
-        let rich = layout_rich_text(font, label, self.label_size);
-        let origin = match self.side {
+        let rich = layout_rich_text(font, label, self.axis_label_size);
+        let tick_label_extent = self.tick_label_band_extent(ticks, font);
+        let label_offset =
+            self.tick_length + self.tick_label_pad + tick_label_extent + self.axis_label_pad;
+        let transform = match self.side {
             AxisSide::Bottom => {
-                // Offset beyond the tick labels: tick length + two label rows + pads.
-                let extra = self.tick_length + 2.0 * (self.label_pad + self.label_size);
                 let x = (axes_bbox.xmin() + axes_bbox.xmax()) / 2.0 - rich.width / 2.0;
-                let y = axes_bbox.ymin() - extra;
-                [x, y]
+                let y = axes_bbox.ymin() - label_offset - rich.ascent;
+                Affine2D::from_translation(x, y)
             }
             AxisSide::Top => {
-                let extra = self.tick_length + 2.0 * (self.label_pad + self.label_size);
                 let x = (axes_bbox.xmin() + axes_bbox.xmax()) / 2.0 - rich.width / 2.0;
-                let y = axes_bbox.ymax() + extra;
-                [x, y]
+                let y = axes_bbox.ymax() + label_offset + rich.descent;
+                Affine2D::from_translation(x, y)
             }
             AxisSide::Left => {
-                let extra = self.tick_length + 3.0 * (self.label_pad + self.label_size);
-                let x = axes_bbox.xmin() - extra - rich.width;
-                let y = (axes_bbox.ymin() + axes_bbox.ymax()) / 2.0 - rich.ascent / 2.0;
-                [x, y]
+                let right = axes_bbox.xmin() - label_offset;
+                let x = right - rich.descent;
+                let y = (axes_bbox.ymin() + axes_bbox.ymax()) / 2.0 - rich.width / 2.0;
+                Affine2D::from_rotation_deg(90.0).then(&Affine2D::from_translation(x, y))
             }
             AxisSide::Right => {
-                let extra = self.tick_length + 3.0 * (self.label_pad + self.label_size);
-                let x = axes_bbox.xmax() + extra;
-                let y = (axes_bbox.ymin() + axes_bbox.ymax()) / 2.0 - rich.ascent / 2.0;
-                [x, y]
+                let left = axes_bbox.xmax() + label_offset;
+                let x = left + rich.descent;
+                let y = (axes_bbox.ymin() + axes_bbox.ymax()) / 2.0 + rich.width / 2.0;
+                Affine2D::from_rotation_deg(-90.0).then(&Affine2D::from_translation(x, y))
             }
         };
-        let shift = Affine2D::from_translation(origin[0], origin[1]);
         for path in &rich.paths {
             renderer.draw_path(
                 &gc,
-                &path.transformed(&shift),
+                &path.transformed(&transform),
                 &Affine2D::identity(),
                 Some(self.color),
             );
@@ -446,6 +500,7 @@ mod tests {
     struct CountingRenderer {
         paths: usize,
         verts: Vec<[f64; 2]>,
+        path_bboxes: Vec<(f64, f64, f64, f64)>,
     }
 
     impl Renderer for CountingRenderer {
@@ -457,9 +512,20 @@ mod tests {
             _fill: Option<Rgba>,
         ) {
             self.paths += 1;
+            let mut xmin = f64::INFINITY;
+            let mut xmax = f64::NEG_INFINITY;
+            let mut ymin = f64::INFINITY;
+            let mut ymax = f64::NEG_INFINITY;
             for &[x, y] in path.vertices() {
                 let (tx, ty) = transform.transform_point((x, y));
                 self.verts.push([tx, ty]);
+                xmin = xmin.min(tx);
+                xmax = xmax.max(tx);
+                ymin = ymin.min(ty);
+                ymax = ymax.max(ty);
+            }
+            if xmin.is_finite() {
+                self.path_bboxes.push((xmin, xmax, ymin, ymax));
             }
         }
 
@@ -559,6 +625,54 @@ mod tests {
             r.paths > 2,
             "expected mathtext axis label to add multiple paths, got {}",
             r.paths
+        );
+    }
+
+    #[test]
+    fn left_axis_label_is_rotated_vertically() {
+        let axis = Axis::new(AxisSide::Left)
+            .with_locator(Box::new(NullLocator))
+            .with_label("Voltage");
+        let bbox = Bbox::from_extents(50.0, 50.0, 250.0, 250.0);
+        let font = FontSource::dejavu_sans();
+        let mut r = CountingRenderer::default();
+        axis.draw(&mut r, &bbox, (0.0, 1.0), &font);
+
+        let &(xmin, xmax, ymin, ymax) = r.path_bboxes.last().expect("axis label path");
+        let width = xmax - xmin;
+        let height = ymax - ymin;
+        assert!(
+            height > width * 2.0,
+            "expected rotated vertical label, bbox was width={width}, height={height}"
+        );
+        let center_y = (ymin + ymax) / 2.0;
+        assert!(
+            (center_y - 150.0).abs() < 20.0,
+            "expected ylabel centered on axes, bbox center_y={center_y}"
+        );
+    }
+
+    #[test]
+    fn axis_label_offset_includes_wide_tick_label_band() {
+        let axis = Axis::new(AxisSide::Left)
+            .with_locator(Box::new(FixedLocator::new(vec![1.0])))
+            .with_formatter(Box::new(FixedFormatter::new(vec!["1000000".to_string()])))
+            .with_label("value");
+        let bbox = Bbox::from_extents(50.0, 50.0, 250.0, 250.0);
+        let font = FontSource::dejavu_sans();
+        let mut r = CountingRenderer::default();
+        axis.draw(&mut r, &bbox, (1.0, 1.0), &font);
+
+        let tick_label = r
+            .path_bboxes
+            .iter()
+            .rev()
+            .nth(1)
+            .expect("tick label path before axis label");
+        let axis_label = r.path_bboxes.last().expect("axis label path");
+        assert!(
+            axis_label.1 < tick_label.0,
+            "axis label should sit left of the measured tick-label band: axis={axis_label:?}, tick={tick_label:?}"
         );
     }
 }

@@ -47,6 +47,9 @@ pub(crate) enum ScaleSpec {
     Asinh { linear_width: f64 },
 }
 
+const DEFAULT_TITLE_SIZE: f64 = 12.0;
+const DEFAULT_TITLE_PAD: f64 = 6.0;
+
 impl ScaleSpec {
     fn transform(self, value: f64) -> f64 {
         match self {
@@ -1200,15 +1203,13 @@ impl Axes {
         if let Some(title) = &self.title
             && !title.is_empty()
         {
-            let title_size = 12.0;
-            let pad = 6.0;
-            let rich = layout_rich_text(font, title, title_size);
+            let rich = layout_rich_text(font, title, DEFAULT_TITLE_SIZE);
             let cx = (axes_px.xmin() + axes_px.xmax()) / 2.0;
             let x = cx - rich.width / 2.0;
             // Place the baseline `pad` above the top spine, exactly as the
             // previous single-string path did; the rich paths are in a
             // baseline-relative y-up frame.
-            let y = axes_px.ymax() + pad;
+            let y = axes_px.ymax() + DEFAULT_TITLE_PAD;
             let shift = Affine2D::from_translation(x, y);
             for path in &rich.paths {
                 renderer.draw_path(
