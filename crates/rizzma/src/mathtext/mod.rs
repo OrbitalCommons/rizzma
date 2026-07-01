@@ -9,8 +9,8 @@
 //! Supported in this first pass: ordinary symbols, whitespace glue, `{...}`
 //! groups, superscripts/subscripts, `\frac{...}{...}`, `\binom{...}{...}`,
 //! `\sqrt{...}` and `\sqrt[n]{...}`, `\overline{...}`, `\underline{...}`,
-//! `\boxed{...}`, `\text{...}`, `\operatorname{...}`, common named operators,
-//! `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`,
+//! `\overbrace{...}`, `\underbrace{...}`, `\boxed{...}`, `\text{...}`,
+//! `\operatorname{...}`, common named operators, `\mathbb{...}`/`\mathcal{...}`/`\mathfrak{...}`,
 //! `\substack{...}`,
 //! `\begin{matrix}`/`pmatrix`/`bmatrix`/`cases` environments,
 //! `\left...\right` delimiters, large operators, and a table of common named
@@ -44,6 +44,8 @@ const RADICAL_PAD_EM: f64 = 0.08;
 const RADICAL_RULE_EM: f64 = 0.04;
 const LINE_DECORATION_GAP_EM: f64 = 0.08;
 const LINE_DECORATION_RULE_EM: f64 = 0.04;
+const BRACE_DECORATION_GAP_EM: f64 = 0.08;
+const BRACE_DECORATION_HEIGHT_EM: f64 = 0.22;
 const BOXED_PAD_EM: f64 = 0.16;
 const BOXED_RULE_EM: f64 = 0.04;
 const MATRIX_COL_GAP_EM: f64 = 0.75;
@@ -138,6 +140,13 @@ pub enum MathElement {
         /// Delimiter path in final math-layout coordinates.
         path: Path,
     },
+    /// Horizontal brace geometry for `\overbrace{...}` or `\underbrace{...}`.
+    BraceDecoration {
+        /// Brace decoration kind.
+        kind: BraceDecorationKind,
+        /// Brace path in final math-layout coordinates.
+        path: Path,
+    },
     /// Large operator geometry, such as `\sum` or `\int`.
     LargeOperator {
         /// Operator kind.
@@ -165,6 +174,7 @@ impl MathElement {
             | MathElement::Fraction { path }
             | MathElement::Accent { path, .. }
             | MathElement::Delimiter { path, .. }
+            | MathElement::BraceDecoration { path, .. }
             | MathElement::LargeOperator { path, .. }
             | MathElement::Radical { path } => path,
         }
@@ -200,6 +210,10 @@ impl MathElement {
                 kind: *kind,
                 path: path.transformed(transform),
             },
+            MathElement::BraceDecoration { kind, path } => MathElement::BraceDecoration {
+                kind: *kind,
+                path: path.transformed(transform),
+            },
             MathElement::LargeOperator { kind, path } => MathElement::LargeOperator {
                 kind: *kind,
                 path: path.transformed(transform),
@@ -232,6 +246,15 @@ pub enum AccentKind {
 enum LineDecorationKind {
     Overline,
     Underline,
+}
+
+/// Supported horizontal brace decorations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BraceDecorationKind {
+    /// `\overbrace{x}`.
+    Over,
+    /// `\underbrace{x}`.
+    Under,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -376,6 +399,10 @@ enum Node {
     },
     LineDecoration {
         kind: LineDecorationKind,
+        body: Row,
+    },
+    BraceDecoration {
+        kind: BraceDecorationKind,
         body: Row,
     },
     Boxed {
@@ -606,6 +633,14 @@ impl<'a> Parser<'a> {
             return self.parse_line_decoration(start, name, LineDecorationKind::Underline);
         }
 
+        if name == "overbrace" {
+            return self.parse_brace_decoration(start, name, BraceDecorationKind::Over);
+        }
+
+        if name == "underbrace" {
+            return self.parse_brace_decoration(start, name, BraceDecorationKind::Under);
+        }
+
         if name == "boxed" {
             return self.parse_boxed(start);
         }
@@ -764,6 +799,22 @@ impl<'a> Parser<'a> {
             return Node::Text(format!("\\{command}"));
         };
         self.parse_scripts(Node::LineDecoration { kind, body })
+    }
+
+    fn parse_brace_decoration(
+        &mut self,
+        start: usize,
+        command: &str,
+        kind: BraceDecorationKind,
+    ) -> Node {
+        let Some(body) = self.parse_required_group(
+            start,
+            command,
+            MathTextWarningReason::MissingCommandArgument,
+        ) else {
+            return Node::Text(format!("\\{command}"));
+        };
+        self.parse_scripts(Node::BraceDecoration { kind, body })
     }
 
     fn parse_boxed(&mut self, start: usize) -> Node {
@@ -1265,6 +1316,9 @@ fn layout_node(node: &Node, font: &FontSource, font_size_px: f64) -> LayoutBox {
         Node::LineDecoration { kind, body } => {
             layout_line_decoration(*kind, body, font, font_size_px)
         }
+        Node::BraceDecoration { kind, body } => {
+            layout_brace_decoration(*kind, body, font, font_size_px)
+        }
         Node::Boxed { body } => layout_boxed(body, font, font_size_px),
         Node::Delimited { left, body, right } => {
             layout_delimited(*left, body, *right, font, font_size_px)
@@ -1619,6 +1673,42 @@ fn layout_line_decoration(
     }
 }
 
+fn layout_brace_decoration(
+    kind: BraceDecorationKind,
+    body: &Row,
+    font: &FontSource,
+    font_size_px: f64,
+) -> LayoutBox {
+    let base = layout_row(&body.nodes, font, font_size_px);
+    let gap = font_size_px * BRACE_DECORATION_GAP_EM;
+    let brace_height = (font_size_px * BRACE_DECORATION_HEIGHT_EM).max(1.0);
+    let width = base.width.max(font_size_px * 0.8);
+    let base_x = (width - base.width) / 2.0;
+    let mut elements = shift_elements(base.elements, base_x, 0.0);
+
+    let (brace_y, ascent, descent) = match kind {
+        BraceDecorationKind::Over => {
+            let y = base.ascent + gap;
+            (y, y + brace_height, base.descent)
+        }
+        BraceDecorationKind::Under => {
+            let y = -base.descent - gap;
+            (y, base.ascent, base.descent + gap + brace_height)
+        }
+    };
+    elements.push(MathElement::BraceDecoration {
+        kind,
+        path: brace_decoration_path(kind, 0.0, brace_y, width, brace_height),
+    });
+
+    LayoutBox {
+        elements,
+        width,
+        ascent,
+        descent,
+    }
+}
+
 fn layout_boxed(body: &Row, font: &FontSource, font_size_px: f64) -> LayoutBox {
     let base = layout_row(&body.nodes, font, font_size_px);
     let pad = font_size_px * BOXED_PAD_EM;
@@ -1949,6 +2039,28 @@ fn radical_path(x: f64, bottom_y: f64, width: f64, height: f64, stroke: f64) -> 
     ])
 }
 
+fn brace_decoration_path(
+    kind: BraceDecorationKind,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Path {
+    let sign = match kind {
+        BraceDecorationKind::Over => 1.0,
+        BraceDecorationKind::Under => -1.0,
+    };
+    Path::from_polyline(&[
+        [x, y],
+        [x + width * 0.12, y + sign * height],
+        [x + width * 0.36, y + sign * height],
+        [x + width * 0.5, y],
+        [x + width * 0.64, y + sign * height],
+        [x + width * 0.88, y + sign * height],
+        [x + width, y],
+    ])
+}
+
 fn rect_path(x: f64, y: f64, width: f64, height: f64) -> Path {
     Path::unit_rectangle()
         .transformed(&Affine2D::from_scale(width, height).then(&Affine2D::from_translation(x, y)))
@@ -1967,6 +2079,7 @@ fn flatten_row_text(row: &Row) -> String {
             Node::Matrix { rows, .. } => out.push_str(&flatten_matrix_text(rows)),
             Node::Substack { rows } => out.push_str(&flatten_substack_text(rows)),
             Node::LineDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
+            Node::BraceDecoration { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Boxed { body } => out.push_str(&flatten_row_text(body)),
             Node::Delimited { body, .. } => out.push_str(&flatten_row_text(body)),
             Node::Accent { body, .. } => out.push_str(&flatten_row_text(body)),
@@ -1989,6 +2102,7 @@ fn flatten_node_text(node: &Node) -> String {
         Node::Matrix { rows, .. } => flatten_matrix_text(rows),
         Node::Substack { rows } => flatten_substack_text(rows),
         Node::LineDecoration { body, .. } => flatten_row_text(body),
+        Node::BraceDecoration { body, .. } => flatten_row_text(body),
         Node::Boxed { body } => flatten_row_text(body),
         Node::Delimited { body, .. } => flatten_row_text(body),
         Node::Accent { body, .. } => flatten_row_text(body),
@@ -3237,6 +3351,92 @@ mod tests {
         assert!(decorated.ascent > without_script.ascent);
         assert!(decorated.width > without_script.width);
         assert!(decorated.warnings.is_empty());
+    }
+
+    #[test]
+    fn overbrace_adds_brace_above_body() {
+        let plain = layout_math("xy", &font(), 24.0);
+        let overbrace = layout_math("\\overbrace{xy}", &font(), 24.0);
+        let brace_path = overbrace.elements.iter().find_map(|element| match element {
+            MathElement::BraceDecoration {
+                kind: BraceDecorationKind::Over,
+                path,
+            } => Some(path),
+            _ => None,
+        });
+        let texts: Vec<_> = overbrace
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(texts, vec!["x", "y"]);
+        let brace_path = brace_path.expect("overbrace should emit brace geometry");
+        assert!(brace_path.get_extents().ymin() >= plain.ascent);
+        assert!(overbrace.ascent > plain.ascent);
+        assert_eq!(overbrace.descent, plain.descent);
+        assert_eq!(overbrace.width, plain.width);
+        assert!(overbrace.warnings.is_empty());
+    }
+
+    #[test]
+    fn underbrace_adds_brace_below_body() {
+        let plain = layout_math("xy", &font(), 24.0);
+        let underbrace = layout_math("\\underbrace{xy}", &font(), 24.0);
+        let brace_path = underbrace
+            .elements
+            .iter()
+            .find_map(|element| match element {
+                MathElement::BraceDecoration {
+                    kind: BraceDecorationKind::Under,
+                    path,
+                } => Some(path),
+                _ => None,
+            });
+
+        let brace_path = brace_path.expect("underbrace should emit brace geometry");
+        assert!(brace_path.get_extents().ymax() <= -plain.descent);
+        assert_eq!(underbrace.ascent, plain.ascent);
+        assert!(underbrace.descent > plain.descent);
+        assert_eq!(underbrace.width, plain.width);
+        assert!(underbrace.warnings.is_empty());
+    }
+
+    #[test]
+    fn brace_decorations_can_take_scripts() {
+        let decorated = layout_math("\\underbrace{x}_i", &font(), 24.0);
+        let without_script = layout_math("\\underbrace{x}", &font(), 24.0);
+        let texts: Vec<_> = decorated
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(texts.contains(&"x"));
+        assert!(texts.contains(&"i"));
+        assert!(decorated.descent > without_script.descent);
+        assert!(decorated.width > without_script.width);
+        assert!(decorated.warnings.is_empty());
+    }
+
+    #[test]
+    fn brace_decoration_missing_argument_warns_and_preserves_command() {
+        let layout = layout_math("\\overbrace+x", &font(), 20.0);
+
+        assert_eq!(layout.warnings.len(), 1);
+        assert_eq!(
+            layout.warnings[0].reason,
+            MathTextWarningReason::MissingCommandArgument
+        );
+        assert!(layout.elements.iter().any(
+            |element| matches!(element, MathElement::Glyph { text, .. } if text == "\\overbrace")
+        ));
     }
 
     #[test]
