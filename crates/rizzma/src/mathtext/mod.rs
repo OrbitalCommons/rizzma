@@ -2793,6 +2793,7 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "vartheta" => Some("ϑ"),
         "iota" => Some("ι"),
         "kappa" => Some("κ"),
+        "varkappa" => Some("ϰ"),
         "lambda" => Some("λ"),
         "mu" => Some("μ"),
         "nu" => Some("ν"),
@@ -2811,6 +2812,8 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "chi" => Some("χ"),
         "psi" => Some("ψ"),
         "omega" => Some("ω"),
+        "digamma" => Some("ϝ"),
+        "backepsilon" => Some("϶"),
         "Gamma" => Some("Γ"),
         "Delta" => Some("Δ"),
         "Theta" => Some("Θ"),
@@ -3032,6 +3035,27 @@ mod tests {
             })
             .collect();
         assert_eq!(texts, ["α", "+", "β"]);
+        assert!(layout.warnings.is_empty());
+    }
+
+    #[test]
+    fn greek_variant_aliases_map_to_covered_unicode_glyphs() {
+        let font = font();
+        assert!(font.has_glyph('ϰ'));
+        assert!(font.has_glyph('ϝ'));
+        assert!(font.has_glyph('϶'));
+
+        let layout = layout_math("\\varkappa\\digamma\\backepsilon", &font, 20.0);
+        let text: String = layout
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                MathElement::Glyph { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(text, "ϰϝ϶");
         assert!(layout.warnings.is_empty());
     }
 
