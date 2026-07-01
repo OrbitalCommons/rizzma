@@ -22,6 +22,7 @@
 //! - [`MultipleLocator`] — ticks at integer multiples of a base.
 //! - [`LinearLocator`] — evenly spaced ticks via linspace.
 //! - [`FixedLocator`] — a fixed set of positions (optionally subsampled).
+//! - [`IndexLocator`] — ticks on regularly spaced index positions.
 //! - [`LogLocator`] — logarithmic ticks at powers of a base, optionally with
 //!   subticks.
 //! - [`SymlogLocator`] — symmetric-log ticks with a linear region around zero.
@@ -959,6 +960,66 @@ impl Locator for LogitLocator {
     }
 }
 
+/// Place ticks on regularly spaced index positions.
+///
+/// Port of matplotlib's `IndexLocator`. Ticks are placed at values `offset + n *
+/// base` that fall within the view interval. This is useful for plots whose
+/// data coordinate is the sample index.
+pub struct IndexLocator {
+    base: f64,
+    offset: f64,
+}
+
+impl IndexLocator {
+    /// Create an index locator with positive `base` spacing and additive
+    /// `offset`.
+    ///
+    /// Non-positive or non-finite bases are coerced to `1.0`, matching the
+    /// crate's no-panic locator convention.
+    pub fn new(base: f64, offset: f64) -> Self {
+        IndexLocator {
+            base: if base.is_finite() && base > 0.0 {
+                base
+            } else {
+                1.0
+            },
+            offset,
+        }
+    }
+}
+
+impl Locator for IndexLocator {
+    fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
+        if !vmin.is_finite() || !vmax.is_finite() {
+            return Vec::new();
+        }
+
+        let (lo, hi, reversed) = if vmin <= vmax {
+            (vmin, vmax, false)
+        } else {
+            (vmax, vmin, true)
+        };
+        let first = ((lo - self.offset) / self.base).ceil();
+        let last = ((hi - self.offset) / self.base).floor();
+        if last < first {
+            return Vec::new();
+        }
+
+        let count = (last - first) as usize + 1;
+        let mut ticks: Vec<f64> = (0..count)
+            .map(|i| self.offset + (first + i as f64) * self.base)
+            .collect();
+        if reversed {
+            ticks.reverse();
+        }
+        ticks
+    }
+
+    fn view_limits(&self, dmin: f64, dmax: f64) -> (f64, f64) {
+        nonsingular(dmin, dmax, 0.001, 1e-15, true)
+    }
+}
+
 /// Place no ticks at all.
 ///
 /// Port of matplotlib's `NullLocator`.
@@ -1836,6 +1897,29 @@ mod tests {
         assert!(
             locs.contains(&0.0),
             "expected the zero-containing subset: {locs:?}"
+        );
+    }
+
+    #[test]
+    fn index_locator_uses_base_and_offset() {
+        let locs = IndexLocator::new(2.0, 1.0).tick_values(0.0, 8.0);
+        assert_ticks(&locs, &[1.0, 3.0, 5.0, 7.0]);
+    }
+
+    #[test]
+    fn index_locator_handles_reversed_ranges() {
+        let locs = IndexLocator::new(2.0, 1.0).tick_values(8.0, 0.0);
+        assert_ticks(&locs, &[7.0, 5.0, 3.0, 1.0]);
+    }
+
+    #[test]
+    fn index_locator_guards_invalid_inputs() {
+        let locs = IndexLocator::new(0.0, 0.0).tick_values(0.0, 3.0);
+        assert_ticks(&locs, &[0.0, 1.0, 2.0, 3.0]);
+        assert!(
+            IndexLocator::new(2.0, 0.0)
+                .tick_values(f64::NAN, 3.0)
+                .is_empty()
         );
     }
 
