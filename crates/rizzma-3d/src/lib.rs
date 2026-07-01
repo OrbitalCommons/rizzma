@@ -7,10 +7,11 @@
 //!
 //! What is implemented here: [`Axes3D::plot3d`] (3D polylines),
 //! [`Axes3D::scatter3d`] (projected point markers), [`Axes3D::plot_surface`]
-//! (flat-shaded colormapped surfaces), and the wireframe bounding box, all
-//! depth-sorted with a basic painter's algorithm. Deferred for later cuts:
-//! perspective projection, 3D tick labels, surface lighting/Gouraud shading,
-//! bar3d, and wiring `Axes3D` into `Figure`.
+//! (flat-shaded colormapped surfaces), [`Axes3D::bar3d`] (cuboid bar charts
+//! colored by height), and the wireframe bounding box, all depth-sorted with a
+//! basic painter's algorithm. Deferred for later cuts: perspective projection,
+//! 3D tick labels, surface lighting/Gouraud shading, and wiring `Axes3D` into
+//! `Figure`.
 //!
 //! ```
 //! use rizzma_3d::Axes3D;
@@ -109,6 +110,18 @@ struct Surface3D {
     edge: Rgba,
 }
 
+/// A single cuboid bar drawn with [`Axes3D::bar3d`].
+///
+/// The bar rises from `z = 0` to `height` over a `dx`-by-`dy` footprint whose
+/// near corner is `(x, y)`. Its faces are flat-shaded from `color` (top face) or
+/// a darkened `color` (side faces); each face joins the scene's depth sort as a
+/// [`SurfaceQuad`].
+#[derive(Debug, Clone)]
+struct Bar3D {
+    faces: Vec<SurfaceQuad>,
+    edge: Rgba,
+}
+
 /// An orthographic 3D axes that projects collected `(x, y, z)` data to 2D.
 ///
 /// Data is accumulated in raw coordinates; the data bounds and the `(elev,
@@ -126,6 +139,7 @@ pub struct Axes3D {
     lines: Vec<Line3D>,
     scatters: Vec<Scatter3D>,
     surfaces: Vec<Surface3D>,
+    bars: Vec<Bar3D>,
     /// Color cycle index for the next auto-colored artist.
     cycle: usize,
 }
@@ -145,6 +159,13 @@ const BOX_COLOR: Rgba = Rgba::new(0.7, 0.7, 0.7, 1.0);
 /// Thin dark gray edge stroked around each surface quad so the mesh reads.
 const SURFACE_EDGE_COLOR: Rgba = Rgba::new(0.15, 0.15, 0.15, 0.55);
 
+/// Thin dark edge stroked around each bar face so the cuboid form reads.
+const BAR_EDGE_COLOR: Rgba = Rgba::new(0.1, 0.1, 0.1, 0.8);
+
+/// Multiplier applied to a bar's base color on its side faces so the vertical
+/// faces read as darker than the top face and the 3D form is legible.
+const BAR_SIDE_SHADE: f64 = 0.72;
+
 /// Fractional pixel margin reserved around the projected cube on every side.
 const MARGIN_FRAC: f64 = 0.12;
 
@@ -161,6 +182,7 @@ impl Axes3D {
             lines: Vec::new(),
             scatters: Vec::new(),
             surfaces: Vec::new(),
+            bars: Vec::new(),
             cycle: 0,
         }
     }
@@ -299,6 +321,58 @@ impl Axes3D {
         self
     }
 
+    /// Add a set of 3D bars (a cuboid bar chart).
+    ///
+    /// Each `(x[i], y[i])` is the near base corner of a bar that rises from
+    /// `z = 0` to `z[i]` over a `dx`-by-`dy` footprint. Every bar is built as a
+    /// rectangular box (cuboid) whose faces are emitted as filled quads that join
+    /// the rest of the scene in the painter's-algorithm depth sort, so nearer
+    /// faces correctly occlude farther ones. Each bar is colored by its height
+    /// `z[i]` through a [`viridis`] colormap (top face at the base color, side
+    /// faces a fixed darker shade) with thin dark edges so the 3D form reads.
+    ///
+    /// Only the common prefix length is used when the slices differ in length;
+    /// empty input adds nothing and never panics.
+    pub fn bar3d(&mut self, x: &[f64], y: &[f64], z: &[f64], dx: f64, dy: f64) -> &mut Self {
+        let n = x.len().min(y.len()).min(z.len());
+        if n == 0 {
+            return self;
+        }
+
+        // Height extent drives both the bounds expansion and the color norm.
+        let mut zmin = f64::INFINITY;
+        let mut zmax = f64::NEG_INFINITY;
+        for &v in z.iter().take(n) {
+            if v.is_finite() {
+                zmin = zmin.min(v);
+                zmax = zmax.max(v);
+            }
+        }
+
+        // Expand bounds over every bar's footprint and its full height (from 0).
+        for i in 0..n {
+            self.xr.expand(x[i]);
+            self.xr.expand(x[i] + dx);
+            self.yr.expand(y[i]);
+            self.yr.expand(y[i] + dy);
+            self.zr.expand(0.0);
+            self.zr.expand(z[i]);
+        }
+
+        let norm = LinearNorm::new(zmin, zmax);
+        let cmap = viridis();
+
+        for i in 0..n {
+            let base = cmap.sample(norm.normalize(z[i]));
+            let faces = bar_faces([x[i], y[i]], [dx, dy], z[i], base);
+            self.bars.push(Bar3D {
+                faces,
+                edge: BAR_EDGE_COLOR,
+            });
+        }
+        self
+    }
+
     /// Normalize a raw `(x, y, z)` point into the unit cube centered on the
     /// origin (each coordinate roughly in `[-0.5, 0.5]`).
     fn normalize(&self, x: f64, y: f64, z: f64) -> (f64, f64, f64) {
@@ -391,6 +465,27 @@ impl Axes3D {
                         points: projected,
                         fill: quad.color,
                         edge: surface.edge,
+                    },
+                });
+            }
+        }
+
+        for bar in &self.bars {
+            for face in &bar.faces {
+                let mut projected = [[0.0; 2]; 4];
+                let mut depth = 0.0;
+                for (k, c) in face.corners.iter().enumerate() {
+                    let (px, py, d) = self.project(c[0], c[1], c[2], width, height);
+                    projected[k] = [px, py];
+                    depth += d;
+                }
+                depth *= 0.25;
+                items.push(Drawable {
+                    depth,
+                    kind: DrawKind::Quad {
+                        points: projected,
+                        fill: face.color,
+                        edge: bar.edge,
                     },
                 });
             }
@@ -553,6 +648,61 @@ enum DrawKind {
         color: Rgba,
         size: f64,
     },
+}
+
+/// Darken `c` toward black by `factor` (per RGB channel, alpha preserved).
+fn shade(c: Rgba, factor: f64) -> Rgba {
+    Rgba::new(c.r * factor, c.g * factor, c.b * factor, c.a)
+}
+
+/// Build the six faces of a bar's cuboid as flat-shaded [`SurfaceQuad`]s.
+///
+/// The box spans `(base.x, base.y, 0)` to `(base.x + d.x, base.y + d.y, height)`.
+/// The top face takes `color`; the four side faces and the bottom take a fixed
+/// darker shade so the vertical form reads. Each quad's corners are wound so the
+/// polygon is a simple rectangle in 3D; depth sorting resolves occlusion.
+fn bar_faces(base: [f64; 2], d: [f64; 2], height: f64, color: Rgba) -> Vec<SurfaceQuad> {
+    let x0 = base[0];
+    let y0 = base[1];
+    let x1 = base[0] + d[0];
+    let y1 = base[1] + d[1];
+    let z0 = 0.0;
+    let z1 = height;
+
+    let side = shade(color, BAR_SIDE_SHADE);
+
+    vec![
+        // Bottom (z = z0), shaded like a side face.
+        SurfaceQuad {
+            corners: [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]],
+            color: side,
+        },
+        // Top (z = z1), base color.
+        SurfaceQuad {
+            corners: [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+            color,
+        },
+        // Front (y = y0).
+        SurfaceQuad {
+            corners: [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]],
+            color: side,
+        },
+        // Back (y = y1).
+        SurfaceQuad {
+            corners: [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]],
+            color: side,
+        },
+        // Left (x = x0).
+        SurfaceQuad {
+            corners: [[x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]],
+            color: side,
+        },
+        // Right (x = x1).
+        SurfaceQuad {
+            corners: [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]],
+            color: side,
+        },
+    ]
 }
 
 /// The 12 edges of the data cube as raw `(from, to)` corner pairs.
@@ -768,6 +918,103 @@ mod tests {
         let (x, y, z) = ramp_surface(6, 6);
         let mut ax = Axes3D::new();
         ax.plot_surface(&x, &y, &z);
+        let r = ax.render_png(128, 128, 72.0);
+        assert_eq!(r.pixmap().width(), 128);
+    }
+
+    /// `bar3d` with `n` bars emits `6 * n` quad faces (six per cuboid).
+    #[test]
+    fn bar3d_emits_six_faces_per_bar() {
+        let mut ax = Axes3D::new();
+        ax.bar3d(
+            &[0.0, 2.0, 4.0],
+            &[0.0, 0.0, 0.0],
+            &[1.0, 2.0, 3.0],
+            1.0,
+            1.0,
+        );
+        assert_eq!(ax.bars.len(), 3);
+        assert_eq!(quad_count(&ax), 6 * 3);
+    }
+
+    /// A taller bar's top-face vertices project higher on screen. `project` uses
+    /// the matplotlib y-up convention (origin bottom-left, `py` growing upward),
+    /// so a greater height maps to a *larger* `py`.
+    #[test]
+    fn taller_bar_top_projects_higher() {
+        let mut ax = Axes3D::new();
+        // Two bars sharing a footprint origin but different heights.
+        ax.bar3d(&[0.0, 0.0], &[0.0, 0.0], &[1.0, 5.0], 1.0, 1.0);
+        // Top face near-corner of the short vs. tall bar.
+        let (_, py_short, _) = ax.project(0.0, 0.0, 1.0, W, H);
+        let (_, py_tall, _) = ax.project(0.0, 0.0, 5.0, W, H);
+        assert!(
+            py_tall > py_short,
+            "taller bar top should project higher (larger py in y-up): {py_tall} vs {py_short}"
+        );
+    }
+
+    /// Empty and ragged-to-empty input adds nothing and never panics.
+    #[test]
+    fn bar3d_rejects_empty_input() {
+        let mut ax = Axes3D::new();
+        ax.bar3d(&[], &[], &[], 1.0, 1.0);
+        // Ragged where one slice is empty -> common prefix length 0.
+        ax.bar3d(&[1.0, 2.0], &[], &[3.0], 1.0, 1.0);
+        assert!(ax.bars.is_empty());
+        assert_eq!(quad_count(&ax), 0);
+        let _ = ax.render_png(32, 32, 72.0);
+    }
+
+    /// `bar3d` widens the data bounds over each bar's footprint and full height,
+    /// always including `z = 0` as the floor.
+    #[test]
+    fn bar3d_expands_bounds_over_footprint_and_height() {
+        let mut ax = Axes3D::new();
+        ax.bar3d(&[2.0], &[3.0], &[5.0], 0.5, 0.75);
+        assert_eq!((ax.xr.min, ax.xr.max), (2.0, 2.5));
+        assert_eq!((ax.yr.min, ax.yr.max), (3.0, 3.75));
+        assert_eq!((ax.zr.min, ax.zr.max), (0.0, 5.0));
+    }
+
+    /// Bars of different height receive different viridis colors.
+    #[test]
+    fn bar3d_colors_by_height() {
+        let mut ax = Axes3D::new();
+        ax.bar3d(&[0.0, 2.0], &[0.0, 0.0], &[1.0, 9.0], 1.0, 1.0);
+        // Top face is the second quad emitted per bar (index 1 in bar_faces).
+        let short_top = ax.bars[0].faces[1].color;
+        let tall_top = ax.bars[1].faces[1].color;
+        assert!(
+            (short_top.r - tall_top.r).abs()
+                + (short_top.g - tall_top.g).abs()
+                + (short_top.b - tall_top.b).abs()
+                > 1e-3,
+            "bars of different height should differ in color: {short_top:?} vs {tall_top:?}"
+        );
+    }
+
+    /// Side faces of a bar are darker than its top face.
+    #[test]
+    fn bar3d_side_faces_darker_than_top() {
+        let mut ax = Axes3D::new();
+        ax.bar3d(&[0.0], &[0.0], &[3.0], 1.0, 1.0);
+        let top = ax.bars[0].faces[1].color;
+        let front = ax.bars[0].faces[2].color;
+        assert!(front.r < top.r && front.g < top.g && front.b < top.b);
+    }
+
+    /// A bar chart renders without panicking.
+    #[test]
+    fn bar3d_renders() {
+        let mut ax = Axes3D::new();
+        ax.bar3d(
+            &[0.0, 1.0, 2.0],
+            &[0.0, 1.0, 2.0],
+            &[1.0, 3.0, 2.0],
+            0.8,
+            0.8,
+        );
         let r = ax.render_png(128, 128, 72.0);
         assert_eq!(r.pixmap().width(), 128);
     }
