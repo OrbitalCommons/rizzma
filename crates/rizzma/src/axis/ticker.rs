@@ -48,6 +48,7 @@
 //! - [`FixedFormatter`] — fixed strings indexed by position.
 //! - [`IndexFormatter`] — fixed strings indexed by rounded tick value.
 //! - [`FuncFormatter`] — a user-supplied boxed closure.
+//! - [`FormatStrFormatter`] — a `%`-style numeric format string.
 //! - [`StrMethodFormatter`] — a `{x}`/`{pos}` template string.
 
 /// Determine tick locations for an axis.
@@ -1887,6 +1888,217 @@ impl Formatter for FuncFormatter {
     }
 }
 
+/// Format ticks with an old-style `%` numeric format string.
+///
+/// This is a small, deterministic subset of matplotlib's
+/// `FormatStrFormatter`: the first numeric conversion in the template receives
+/// the tick value, `%%` escapes a literal percent sign, and surrounding text is
+/// preserved. Supported conversion types are `f`, `e`, `E`, `g`, and `G`, with
+/// optional sign, zero-padding, left-alignment, width, and precision.
+pub struct FormatStrFormatter {
+    fmt: String,
+}
+
+impl FormatStrFormatter {
+    /// Create a formatter from a `%`-style template.
+    pub fn new(fmt: impl Into<String>) -> Self {
+        FormatStrFormatter { fmt: fmt.into() }
+    }
+}
+
+impl Formatter for FormatStrFormatter {
+    fn format(&self, value: f64, _pos: Option<usize>) -> String {
+        format_percent_template(&self.fmt, value)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct PercentSpec {
+    left_align: bool,
+    sign_plus: bool,
+    sign_space: bool,
+    zero_pad: bool,
+    width: Option<usize>,
+    precision: Option<usize>,
+    conversion: char,
+}
+
+fn format_percent_template(fmt: &str, value: f64) -> String {
+    let mut out = String::new();
+    let mut chars = fmt.char_indices().peekable();
+    let mut formatted_value = false;
+
+    while let Some((_, ch)) = chars.next() {
+        if ch != '%' {
+            out.push(ch);
+            continue;
+        }
+
+        if matches!(chars.peek(), Some((_, '%'))) {
+            chars.next();
+            out.push('%');
+            continue;
+        }
+
+        if formatted_value {
+            out.push('%');
+            continue;
+        }
+
+        let (spec, raw) = parse_percent_spec(&mut chars);
+        if let Some(spec) = spec {
+            out.push_str(&format_percent_value(value, spec));
+            formatted_value = true;
+        } else {
+            out.push('%');
+            out.push_str(&raw);
+        }
+    }
+
+    out
+}
+
+fn parse_percent_spec<I>(chars: &mut std::iter::Peekable<I>) -> (Option<PercentSpec>, String)
+where
+    I: Iterator<Item = (usize, char)>,
+{
+    let mut raw = String::new();
+    let mut spec = PercentSpec::default();
+
+    while let Some(&(_, ch)) = chars.peek() {
+        match ch {
+            '-' => spec.left_align = true,
+            '+' => spec.sign_plus = true,
+            ' ' => spec.sign_space = true,
+            '0' => spec.zero_pad = true,
+            '#' => {}
+            _ => break,
+        }
+        raw.push(ch);
+        chars.next();
+    }
+
+    let mut width = String::new();
+    while let Some(&(_, ch)) = chars.peek() {
+        if !ch.is_ascii_digit() {
+            break;
+        }
+        width.push(ch);
+        raw.push(ch);
+        chars.next();
+    }
+    if !width.is_empty() {
+        spec.width = width.parse().ok();
+    }
+
+    if matches!(chars.peek(), Some((_, '.'))) {
+        raw.push('.');
+        chars.next();
+        let mut precision = String::new();
+        while let Some(&(_, ch)) = chars.peek() {
+            if !ch.is_ascii_digit() {
+                break;
+            }
+            precision.push(ch);
+            raw.push(ch);
+            chars.next();
+        }
+        spec.precision = Some(precision.parse().unwrap_or(0));
+    }
+
+    let Some((_, conversion)) = chars.next() else {
+        return (None, raw);
+    };
+    raw.push(conversion);
+    if matches!(conversion, 'f' | 'e' | 'E' | 'g' | 'G') {
+        spec.conversion = conversion;
+        (Some(spec), raw)
+    } else {
+        (None, raw)
+    }
+}
+
+fn format_percent_value(value: f64, spec: PercentSpec) -> String {
+    let precision = spec.precision.unwrap_or(6);
+    let mut rendered = match spec.conversion {
+        'f' => format!("{value:.precision$}"),
+        'e' => format!("{value:.precision$e}"),
+        'E' => format!("{value:.precision$E}"),
+        'g' => format_general(value, precision, false),
+        'G' => format_general(value, precision, true),
+        _ => value.to_string(),
+    };
+
+    if value >= 0.0 && spec.sign_plus {
+        rendered.insert(0, '+');
+    } else if value >= 0.0 && spec.sign_space {
+        rendered.insert(0, ' ');
+    }
+
+    let Some(width) = spec.width else {
+        return rendered;
+    };
+    if rendered.len() >= width {
+        return rendered;
+    }
+
+    let pad_len = width - rendered.len();
+    if spec.left_align {
+        rendered.push_str(&" ".repeat(pad_len));
+    } else if spec.zero_pad {
+        let sign_len = usize::from(rendered.starts_with(['-', '+', ' ']));
+        rendered.insert_str(sign_len, &"0".repeat(pad_len));
+    } else {
+        rendered.insert_str(0, &" ".repeat(pad_len));
+    }
+    rendered
+}
+
+fn format_general(value: f64, precision: usize, uppercase: bool) -> String {
+    if value == 0.0 {
+        return "0".to_owned();
+    }
+
+    let precision = precision.max(1);
+    let abs = value.abs();
+    let exponent = abs.log10().floor() as i32;
+    let mut rendered = if exponent < -4 || exponent >= precision as i32 {
+        let exp_precision = precision.saturating_sub(1);
+        if uppercase {
+            format!("{value:.exp_precision$E}")
+        } else {
+            format!("{value:.exp_precision$e}")
+        }
+    } else {
+        let decimals = (precision as i32 - exponent - 1).max(0) as usize;
+        format!("{value:.decimals$}")
+    };
+
+    if let Some(exp_pos) = rendered.find(['e', 'E']) {
+        let (mantissa, exponent_part) = rendered.split_at(exp_pos);
+        let mantissa = trim_decimal_zeros(mantissa);
+        rendered = format!("{mantissa}{exponent_part}");
+    } else {
+        rendered = trim_decimal_zeros(&rendered);
+    }
+    rendered
+}
+
+fn trim_decimal_zeros(value: &str) -> String {
+    if let Some(dot) = value.find('.') {
+        let mut end = value.len();
+        while end > dot + 1 && value.as_bytes()[end - 1] == b'0' {
+            end -= 1;
+        }
+        if end == dot + 1 {
+            end -= 1;
+        }
+        value[..end].to_owned()
+    } else {
+        value.to_owned()
+    }
+}
+
 /// Format ticks with a `{x}` / `{pos}` template string.
 ///
 /// Port of matplotlib's `StrMethodFormatter`, restricted to plain
@@ -2436,6 +2648,37 @@ mod tests {
     fn func_formatter_closure() {
         let f = FuncFormatter::new(Box::new(|x, _| format!("{x:.0} km")));
         assert_eq!(f.format(10.0, None), "10 km");
+    }
+
+    #[test]
+    fn format_str_formatter_fixed_and_escaped_percent() {
+        let f = FormatStrFormatter::new("x=%+.2f%%");
+
+        assert_eq!(f.format(1.234, None), "x=+1.23%");
+        assert_eq!(f.format(-1.234, None), "x=-1.23%");
+    }
+
+    #[test]
+    fn format_str_formatter_width_zero_pad_and_exp() {
+        let f = FormatStrFormatter::new("%08.1e");
+
+        assert_eq!(f.format(12.0, None), "0001.2e1");
+    }
+
+    #[test]
+    fn format_str_formatter_general_trims_decimal_zeros() {
+        let f = FormatStrFormatter::new("%g");
+        let upper = FormatStrFormatter::new("%.3G");
+
+        assert_eq!(f.format(12.300, None), "12.3");
+        assert_eq!(upper.format(12345.0, None), "1.23E4");
+    }
+
+    #[test]
+    fn format_str_formatter_unsupported_spec_is_preserved() {
+        let f = FormatStrFormatter::new("x=%q");
+
+        assert_eq!(f.format(3.0, None), "x=%q");
     }
 
     #[test]
