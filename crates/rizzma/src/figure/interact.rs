@@ -38,6 +38,9 @@ pub enum Outcome {
     },
 }
 
+/// One axes' explicit `(xlim, ylim)` limit pairs.
+type AxesLimits = ((f64, f64), (f64, f64));
+
 /// An in-progress left-button pan drag.
 #[derive(Clone, Copy)]
 struct Drag {
@@ -54,7 +57,7 @@ pub struct Interactor {
     fig: Figure,
     /// Per-axes `(xlim, ylim)` captured before the first limit-changing
     /// interaction, restored by double-click.
-    home: Option<Vec<((f64, f64), (f64, f64))>>,
+    home: Option<Vec<AxesLimits>>,
     /// The active pan drag, if any.
     drag: Option<Drag>,
 }
