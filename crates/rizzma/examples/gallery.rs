@@ -1,5 +1,6 @@
 //! Renders one figure per Tier-1 plot type into `target/gallery_*.png`.
-//! A quick visual catalogue of what rizzma can draw today.
+//! A quick visual catalogue of what rizzma can draw today — each case sticks
+//! to its plot type but plots something worth looking at.
 
 use std::f64::consts::{PI, TAU};
 
@@ -23,366 +24,478 @@ fn date_num(year: i32, month: u32, day: u32) -> f64 {
     )
 }
 
+/// Deterministic xorshift64* uniform in [0, 1) so the gallery is reproducible.
+fn rng(seed: u64) -> impl FnMut() -> f64 {
+    let mut s = seed;
+    move || {
+        s ^= s >> 12;
+        s ^= s << 25;
+        s ^= s >> 27;
+        ((s.wrapping_mul(0x2545F4914F6CDD1D) >> 11) as f64) / ((1u64 << 53) as f64)
+    }
+}
+
+/// The first three colors of the default (tab10) prop cycle, for legends that
+/// annotate cycle-colored artists.
+fn c(i: usize) -> Rgba {
+    let hexes = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"];
+    Rgba::from_hex(hexes[i]).expect("cycle hex is valid")
+}
+
 fn main() {
-    // 1. plot (line)
+    // 1. plot (line) — two close frequencies beating against each other.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let x = linspace(0.0, TAU, 200);
-        let y: Vec<f64> = x.iter().map(|v| v.sin()).collect();
+        let x = linspace(0.0, 8.0 * TAU, 900);
+        let y: Vec<f64> = x
+            .iter()
+            .map(|t| (3.0 * t).sin() + (3.35 * t).sin())
+            .collect();
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.plot(&x, &y);
-        ax.set_title("plot");
-        ax.set_xlabel("x");
-        ax.set_ylabel("sin(x)");
+        ax.set_title("beats: two guitar strings, 5% out of tune");
+        ax.set_xlabel("time (s)");
+        ax.set_ylabel("amplitude");
         fig.save_png("target/gallery_plot.png").unwrap();
     }
 
-    // 2. scatter (colormapped)
+    // 2. scatter (colormapped) — a two-armed spiral galaxy with star jitter.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let t = linspace(0.0, 6.0 * PI, 240);
-        let x: Vec<f64> = t.iter().map(|a| a * a.cos()).collect();
-        let y: Vec<f64> = t.iter().map(|a| a * a.sin()).collect();
+        let mut noise = rng(0xBADC0FFEE0DDF00D);
+        let (mut x, mut y, mut t) = (Vec::new(), Vec::new(), Vec::new());
+        for arm in 0..2 {
+            let phase = arm as f64 * PI;
+            for i in 0..160 {
+                let a = i as f64 / 159.0 * 1.6 * TAU;
+                let r = 0.55 * a + 0.35;
+                let spread = 0.12 + 0.06 * a;
+                let jx = (noise() - 0.5) * spread;
+                let jy = (noise() - 0.5) * spread;
+                x.push(r * (a + phase).cos() + jx);
+                y.push(r * (a + phase).sin() + jy);
+                t.push(a);
+            }
+        }
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.scatter_mapped(&x, &y, &t, "viridis");
-        ax.set_title("scatter");
+        ax.set_title("a tidy little galaxy (color = arm distance)");
         fig.save_png("target/gallery_scatter.png").unwrap();
     }
 
-    // 3. bar
+    // 3. bar — commit activity by hour, featuring the infamous 2am spike.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let x = [0.0, 1.0, 2.0, 3.0, 4.0];
-        let h = [3.0, 7.0, 2.0, 5.0, 4.0];
+        let x: Vec<f64> = (0..24).map(|h| h as f64).collect();
+        let h: Vec<f64> = (0..24)
+            .map(|hr| {
+                let hr = hr as f64;
+                let day = 22.0 * (-((hr - 10.5) / 2.6).powi(2)).exp();
+                let evening = 9.0 * (-((hr - 15.5) / 2.0).powi(2)).exp();
+                let two_am = 13.0 * (-((hr - 2.0) / 1.1).powi(2)).exp();
+                1.0 + day + evening + two_am
+            })
+            .collect();
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.bar(&x, &h);
-        ax.set_title("bar");
+        ax.set_title("commits by hour of day (note the 2am spike)");
+        ax.set_xlabel("hour");
+        ax.set_ylabel("commits");
         fig.save_png("target/gallery_bar.png").unwrap();
     }
 
-    // 4. barh
+    // 4. barh — coffee consumed per release candidate.
     {
         let mut fig = Figure::new(5.0, 3.5);
         let y = [0.0, 1.0, 2.0, 3.0];
-        let w = [2.0, 5.0, 3.0, 6.0];
+        let w = [2.0, 5.0, 9.0, 14.0];
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.barh(&y, &w);
-        ax.set_title("barh");
+        ax.set_title("coffee per release candidate (rows are rc1…rc4)");
+        ax.set_xlabel("cups");
         fig.save_png("target/gallery_barh.png").unwrap();
     }
 
-    // 5. hist
+    // 5. hist — minutes to find a missing semicolon: short mode, long tail.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let mut seed = 0x2545F4914F6CDD1Du64;
-        let mut next = || {
-            // xorshift64* → uniform in [0,1)
-            seed ^= seed >> 12;
-            seed ^= seed << 25;
-            seed ^= seed >> 27;
-            ((seed.wrapping_mul(0x2545F4914F6CDD1D) >> 11) as f64) / ((1u64 << 53) as f64)
-        };
-        // Two clusters (sum-of-uniforms ≈ gaussian).
+        let mut next = rng(0x2545F4914F6CDD1D);
         let mut data = Vec::new();
-        for _ in 0..240 {
-            let g = (next() + next() + next() + next()) / 4.0;
-            data.push(g * 2.0 - 1.5);
+        for _ in 0..380 {
+            // Exponential bulk: most are found fast…
+            let minutes = -(1.0 - next()).ln() * 4.0;
+            data.push(minutes.min(30.0));
         }
-        for _ in 0..160 {
-            let g = (next() + next() + next() + next()) / 4.0;
-            data.push(g * 2.0 + 1.0);
+        for _ in 0..20 {
+            // …and a haunted few take most of an hour.
+            data.push(35.0 + next() * 20.0);
         }
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
-        ax.hist(&data, 24);
-        ax.set_title("hist");
+        ax.hist(&data, 28);
+        ax.set_title("minutes to find the missing semicolon");
+        ax.set_xlabel("minutes");
+        ax.set_ylabel("incidents");
         fig.save_png("target/gallery_hist.png").unwrap();
     }
 
-    // 6. fill_between
+    // 6. fill_between — a year of daily temperature range.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let x = linspace(0.0, TAU, 120);
-        let y1: Vec<f64> = x.iter().map(|v| v.sin()).collect();
-        let y2: Vec<f64> = x.iter().map(|v| 0.3 * (2.0 * v).sin()).collect();
+        let mut wob = rng(0xC1DA7E5);
+        let x = linspace(0.0, 12.0, 200);
+        // Seasonal swing peaking mid-year (July ≈ month 6.5).
+        let lo: Vec<f64> = x
+            .iter()
+            .map(|m| 3.0 - 9.0 * ((m - 6.5) / 12.0 * TAU).cos() + (wob() - 0.5) * 1.6)
+            .collect();
+        let hi: Vec<f64> = lo
+            .iter()
+            .zip(&x)
+            .map(|(&l, &m)| l + 6.0 + 2.5 * ((m / 12.0) * TAU).sin().abs() + (wob() - 0.5) * 1.6)
+            .collect();
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
-        ax.fill_between(&x, &y1, &y2);
-        ax.plot(&x, &y1);
-        ax.plot(&x, &y2);
-        ax.set_title("fill_between");
+        ax.fill_between(&x, &lo, &hi);
+        ax.plot(&x, &lo);
+        ax.plot(&x, &hi);
+        ax.set_title("daily temperature range over a year");
+        ax.set_xlabel("month");
+        ax.set_ylabel("°C");
         fig.save_png("target/gallery_fill_between.png").unwrap();
     }
 
-    // 7. step
+    // 7. step — the office thermostat wars, hour by hour.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let x = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
-        let y = [1.0, 3.0, 2.0, 4.0, 3.0, 5.0, 2.0, 4.0];
+        let x: Vec<f64> = (0..12).map(|h| h as f64).collect();
+        let y = [
+            21.0, 24.0, 20.0, 24.5, 19.5, 25.0, 19.0, 25.5, 18.5, 26.0, 22.0, 22.0,
+        ];
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.step(&x, &y);
-        ax.set_title("step");
+        ax.set_title("the thermostat wars (each step is a passive-aggressive adjustment)");
+        ax.set_xlabel("hour");
+        ax.set_ylabel("setpoint (°C)");
         fig.save_png("target/gallery_step.png").unwrap();
     }
 
-    // 8. errorbar
+    // 8. errorbar — measuring g with rising caffeine levels.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let x = linspace(0.0, 10.0, 10);
-        let y: Vec<f64> = x.iter().map(|v| v.sin()).collect();
-        let yerr: Vec<f64> = x.iter().map(|v| 0.1 + 0.1 * v.cos().abs()).collect();
+        let mut jit = rng(0xDECAF);
+        let x = linspace(0.0, 9.0, 10);
+        let y: Vec<f64> = x
+            .iter()
+            .map(|&cups| 9.81 + (jit() - 0.5) * 0.05 * (1.0 + cups * 0.6))
+            .collect();
+        let yerr: Vec<f64> = x.iter().map(|&cups| 0.05 + 0.05 * cups).collect();
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.axhline(9.81);
         ax.errorbar(&x, &y, &yerr);
-        ax.set_title("errorbar");
+        ax.set_title("measuring g vs. coffee intake");
+        ax.set_xlabel("cups of coffee");
+        ax.set_ylabel("g (m/s²)");
         fig.save_png("target/gallery_errorbar.png").unwrap();
     }
 
-    // 9. reference lines & spans
+    // 9. reference lines & spans — an operating envelope, and you.
     {
         let mut fig = Figure::new(5.0, 3.5);
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.set_xlim(0.0, 10.0);
         ax.set_ylim(0.0, 10.0);
-        ax.axhspan(1.0, 2.0);
-        ax.axvspan(7.5, 8.5);
-        ax.axhline(5.0);
-        ax.axvline(3.0);
-        ax.hlines(&[8.0], 1.0, 9.0);
-        ax.vlines(&[6.0], 1.0, 9.0);
-        ax.set_title("axhline / axvline / spans / hlines / vlines");
+        ax.axhspan(0.0, 1.5); // too-cold band
+        ax.axvspan(8.0, 10.0); // over-pressure band
+        ax.axhline(8.5); // temperature ceiling
+        ax.axvline(1.0); // minimum pressure
+        ax.hlines(&[5.0], 1.0, 8.0); // nominal temperature
+        ax.vlines(&[4.5], 1.5, 8.5); // nominal pressure
+        ax.scatter(&[4.6], &[5.2]); // you are here
+        ax.set_title("operating envelope — the dot is doing fine");
+        ax.set_xlabel("pressure");
+        ax.set_ylabel("temperature");
         fig.save_png("target/gallery_reflines.png").unwrap();
     }
 
-    // 10. imshow
+    // 10. imshow — two-source interference fringes.
     {
         let mut fig = Figure::new(5.0, 3.8);
         let (nr, nc) = (80usize, 100usize);
         let mut data = vec![0.0; nr * nc];
         for r in 0..nr {
-            for c in 0..nc {
-                let yy = (r as f64 / nr as f64 - 0.5) * 12.0;
-                let xx = (c as f64 / nc as f64 - 0.5) * 12.0;
-                data[r * nc + c] = (xx * xx + yy * yy).sqrt().sin();
+            for col in 0..nc {
+                let yy = (r as f64 / nr as f64 - 0.5) * 14.0;
+                let xx = (col as f64 / nc as f64 - 0.5) * 14.0;
+                let r1 = ((xx + 3.0).powi(2) + yy * yy).sqrt();
+                let r2 = ((xx - 3.0).powi(2) + yy * yy).sqrt();
+                data[r * nc + col] = (r1 * 1.8).sin() + (r2 * 1.8).sin();
             }
         }
         let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
         ax.imshow(&data, nr, nc);
-        ax.set_title("imshow");
+        ax.set_title("two-source interference");
         fig.save_png("target/gallery_imshow.png").unwrap();
     }
 
-    // 11. legend + colorbar
+    // 11. legend + colorbar — predator–prey cycles, a quarter out of phase.
     {
         let mut fig = Figure::new(6.0, 4.0);
-        let x = linspace(0.0, TAU, 200);
-        let s: Vec<f64> = x.iter().map(|v| v.sin()).collect();
-        let c: Vec<f64> = x.iter().map(|v| v.cos()).collect();
+        let x = linspace(0.0, 24.0, 400);
+        let hares: Vec<f64> = x
+            .iter()
+            .map(|t| 3.2 + 2.2 * (t * TAU / 10.0).sin() * (1.0 + 0.15 * (t / 6.0).sin()))
+            .collect();
+        let lynxes: Vec<f64> = x
+            .iter()
+            .map(|t| 2.4 + 1.5 * ((t - 2.5) * TAU / 10.0).sin())
+            .collect();
         {
             let ax = fig.add_axes(0.12, 0.13, 0.72, 0.76);
-            ax.plot(&x, &s);
-            ax.plot(&x, &c);
+            ax.plot(&x, &hares);
+            ax.plot(&x, &lynxes);
             ax.legend(vec![
-                (Rgba::from_hex("#1f77b4").unwrap(), "sin(x)".into()),
-                (Rgba::from_hex("#ff7f0e").unwrap(), "cos(x)".into()),
+                (c(0), "hares (k)".into()),
+                (c(1), "lynxes (k)".into()),
             ]);
-            ax.set_title("legend + colorbar");
+            ax.set_title("predator–prey cycles");
+            ax.set_xlabel("year");
+            ax.set_ylabel("population");
         }
-        fig.colorbar("viridis", -1.0, 1.0);
+        fig.colorbar("viridis", 0.0, 6.0);
         fig.save_png("target/gallery_legend_colorbar.png").unwrap();
     }
 
-    // 12. stem
+    // 12. stem — a struck bell ringing down.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let x = linspace(0.0, TAU, 24);
-        let y: Vec<f64> = x.iter().map(|v| v.sin() * (-0.2 * v).exp()).collect();
+        let x = linspace(0.0, 3.0 * TAU, 40);
+        let y: Vec<f64> = x
+            .iter()
+            .map(|t| (2.0 * t).sin() * (-0.25 * t).exp())
+            .collect();
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.stem(&x, &y);
-        ax.set_title("stem");
+        ax.set_title("struck bell, sampled: impulse response");
+        ax.set_xlabel("t (s)");
+        ax.set_ylabel("amplitude");
         fig.save_png("target/gallery_stem.png").unwrap();
     }
 
-    // 13. stairs
+    // 13. stairs — the elevation profile of a commute with exactly one hill.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let values = [1.0, 3.0, 2.0, 4.0, 3.5, 2.5, 4.5, 3.0];
-        let edges = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let values = [
+            12.0, 14.0, 15.0, 22.0, 48.0, 74.0, 60.0, 28.0, 16.0, 13.0, 12.0, 11.0,
+        ];
+        let edges: Vec<f64> = (0..=12).map(|k| k as f64 * 0.5).collect();
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.stairs(&values, &edges);
-        ax.set_title("stairs");
+        ax.set_title("commute elevation: the hill I die on");
+        ax.set_xlabel("km");
+        ax.set_ylabel("m above sea level");
         fig.save_png("target/gallery_stairs.png").unwrap();
     }
 
-    // 14. pcolormesh
+    // 14. pcolormesh — standing waves in a square drumhead.
     {
         let mut fig = Figure::new(5.0, 3.8);
-        let (nr, nc) = (20usize, 20usize);
-        let mut c = vec![0.0; nr * nc];
+        let (nr, nc) = (28usize, 28usize);
+        let mut cdata = vec![0.0; nr * nc];
         for r in 0..nr {
             for col in 0..nc {
-                let yy = r as f64 / nr as f64 * TAU;
-                let xx = col as f64 / nc as f64 * TAU;
-                c[r * nc + col] = xx.sin() * yy.cos();
+                let yy = r as f64 / (nr - 1) as f64 * PI;
+                let xx = col as f64 / (nc - 1) as f64 * PI;
+                // (3,2) mode of a square membrane.
+                cdata[r * nc + col] = (3.0 * xx).sin() * (2.0 * yy).sin();
             }
         }
         let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
-        ax.pcolormesh(&c, nr, nc);
-        ax.set_title("pcolormesh");
+        ax.pcolormesh(&cdata, nr, nc);
+        ax.set_title("drumhead standing wave, mode (3, 2)");
         fig.save_png("target/gallery_pcolormesh.png").unwrap();
     }
 
-    // 15. stackplot
+    // 15. stackplot — where the workday actually goes.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let x = linspace(0.0, TAU, 80);
-        let a: Vec<f64> = x.iter().map(|v| 1.0 + 0.5 * v.sin()).collect();
-        let b: Vec<f64> = x.iter().map(|v| 1.5 + 0.5 * (2.0 * v).cos()).collect();
-        let c: Vec<f64> = x.iter().map(|v| 1.0 + 0.3 * (0.5 * v).sin()).collect();
+        let x = linspace(0.0, 10.0, 60); // sprint days
+        let deep_work: Vec<f64> = x.iter().map(|d| (3.4 - 0.22 * d).max(0.7)).collect();
+        let meetings: Vec<f64> = x
+            .iter()
+            .map(|d| 1.2 + 0.30 * d + 0.3 * (d * 2.0).sin())
+            .collect();
+        let slack: Vec<f64> = x.iter().map(|d| 1.0 + 0.12 * d).collect();
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
-        ax.stackplot(&x, &[&a, &b, &c]);
-        ax.set_title("stackplot");
+        ax.stackplot(&x, &[&deep_work, &meetings, &slack]);
+        ax.legend(vec![
+            (c(0), "deep work".into()),
+            (c(1), "meetings".into()),
+            (c(2), "chat".into()),
+        ]);
+        ax.set_title("where the workday goes, day by sprint day");
+        ax.set_xlabel("sprint day");
+        ax.set_ylabel("hours");
         fig.save_png("target/gallery_stackplot.png").unwrap();
     }
 
-    // 16. broken_barh
+    // 16. broken_barh — a CI timeline with one suspicious gap.
     {
         let mut fig = Figure::new(5.0, 3.5);
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
-        ax.broken_barh(&[(1.0, 3.0), (5.0, 2.0), (8.0, 4.0)], (10.0, 4.0));
-        ax.broken_barh(&[(2.0, 4.0), (7.5, 3.0)], (20.0, 4.0));
-        ax.set_title("broken_barh");
+        // Lane 1: build stages back-to-back.
+        ax.broken_barh(&[(0.0, 3.0), (3.2, 2.0), (5.4, 1.4)], (10.0, 4.0));
+        // Lane 2: tests, with a gap where the flaky one got retried.
+        ax.broken_barh(&[(1.0, 4.0), (8.0, 3.5)], (20.0, 4.0));
+        ax.set_title("CI timeline — the gap is the flaky test retrying");
+        ax.set_xlabel("minutes");
         fig.save_png("target/gallery_broken_barh.png").unwrap();
     }
 
-    // 17. boxplot
+    // 17. boxplot — time-to-first-review across four repos.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        // Four datasets with different spreads and a couple of clear outliers.
-        let tight = [4.0, 4.5, 5.0, 5.0, 5.5, 6.0];
-        let wide = [1.0, 3.0, 5.0, 7.0, 9.0, 11.0];
-        let skewed = [2.0, 2.5, 3.0, 3.5, 4.0, 9.0];
-        let with_outlier = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 16.0];
+        let well_run = [1.0, 1.5, 2.0, 2.0, 2.5, 3.0];
+        let normal = [1.0, 3.0, 5.0, 7.0, 9.0, 11.0];
+        let backlogged = [2.0, 2.5, 3.0, 3.5, 4.0, 9.0];
+        let cursed = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 40.0];
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
-        ax.boxplot(&[&tight, &wide, &skewed, &with_outlier]);
-        ax.set_title("boxplot");
+        ax.boxplot(&[&well_run, &normal, &backlogged, &cursed]);
+        ax.set_title("hours to first PR review — one is still waiting");
+        ax.set_ylabel("hours");
         fig.save_png("target/gallery_boxplot.png").unwrap();
     }
 
-    // 18. mathtext title (`$...$` math in an Axes title)
+    // 18. mathtext title — sinc, labeled in math.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let x = linspace(-3.0, 3.0, 200);
-        let y: Vec<f64> = x.iter().map(|v| v * v + 0.5).collect();
+        let x = linspace(-6.0 * PI, 6.0 * PI, 481);
+        let y: Vec<f64> = x
+            .iter()
+            .map(|&v| if v.abs() < 1e-12 { 1.0 } else { v.sin() / v })
+            .collect();
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.plot(&x, &y);
-        ax.set_title("$y = x^2 + \\frac{1}{2}$");
+        ax.set_title("$y = \\frac{\\sin(x)}{x}$");
         fig.save_png("target/gallery_mathtext.png").unwrap();
     }
 
-    // 19. contour
+    // 19. contour — a mountain saddle between two peaks.
     {
         let mut fig = Figure::new(5.0, 3.8);
-        let (nr, nc) = (30usize, 30usize);
+        let (nr, nc) = (40usize, 40usize);
         let mut z = vec![0.0; nr * nc];
         for r in 0..nr {
             for col in 0..nc {
-                let yy = r as f64 / (nr - 1) as f64 * TAU;
-                let xx = col as f64 / (nc - 1) as f64 * TAU;
-                z[r * nc + col] = xx.sin() * yy.cos();
+                let yy = -2.5 + r as f64 / (nr - 1) as f64 * 5.0;
+                let xx = -2.5 + col as f64 / (nc - 1) as f64 * 5.0;
+                let peak_a = (-((xx - 1.1).powi(2) + (yy - 0.8).powi(2))).exp();
+                let peak_b = 0.9 * (-((xx + 1.1).powi(2) + (yy + 0.8).powi(2))).exp();
+                let bowl = -0.12 * (xx * xx + yy * yy);
+                z[r * nc + col] = peak_a + peak_b + bowl;
             }
         }
         let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
         ax.contour(&z, nr, nc);
-        ax.set_title("contour");
+        ax.set_title("two peaks and the saddle between them");
         fig.save_png("target/gallery_contour.png").unwrap();
     }
 
-    // 20. eventplot
+    // 20. eventplot — one bar of drum & bass as a spike raster.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        // Three neuron-like spike trains at increasing rates.
-        let row0: Vec<f64> = (0..8).map(|i| i as f64 * 1.2 + 0.3).collect();
-        let row1: Vec<f64> = (0..14).map(|i| i as f64 * 0.7 + 0.1).collect();
-        let row2: Vec<f64> = (0..20).map(|i| i as f64 * 0.5).collect();
+        // Hi-hat on every 16th, snare on 2 and 4, kick syncopated.
+        let hihat: Vec<f64> = (0..16).map(|i| i as f64 * 0.25).collect();
+        let snare = vec![1.0, 3.0];
+        let kick = vec![0.0, 0.75, 2.5, 3.25, 3.75];
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
-        ax.eventplot(&[&row0, &row1, &row2]);
-        ax.set_title("eventplot");
+        ax.eventplot(&[&kick, &snare, &hihat]);
+        ax.set_title("one bar of drum & bass (kick / snare / hi-hat)");
+        ax.set_xlabel("beat");
         fig.save_png("target/gallery_eventplot.png").unwrap();
     }
 
-    // 21. fill_betweenx
+    // 21. fill_betweenx — a lazy meandering river, width = flow.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let y = linspace(0.0, TAU, 120);
-        let x1: Vec<f64> = y.iter().map(|v| v.sin()).collect();
-        let x2: Vec<f64> = y.iter().map(|v| v.sin() + 1.0 + 0.3 * v.cos()).collect();
+        let y = linspace(0.0, 10.0, 200);
+        let center: Vec<f64> = y
+            .iter()
+            .map(|v| 1.5 * (v * 0.8).sin() + 0.4 * (v * 2.1).sin())
+            .collect();
+        let width: Vec<f64> = y
+            .iter()
+            .map(|v| 0.5 + 0.25 * (v * 0.5).sin() + 0.04 * v)
+            .collect();
+        let left: Vec<f64> = center.iter().zip(&width).map(|(&m, &w)| m - w).collect();
+        let right: Vec<f64> = center.iter().zip(&width).map(|(&m, &w)| m + w).collect();
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
-        ax.fill_betweenx(&y, &x1, &x2);
-        ax.set_title("fill_betweenx");
+        ax.fill_betweenx(&y, &left, &right);
+        ax.set_title("a lazy river, widening downstream");
+        ax.set_xlabel("east (km)");
+        ax.set_ylabel("downstream (km)");
         fig.save_png("target/gallery_fill_betweenx.png").unwrap();
     }
 
-    // 22. ecdf
+    // 22. ecdf — how long TODO(urgent) comments actually live.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        // A lumpy sample whose empirical CDF rises in clear steps.
+        // Days until fixed: a few same-day, lumps at "next sprint" and "next
+        // quarter", and the immortals.
         let data = [
-            0.2, 0.5, 0.5, 0.9, 1.1, 1.1, 1.4, 1.8, 2.0, 2.3, 2.3, 2.7, 3.0, 3.0, 3.4, 3.9, 4.2,
-            4.2, 4.8, 5.0,
+            0.5, 1.0, 1.0, 2.0, 3.0, 7.0, 7.0, 8.0, 14.0, 14.0, 15.0, 30.0, 31.0, 45.0, 60.0, 90.0,
+            90.0, 180.0, 365.0, 730.0,
         ];
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.ecdf(&data);
-        ax.set_title("ecdf");
+        ax.set_title("lifetime of a TODO(urgent) comment");
+        ax.set_xlabel("days until fixed");
+        ax.set_ylabel("fraction fixed");
         fig.save_png("target/gallery_ecdf.png").unwrap();
     }
 
-    // 23. matshow
+    // 23. matshow — the times table, as heat.
     {
         let mut fig = Figure::new(5.0, 3.8);
-        let (nr, nc) = (8usize, 8usize);
+        let (nr, nc) = (12usize, 12usize);
         let mut data = vec![0.0; nr * nc];
         for r in 0..nr {
-            for c in 0..nc {
-                data[r * nc + c] = (r as f64 - c as f64).abs();
+            for col in 0..nc {
+                data[r * nc + col] = ((r + 1) * (col + 1)) as f64;
             }
         }
         let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
         ax.matshow(&data, nr, nc);
-        ax.set_title("matshow");
+        ax.set_title("the 12×12 times table, as heat");
         fig.save_png("target/gallery_matshow.png").unwrap();
     }
 
-    // 24. spy
+    // 24. spy — who reviews whose PRs (everyone pings the maintainer).
     {
         let mut fig = Figure::new(5.0, 3.8);
         let (nr, nc) = (16usize, 16usize);
         let mut data = vec![0.0; nr * nc];
-        // A banded sparsity pattern: main diagonal plus two off-diagonals.
         for r in 0..nr {
-            for c in 0..nc {
-                if r == c || r.abs_diff(c) == 3 {
-                    data[r * nc + c] = 1.0;
+            for col in 0..nc {
+                let selfie = r == col;
+                let maintainer = r == 3 || col == 3;
+                let sprinkle = (r * 7 + col * 5) % 13 == 0;
+                if selfie || maintainer || sprinkle {
+                    data[r * nc + col] = 1.0;
                 }
             }
         }
         let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
         ax.spy(&data, nr, nc);
-        ax.set_title("spy");
+        ax.set_title("review matrix: row 3 is the maintainer");
         fig.save_png("target/gallery_spy.png").unwrap();
     }
 
-    // 25. hist2d
+    // 25. hist2d — espresso intake vs. typing speed, suspiciously correlated.
     {
         let mut fig = Figure::new(5.0, 3.8);
-        let mut seed = 0x9E3779B97F4A7C15u64;
-        let mut next = || {
-            seed ^= seed >> 12;
-            seed ^= seed << 25;
-            seed ^= seed >> 27;
-            ((seed.wrapping_mul(0x2545F4914F6CDD1D) >> 11) as f64) / ((1u64 << 53) as f64)
-        };
-        // A correlated blob (sum-of-uniforms ≈ gaussian) for a clear 2D density.
+        let mut next = rng(0x9E3779B97F4A7C15);
         let mut x = Vec::new();
         let mut y = Vec::new();
-        for _ in 0..2000 {
+        for _ in 0..2500 {
             let gx = (next() + next() + next() + next()) / 4.0;
             let gy = (next() + next() + next() + next()) / 4.0;
             let a = gx * 4.0 - 2.0;
@@ -391,26 +504,24 @@ fn main() {
         }
         let ax = fig.add_axes(0.14, 0.14, 0.78, 0.76);
         ax.hist2d(&x, &y, 30);
-        ax.set_title("hist2d");
+        ax.set_title("espresso vs. typing speed (r ≈ 0.6, causation implied)");
+        ax.set_xlabel("espresso (z-score)");
+        ax.set_ylabel("wpm (z-score)");
         fig.save_png("target/gallery_hist2d.png").unwrap();
     }
 
-    // 26. pie
+    // 26. pie — the classic.
     {
-        // A square figure so the equal-aspect pie reads as a clean circle.
         let mut fig = Figure::new(4.0, 4.0);
         let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
-        ax.pie(&[35.0, 25.0, 20.0, 15.0, 5.0]);
-        ax.set_title("pie");
+        ax.pie(&[75.0, 25.0]);
+        ax.set_title("fraction of this chart that resembles Pac-Man");
         fig.save_png("target/gallery_pie.png").unwrap();
     }
 
-    // 27. violinplot
+    // 27. violinplot — a field guide to distributions.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        // Four deterministic groups with distinct shapes: a tight cluster, a
-        // wide spread, a bimodal set, and a right-skewed set. Built from
-        // closed-form sine/quadratic perturbations so there is no RNG.
         let tight: Vec<f64> = (0..60)
             .map(|k| 5.0 + 0.6 * (k as f64 * 0.7).sin())
             .collect();
@@ -431,22 +542,14 @@ fn main() {
             .collect();
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.violinplot(&[&tight, &wide, &bimodal, &skewed], None);
-        ax.set_title("violinplot");
+        ax.set_title("field guide: tight, wide, bimodal, skewed");
         fig.save_png("target/gallery_violinplot.png").unwrap();
     }
 
-    // 28. hexbin
+    // 28. hexbin — GPS pings around the two lunch spots.
     {
         let mut fig = Figure::new(5.0, 3.8);
-        let mut seed = 0x243F6A8885A308D3u64;
-        let mut next = || {
-            seed ^= seed >> 12;
-            seed ^= seed << 25;
-            seed ^= seed >> 27;
-            ((seed.wrapping_mul(0x2545F4914F6CDD1D) >> 11) as f64) / ((1u64 << 53) as f64)
-        };
-        // Two overlapping correlated blobs (sum-of-uniforms ~ gaussian) so the
-        // hexagons fill in densely and the viridis gradient is visible.
+        let mut next = rng(0x243F6A8885A308D3);
         let mut x = Vec::new();
         let mut y = Vec::new();
         for _ in 0..4000 {
@@ -464,58 +567,65 @@ fn main() {
         }
         let ax = fig.add_axes(0.14, 0.14, 0.78, 0.76);
         ax.hexbin(&x, &y, 30);
-        ax.set_title("hexbin");
+        ax.set_title("lunchtime GPS pings: taco truck vs. noodle bar");
+        ax.set_xlabel("blocks east");
+        ax.set_ylabel("blocks north");
         fig.save_png("target/gallery_hexbin.png").unwrap();
     }
 
-    // 29. grouped_bar
+    // 29. grouped_bar — estimated vs. actual vs. shipped, four sprints.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        // Three series across four groups, with visibly distinct heights.
-        let s0 = [3.0, 6.0, 4.0, 7.0];
-        let s1 = [5.0, 2.0, 8.0, 3.0];
-        let s2 = [4.0, 5.0, 2.0, 6.0];
+        let estimated = [8.0, 8.0, 8.0, 8.0]; // estimates are remarkably stable
+        let actual = [11.0, 9.5, 13.0, 10.5];
+        let shipped = [5.0, 6.5, 4.0, 7.0];
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
-        ax.grouped_bar(&[&s0, &s1, &s2]);
-        ax.set_title("grouped_bar");
+        ax.grouped_bar(&[&estimated, &actual, &shipped]);
+        ax.legend(vec![
+            (c(0), "estimated".into()),
+            (c(1), "actual".into()),
+            (c(2), "shipped".into()),
+        ]);
+        ax.set_title("sprint arithmetic, four sprints running");
+        ax.set_ylabel("story points");
         fig.save_png("target/gallery_grouped_bar.png").unwrap();
     }
 
-    // 30. loglog
+    // 30. loglog — Zipf's law: frequency falls as 1/rank.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let x = linspace(1.0, 1000.0, 120);
-        let y: Vec<f64> = x.iter().map(|v| v * v).collect();
+        let x = linspace(1.0, 1000.0, 240);
+        let y: Vec<f64> = x.iter().map(|r| 1.0e6 / r).collect();
         let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
         ax.loglog(&x, &y);
         ax.set_xlim(1.0, 1000.0);
-        ax.set_ylim(1.0, 1_000_000.0);
-        ax.set_title("loglog");
-        ax.set_xlabel("x");
-        ax.set_ylabel("$x^2$");
+        ax.set_ylim(1.0e3, 1.0e6);
+        ax.set_title("Zipf's law: straight line, eight decades");
+        ax.set_xlabel("word rank");
+        ax.set_ylabel("frequency");
         fig.save_png("target/gallery_loglog.png").unwrap();
     }
 
-    // 31. quiver (rotational vector field u = -y, v = x over a grid)
+    // 31. quiver — wind field spiraling into a low.
     {
         let mut fig = Figure::new(5.0, 3.5);
-        let coords = linspace(-3.0, 3.0, 7);
+        let coords = linspace(-3.0, 3.0, 9);
         let (mut x, mut y, mut u, mut v) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         for &gy in &coords {
             for &gx in &coords {
                 x.push(gx);
                 y.push(gy);
-                u.push(-gy);
-                v.push(gx);
+                u.push(-gy - 0.35 * gx);
+                v.push(gx - 0.35 * gy);
             }
         }
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.quiver(&x, &y, &u, &v);
-        ax.set_title("quiver");
+        ax.set_title("wind around a low-pressure system");
         fig.save_png("target/gallery_quiver.png").unwrap();
     }
 
-    // 32. streamplot (rotational field u = -y, v = x: concentric circles)
+    // 32. streamplot — the same cyclone, ridden by streamlines.
     {
         let mut fig = Figure::new(5.0, 3.5);
         let coords = linspace(-3.0, 3.0, 25);
@@ -525,26 +635,36 @@ fn main() {
         let mut v = vec![0.0; nx * ny];
         for j in 0..ny {
             for i in 0..nx {
-                u[j * nx + i] = -coords[j];
-                v[j * nx + i] = coords[i];
+                u[j * nx + i] = -coords[j] - 0.25 * coords[i];
+                v[j * nx + i] = coords[i] - 0.25 * coords[j];
             }
         }
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.streamplot(&coords, &coords, &u, &v);
-        ax.set_title("streamplot");
+        ax.set_title("streamlines spiraling into the drain");
         fig.save_png("target/gallery_streamplot.png").unwrap();
     }
 
-    // A 6x6 grid of vertices over [0, 1]^2, each cell split into two
-    // triangles, shared by the triplot and tripcolor cases below.
-    let grid = 6;
+    // A 7x7 grid of vertices over [0, 1]^2 with deterministic jitter on the
+    // interior nodes so the mesh looks like a real unstructured one; each cell
+    // is split into two triangles. Shared by triplot and tripcolor below.
+    let grid = 7;
     let coords = linspace(0.0, 1.0, grid);
     let mut vx = Vec::new();
     let mut vy = Vec::new();
-    for &gy in &coords {
-        for &gx in &coords {
-            vx.push(gx);
-            vy.push(gy);
+    for (r, &gy) in coords.iter().enumerate() {
+        for (col, &gx) in coords.iter().enumerate() {
+            let interior = r > 0 && r < grid - 1 && col > 0 && col < grid - 1;
+            let (jx, jy) = if interior {
+                (
+                    0.045 * ((r * 13 + col * 7) as f64).sin(),
+                    0.045 * ((r * 5 + col * 11) as f64).cos(),
+                )
+            } else {
+                (0.0, 0.0)
+            };
+            vx.push(gx + jx);
+            vy.push(gy + jy);
         }
     }
     let mut triangles: Vec<[usize; 3]> = Vec::new();
@@ -559,26 +679,26 @@ fn main() {
         }
     }
 
-    // 33. triplot (wireframe of the triangulated unit-square grid)
+    // 33. triplot (wireframe of the jittered triangulated grid)
     {
         let mut fig = Figure::new(5.0, 3.5);
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.triplot(&vx, &vy, &triangles);
-        ax.set_title("triplot");
+        ax.set_title("finite-element mesh (budget edition)");
         fig.save_png("target/gallery_triplot.png").unwrap();
     }
 
-    // 34. tripcolor (flat shading by a radial field over the same mesh)
+    // 34. tripcolor (heat spreading from a point on the same mesh)
     {
         let mut fig = Figure::new(5.0, 3.5);
         let values: Vec<f64> = vx
             .iter()
             .zip(&vy)
-            .map(|(&x, &y)| (x - 0.5).hypot(y - 0.5))
+            .map(|(&x, &y)| (-8.0 * ((x - 0.35).powi(2) + (y - 0.6).powi(2))).exp())
             .collect();
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.tripcolor(&vx, &vy, &triangles, &values);
-        ax.set_title("tripcolor");
+        ax.set_title("heat spreading from a soldering iron");
         fig.save_png("target/gallery_tripcolor.png").unwrap();
     }
 
@@ -593,9 +713,9 @@ fn main() {
             .set_yscale_symlog(10.0, 1.0)
             .set_xlim(-100.0, 100.0)
             .set_ylim(-1_000_000.0, 1_000_000.0);
-        ax.set_title("symlog");
-        ax.set_xlabel("x");
-        ax.set_ylabel("$x^3$");
+        ax.set_title("a leveraged trader's net worth ($x^3$, symlog)");
+        ax.set_xlabel("conviction");
+        ax.set_ylabel("net worth");
         fig.save_png("target/gallery_symlog.png").unwrap();
     }
 
@@ -607,9 +727,9 @@ fn main() {
         let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
         ax.logity(&x, &y);
         ax.set_xlim(-7.0, 7.0).set_ylim(0.001, 0.999);
-        ax.set_title("logit");
-        ax.set_xlabel("x");
-        ax.set_ylabel("P(x)");
+        ax.set_title("P(demo works) vs. days of rehearsal");
+        ax.set_xlabel("rehearsal days (relative to enough)");
+        ax.set_ylabel("P(demo works)");
         fig.save_png("target/gallery_logit.png").unwrap();
     }
 
@@ -623,13 +743,13 @@ fn main() {
         ax.set_yscale_asinh(1.0)
             .set_xlim(-100.0, 100.0)
             .set_ylim(-1_000_000.0, 1_000_000.0);
-        ax.set_title("asinh");
+        ax.set_title("asinh axis: linear near zero, log in the tails");
         ax.set_xlabel("x");
         ax.set_ylabel("$x^3$");
         fig.save_png("target/gallery_asinh.png").unwrap();
     }
 
-    // 38. date axis (numeric date values with concise tick labels)
+    // 38. date axis — coffee ramps into the May release, then the crash.
     {
         let mut fig = Figure::new(5.0, 3.5);
         let x = [
@@ -640,48 +760,52 @@ fn main() {
             date_num(2026, 5, 1),
             date_num(2026, 6, 1),
         ];
-        let y = [2.0, 2.8, 2.4, 3.5, 3.2, 4.1];
+        let y = [2.1, 2.4, 3.2, 4.4, 5.6, 2.0];
         let ax = fig.add_axes(0.17, 0.20, 0.76, 0.68);
         ax.plot(&x, &y);
         ax.set_xaxis_date();
         ax.set_xlim(date_num(2026, 1, 1), date_num(2026, 6, 1));
-        ax.set_title("date axis");
+        ax.set_title("cups of coffee per day (release shipped in May)");
         ax.set_xlabel("2026");
-        ax.set_ylabel("value");
+        ax.set_ylabel("cups/day");
         fig.save_png("target/gallery_dates.png").unwrap();
     }
 
-    // 39. polar (4-petal rose r = |cos(2*theta)|)
+    // 39. polar (6-petal rose r = |cos(3θ)|)
     {
         let theta: Vec<f64> = (0..=720).map(|i| i as f64 * TAU / 720.0).collect();
-        let r: Vec<f64> = theta.iter().map(|t| (2.0 * t).cos().abs()).collect();
+        let r: Vec<f64> = theta.iter().map(|t| (3.0 * t).cos().abs()).collect();
         let mut ax = PolarAxes::new();
         ax.plot(&theta, &r);
         ax.save_png("target/gallery_polar.png", 500, 500, 100.0)
             .unwrap();
     }
 
-    // 40. polar scatter (points sampled along an Archimedean spiral)
+    // 40. polar scatter (sunflower phyllotaxis: golden-angle seed spiral)
     {
-        let theta: Vec<f64> = (0..=48).map(|i| i as f64 * 4.0 * TAU / 48.0).collect();
-        let r: Vec<f64> = theta.iter().map(|t| t / TAU).collect();
+        let n = 220;
+        let golden = PI * (3.0 - 5.0_f64.sqrt());
+        let theta: Vec<f64> = (0..n).map(|i| i as f64 * golden).collect();
+        let r: Vec<f64> = (0..n)
+            .map(|i| (i as f64 + 0.5).sqrt() / (n as f64).sqrt())
+            .collect();
         let mut ax = PolarAxes::new();
         ax.scatter(&theta, &r);
         ax.save_png("target/gallery_polar_scatter.png", 500, 500, 100.0)
             .unwrap();
     }
 
-    // 41. polar fill (filled 4-petal rose r = |cos(2*theta)|)
+    // 41. polar fill (filled 8-petal rose r = |cos(4θ)|)
     {
-        let theta: Vec<f64> = (0..=720).map(|i| i as f64 * TAU / 720.0).collect();
-        let r: Vec<f64> = theta.iter().map(|t| (2.0 * t).cos().abs()).collect();
+        let theta: Vec<f64> = (0..=1440).map(|i| i as f64 * TAU / 1440.0).collect();
+        let r: Vec<f64> = theta.iter().map(|t| (4.0 * t).cos().abs()).collect();
         let mut ax = PolarAxes::new();
         ax.fill(&theta, &r);
         ax.save_png("target/gallery_polar_fill.png", 500, 500, 100.0)
             .unwrap();
     }
 
-    // 42. contourf (filled contour bands of a smooth gaussian-bump field)
+    // 42. contourf (an island chain, filled by elevation band)
     {
         let mut fig = Figure::new(5.0, 3.8);
         let (nr, nc) = (60usize, 60usize);
@@ -690,15 +814,15 @@ fn main() {
             for col in 0..nc {
                 let yy = -3.0 + r as f64 / (nr - 1) as f64 * 6.0;
                 let xx = -3.0 + col as f64 / (nc - 1) as f64 * 6.0;
-                // Two gaussian bumps of opposite sign for concentric bands.
-                let bump_a = (-((xx - 1.0).powi(2) + (yy - 1.0).powi(2))).exp();
-                let bump_b = (-((xx + 1.0).powi(2) + (yy + 1.0).powi(2)) / 1.5).exp();
-                z[r * nc + col] = bump_a + 0.8 * bump_b;
+                let volcano = (-((xx - 1.2).powi(2) + (yy - 0.9).powi(2))).exp();
+                let atoll = 0.75 * (-((xx + 1.3).powi(2) + (yy + 1.0).powi(2)) / 1.5).exp();
+                let islet = 0.5 * (-((xx - 0.4).powi(2) * 2.0 + (yy + 1.6).powi(2) * 2.0)).exp();
+                z[r * nc + col] = volcano + atoll + islet - 0.18;
             }
         }
         let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
         ax.contourf(&z, nr, nc);
-        ax.set_title("contourf");
+        ax.set_title("island chain, filled by elevation");
         fig.save_png("target/gallery_contourf.png").unwrap();
     }
 
