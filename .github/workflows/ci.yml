@@ -85,3 +85,35 @@ jobs:
         run: |
           cargo build -p rizzma --features wasm --target wasm32-unknown-unknown --release
           cargo xtask wasm-size target/wasm32-unknown-unknown/release/rizzma.wasm --max-bytes "$WASM_SIZE_MAX_BYTES"
+
+  # Proves the wasm-bindgen boundary end-to-end in a real (headless) browser:
+  # build through the JS surface, render into a <canvas>, read pixels back,
+  # and drive pan/zoom with synthetic DOM events. Kept out of the required
+  # `fmt + clippy + test` gate so the fast path stays fast.
+  wasm-test:
+    name: wasm browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rustup honors rust-toolchain.toml, installing the pinned stable
+      # toolchain automatically.
+      - name: Show toolchain
+        run: |
+          rustup show active-toolchain
+          cargo --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: |
+          curl -sL -o /tmp/wasm-pack.tgz https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz
+          tar xzf /tmp/wasm-pack.tgz -C /tmp
+          sudo mv /tmp/wasm-pack-v0.13.1-x86_64-unknown-linux-musl/wasm-pack /usr/local/bin/
+          wasm-pack --version
+
+      - name: Run headless Chrome tests
+        run: wasm-pack test --headless --chrome crates/rizzma --test wasm_browser

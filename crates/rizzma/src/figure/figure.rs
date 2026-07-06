@@ -138,6 +138,16 @@ impl Figure {
     /// background color, then draw each axes.
     pub fn draw(&self, renderer: &mut dyn Renderer) {
         let (w, h) = self.size_px();
+        self.draw_sized(renderer, w, h);
+    }
+
+    /// Draw the figure at an explicit pixel size `(w, h)`.
+    ///
+    /// Everything downstream of the figure (axes rects, tick/text layout,
+    /// colorbars) is positioned from the pixel size alone, so rendering at
+    /// `size_px() * s` into a renderer whose DPI is `dpi * s` produces the same
+    /// figure uniformly scaled — the basis of [`Figure::render_scaled`].
+    fn draw_sized(&self, renderer: &mut dyn Renderer, w: f64, h: f64) {
         // Fill the full canvas background.
         let rect =
             crate::core::Path::from_polyline(&[[0.0, 0.0], [w, 0.0], [w, h], [0.0, h], [0.0, 0.0]]);
@@ -153,15 +163,37 @@ impl Figure {
         }
 
         // Draw figure-level colorbars on top of the axes.
-        self.draw_colorbars(renderer);
+        self.draw_colorbars(renderer, w, h);
     }
 
     /// Render the figure to a fresh [`SkiaRenderer`] and return it.
     #[must_use]
     pub fn render(&self) -> SkiaRenderer {
+        self.render_scaled(1.0)
+    }
+
+    /// Render the figure at `scale` × its size and DPI (for HiDPI targets).
+    ///
+    /// The output is `size_px() * scale` pixels with line widths, fonts, and
+    /// markers scaled together — identical to rendering a figure built with
+    /// `with_dpi(dpi * scale)`. Pixel-space APIs ([`Figure::pixel_to_data`],
+    /// [`Figure::data_to_pixel`], [`Figure::axes_at`]) stay in *logical*
+    /// (unscaled) pixels; callers presenting at `scale` divide device pixels by
+    /// `scale` first.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `scale` is not finite and positive.
+    #[must_use]
+    pub fn render_scaled(&self, scale: f64) -> SkiaRenderer {
+        assert!(
+            scale.is_finite() && scale > 0.0,
+            "render scale must be finite and positive, got {scale}"
+        );
         let (w, h) = self.size_px();
-        let mut renderer = SkiaRenderer::new(w as u32, h as u32, self.dpi);
-        self.draw(&mut renderer);
+        let (w, h) = (w * scale, h * scale);
+        let mut renderer = SkiaRenderer::new(w as u32, h as u32, self.dpi * scale);
+        self.draw_sized(&mut renderer, w, h);
         renderer
     }
 

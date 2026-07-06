@@ -54,9 +54,9 @@ impl Figure {
         self
     }
 
-    /// Draw every registered colorbar onto `renderer`.
-    pub(crate) fn draw_colorbars(&self, renderer: &mut dyn Renderer) {
-        let (w, h) = self.size_px();
+    /// Draw every registered colorbar onto `renderer` at figure pixel size
+    /// `(w, h)`.
+    pub(crate) fn draw_colorbars(&self, renderer: &mut dyn Renderer, w: f64, h: f64) {
         for cb in &self.colorbars {
             cb.draw(renderer, w, h, self.font_source());
         }

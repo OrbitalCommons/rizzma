@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>rizzma canvas demo</title>
+    <title>rizzma interactive demo</title>
     <style>
       body {
         background: #1a1b26;
@@ -20,10 +20,13 @@
       canvas {
         background: #fff;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        touch-action: none; /* pointer events drive pan; no browser gestures */
       }
       .caption {
         font-size: 0.9rem;
         opacity: 0.8;
+        max-width: 42rem;
+        text-align: center;
       }
       #readout {
         font-family: ui-monospace, monospace;
@@ -33,40 +36,45 @@
     </style>
   </head>
   <body>
-    <canvas id="plot" width="640" height="480"></canvas>
+    <canvas id="plot"></canvas>
     <p id="readout">&mdash;</p>
-    <p class="caption">Rendered by <code>rizzma</code>'s wasm module (tiny-skia &rarr; ImageData). Hover for data coordinates.</p>
+    <p class="caption">
+      Built from JS data via <code>WasmFigure</code>, rendered HiDPI-crisp by
+      <code>rizzma</code> (tiny-skia &rarr; ImageData), interactive via
+      <code>WasmSession</code>: scroll to zoom at the cursor, drag to pan,
+      double-click to reset, hover for coordinates.
+    </p>
     <script type="module">
       import init, { WasmFigure } from "./pkg/rizzma.js";
       await init();
 
-      const fig = WasmFigure.sample();
-      const canvas = document.getElementById("plot");
+      // Build the plot from JS data — no baked-in sample.
+      const n = 400;
+      const xs = new Float64Array(n);
+      const damped = new Float64Array(n);
+      const envelope = new Float64Array(n);
+      for (let i = 0; i < n; i++) {
+        const x = (12 * i) / (n - 1);
+        xs[i] = x;
+        envelope[i] = Math.exp(-x / 4);
+        damped[i] = envelope[i] * Math.cos(2 * x);
+      }
+
+      const fig = new WasmFigure(6.4, 4.8);
+      const ax = fig.add_axes(0.12, 0.12, 0.83, 0.78);
+      fig.plot(ax, xs, damped);
+      fig.plot_styled(ax, xs, envelope, { color: "tab:orange", ls: "--", lw: 1.0 });
+      fig.set_title(ax, "damped oscillation");
+      fig.set_xlabel(ax, "t");
+      fig.set_ylabel(ax, "amplitude");
+      fig.legend(ax, ["exp(-t/4)·cos(2t)", "envelope"]);
+
+      // Bind consumes the figure and wires up zoom/pan/reset/hover.
+      const session = fig.bind("plot");
       const readout = document.getElementById("readout");
-
-      // Match the canvas backing store to the figure's pixel size.
-      const [w, h] = fig.size;
-      canvas.width = w;
-      canvas.height = h;
-      fig.render("plot");
-
-      canvas.addEventListener("mousemove", (e) => {
-        // Map the DOM event to top-down canvas-pixel coordinates, accounting
-        // for any CSS scaling of the element vs. its backing store.
-        const rect = canvas.getBoundingClientRect();
-        const px = (e.clientX - rect.left) * (canvas.width / rect.width);
-        const py = (e.clientY - rect.top) * (canvas.height / rect.height);
-
-        const data = fig.data_at(px, py);
-        if (data === undefined) {
-          readout.textContent = "—";
-        } else {
-          readout.textContent = `x=${data[0].toFixed(2)}, y=${data[1].toFixed(2)}`;
-        }
-      });
-
-      canvas.addEventListener("mouseleave", () => {
-        readout.textContent = "—";
+      session.on_hover((axes, x, y) => {
+        readout.textContent =
+          axes === null ? "—" : `x=${x.toFixed(3)}, y=${y.toFixed(3)}`;
       });
     </script>
   </body>
