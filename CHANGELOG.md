@@ -7,7 +7,7 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
-## [Unreleased]
+## [1.1.0] - 2026-07-05
 
 ### Added
 - **Interactive wasm plots** (design doc 06, W1–W6). `WasmFigure` is now a real
