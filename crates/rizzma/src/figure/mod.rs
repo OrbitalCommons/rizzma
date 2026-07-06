@@ -50,9 +50,11 @@
 
 mod axes;
 mod colorbar;
+pub mod event;
 #[allow(clippy::module_inception)]
 mod figure;
 mod gridspec;
+mod interact;
 mod legend;
 mod plotting;
 mod plotting_area;
@@ -77,7 +79,9 @@ pub mod richtext;
 mod subplotspec;
 
 pub use axes::Axes;
+pub use event::{Event, MouseButton};
 pub use figure::Figure;
 pub use gridspec::GridSpec;
+pub use interact::{Interactor, Outcome};
 pub use polar::PolarAxes;
 pub use subplotspec::SubplotSpec;

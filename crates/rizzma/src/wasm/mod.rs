@@ -22,9 +22,118 @@
 //! pixel before returning, so the bytes are ready to feed directly into
 //! `ImageData`.
 
-use crate::core::color::Rgba;
+use crate::artist::Line2D;
+use crate::core::color::{Rgba, to_rgba};
 use crate::figure::Figure;
 use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::{JsCast, JsValue};
+
+/// Parsed `plot_styled` options: each field is `Some` only when the caller's
+/// style object supplied that key.
+#[derive(Debug, Default, PartialEq)]
+struct LineStyleSpec {
+    /// Stroke color from a matplotlib-style spec (name, hex, `tab:*`, `C0`…).
+    color: Option<Rgba>,
+    /// Stroke width in points.
+    linewidth: Option<f64>,
+    /// Dash pattern; `Some(None)` is an explicit solid line.
+    dashes: Option<Option<(f64, Vec<f64>)>>,
+}
+
+/// Map a matplotlib linestyle token to a dash pattern in points.
+///
+/// `None` means solid. Patterns match matplotlib's defaults (`lines.*_pattern`
+/// rcParams), which are scaled by the renderer with line width.
+fn dash_pattern(ls: &str) -> Result<Option<(f64, Vec<f64>)>, String> {
+    match ls {
+        "-" | "solid" => Ok(None),
+        "--" | "dashed" => Ok(Some((0.0, vec![3.7, 1.6]))),
+        ":" | "dotted" => Ok(Some((0.0, vec![1.0, 1.65]))),
+        "-." | "dashdot" => Ok(Some((0.0, vec![6.4, 1.6, 1.0, 1.6]))),
+        other => Err(format!(
+            "unknown linestyle '{other}' (expected '-', '--', ':', '-.', or a long name)"
+        )),
+    }
+}
+
+/// Validate raw style parts into a [`LineStyleSpec`].
+fn build_line_style(
+    color: Option<&str>,
+    lw: Option<f64>,
+    ls: Option<&str>,
+) -> Result<LineStyleSpec, String> {
+    let color = match color {
+        Some(spec) => {
+            Some(to_rgba(spec, None).ok_or_else(|| format!("unrecognized color spec '{spec}'"))?)
+        }
+        None => None,
+    };
+    if let Some(w) = lw
+        && !(w.is_finite() && w >= 0.0)
+    {
+        return Err(format!(
+            "linewidth must be finite and non-negative, got {w}"
+        ));
+    }
+    let dashes = match ls {
+        Some(token) => Some(dash_pattern(token)?),
+        None => None,
+    };
+    Ok(LineStyleSpec {
+        color,
+        linewidth: lw,
+        dashes,
+    })
+}
+
+/// Extract `{color?, lw?, ls?}` from a JS style object, rejecting unknown keys.
+///
+/// `undefined`/`null` mean "no styling". This is the only JS-shaped step; all
+/// validation lives in [`build_line_style`], which is tested natively.
+fn line_style_from_js(style: &JsValue) -> Result<LineStyleSpec, JsValue> {
+    if style.is_undefined() || style.is_null() {
+        return Ok(LineStyleSpec::default());
+    }
+    let obj: &js_sys::Object = style
+        .dyn_ref()
+        .ok_or_else(|| JsValue::from_str("style must be a plain object like {color, lw, ls}"))?;
+
+    let (mut color, mut lw, mut ls) = (None, None, None);
+    for key in js_sys::Object::keys(obj).iter() {
+        let key = key
+            .as_string()
+            .ok_or_else(|| JsValue::from_str("style keys must be strings"))?;
+        let value = js_sys::Reflect::get(style, &JsValue::from_str(&key))?;
+        match key.as_str() {
+            "color" => {
+                color =
+                    Some(value.as_string().ok_or_else(|| {
+                        JsValue::from_str("style.color must be a string color spec")
+                    })?);
+            }
+            "lw" => {
+                lw = Some(
+                    value
+                        .as_f64()
+                        .ok_or_else(|| JsValue::from_str("style.lw must be a number"))?,
+                );
+            }
+            "ls" => {
+                ls = Some(
+                    value
+                        .as_string()
+                        .ok_or_else(|| JsValue::from_str("style.ls must be a linestyle string"))?,
+                );
+            }
+            other => {
+                return Err(JsValue::from_str(&format!(
+                    "unknown style key '{other}' (expected color, lw, ls)"
+                )));
+            }
+        }
+    }
+    build_line_style(color.as_deref(), lw, ls.as_deref()).map_err(|e| JsValue::from_str(&e))
+}
 
 /// Build a small labeled `sin(x)` plot so demos and tests have something to draw.
 ///
@@ -64,7 +173,22 @@ pub fn sample_figure() -> Figure {
 /// non-premultiplied.
 #[must_use]
 pub fn figure_to_rgba(fig: &Figure) -> (Vec<u8>, u32, u32) {
-    let renderer = fig.render();
+    figure_to_rgba_scaled(fig, 1.0)
+}
+
+/// Render `fig` at `scale` × its size and DPI (see [`Figure::render_scaled`])
+/// to straight RGBA8, for HiDPI canvas backing stores.
+///
+/// Returns `(pixels, width, height)` with `width`/`height` in **device**
+/// pixels (`size_px() * scale`); present at the figure's logical size (CSS
+/// pixels) for a crisp HiDPI image.
+///
+/// # Panics
+///
+/// Panics if `scale` is not finite and positive.
+#[must_use]
+pub fn figure_to_rgba_scaled(fig: &Figure, scale: f64) -> (Vec<u8>, u32, u32) {
+    let renderer = fig.render_scaled(scale);
     let pixmap = renderer.pixmap();
     let width = pixmap.width();
     let height = pixmap.height();
@@ -99,12 +223,185 @@ pub struct WasmFigure {
 
 #[wasm_bindgen]
 impl WasmFigure {
+    /// Create an empty `width_in` by `height_in` inch figure (default DPI).
+    #[wasm_bindgen(constructor)]
+    #[must_use]
+    pub fn new(width_in: f64, height_in: f64) -> WasmFigure {
+        WasmFigure {
+            fig: Figure::new(width_in, height_in),
+        }
+    }
+
     /// Build a [`WasmFigure`] wrapping the built-in [`sample_figure`].
     #[must_use]
     pub fn sample() -> WasmFigure {
         WasmFigure {
             fig: sample_figure(),
         }
+    }
+
+    /// Add axes at the figure-fraction rectangle `(left, bottom, width,
+    /// height)`, returning the new axes' index.
+    pub fn add_axes(&mut self, l: f64, b: f64, w: f64, h: f64) -> usize {
+        self.fig.add_axes(l, b, w, h);
+        self.fig.axes().len() - 1
+    }
+
+    /// Add axes for 1-based cell `index` of an `nrows` x `ncols` grid,
+    /// returning the new axes' index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `index` is zero or exceeds `nrows * ncols`.
+    pub fn add_subplot(
+        &mut self,
+        nrows: usize,
+        ncols: usize,
+        index: usize,
+    ) -> Result<usize, JsValue> {
+        self.add_subplot_impl(nrows, ncols, index).map_err(js_err)
+    }
+
+    /// Plot `y` against `x` as a line on axes `axes`, using the color cycle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range.
+    pub fn plot(&mut self, axes: usize, x: &[f64], y: &[f64]) -> Result<(), JsValue> {
+        self.plot_impl(axes, x, y).map_err(js_err)
+    }
+
+    /// Plot a styled line: `style` is a plain object with optional keys
+    /// `color` (matplotlib color spec string), `lw` (points), and `ls`
+    /// (`'-'`, `'--'`, `':'`, `'-.'` or long names). Unknown keys are errors.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range or `style` is invalid.
+    pub fn plot_styled(
+        &mut self,
+        axes: usize,
+        x: &[f64],
+        y: &[f64],
+        style: &JsValue,
+    ) -> Result<(), JsValue> {
+        let spec = line_style_from_js(style)?;
+        self.plot_styled_impl(axes, x, y, spec).map_err(js_err)
+    }
+
+    /// Scatter-plot `y` against `x` on axes `axes`, using the color cycle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range.
+    pub fn scatter(&mut self, axes: usize, x: &[f64], y: &[f64]) -> Result<(), JsValue> {
+        self.scatter_impl(axes, x, y).map_err(js_err)
+    }
+
+    /// Set the title of axes `axes`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range.
+    pub fn set_title(&mut self, axes: usize, title: &str) -> Result<(), JsValue> {
+        self.with_axes(axes, |ax| {
+            ax.set_title(title);
+        })
+        .map_err(js_err)
+    }
+
+    /// Set the x-axis label of axes `axes`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range.
+    pub fn set_xlabel(&mut self, axes: usize, label: &str) -> Result<(), JsValue> {
+        self.with_axes(axes, |ax| {
+            ax.set_xlabel(label);
+        })
+        .map_err(js_err)
+    }
+
+    /// Set the y-axis label of axes `axes`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range.
+    pub fn set_ylabel(&mut self, axes: usize, label: &str) -> Result<(), JsValue> {
+        self.with_axes(axes, |ax| {
+            ax.set_ylabel(label);
+        })
+        .map_err(js_err)
+    }
+
+    /// Set explicit x limits on axes `axes`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range.
+    pub fn set_xlim(&mut self, axes: usize, lo: f64, hi: f64) -> Result<(), JsValue> {
+        self.with_axes(axes, |ax| {
+            ax.set_xlim(lo, hi);
+        })
+        .map_err(js_err)
+    }
+
+    /// Set explicit y limits on axes `axes`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range.
+    pub fn set_ylim(&mut self, axes: usize, lo: f64, hi: f64) -> Result<(), JsValue> {
+        self.with_axes(axes, |ax| {
+            ax.set_ylim(lo, hi);
+        })
+        .map_err(js_err)
+    }
+
+    /// The effective `[xlo, xhi, ylo, yhi]` limits of axes `axes`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range.
+    pub fn limits(&self, axes: usize) -> Result<Box<[f64]>, JsValue> {
+        self.limits_impl(axes)
+            .map(|l| Box::new(l) as Box<[f64]>)
+            .map_err(js_err)
+    }
+
+    /// Switch axes `axes` to a log-scaled x axis with `base`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range.
+    pub fn set_xscale_log(&mut self, axes: usize, base: f64) -> Result<(), JsValue> {
+        self.with_axes(axes, |ax| {
+            ax.set_xscale_log(base);
+        })
+        .map_err(js_err)
+    }
+
+    /// Switch axes `axes` to a log-scaled y axis with `base`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range.
+    pub fn set_yscale_log(&mut self, axes: usize, base: f64) -> Result<(), JsValue> {
+        self.with_axes(axes, |ax| {
+            ax.set_yscale_log(base);
+        })
+        .map_err(js_err)
+    }
+
+    /// Add a legend to axes `axes`: label `i` is paired with the color of the
+    /// `i`-th plotted line.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range or there are more labels
+    /// than lines.
+    pub fn legend(&mut self, axes: usize, labels: Vec<String>) -> Result<(), JsValue> {
+        self.legend_impl(axes, labels).map_err(js_err)
     }
 
     /// The figure's pixel size as a 2-element `[width, height]` array.
@@ -133,28 +430,489 @@ impl WasmFigure {
     }
 }
 
+/// The target-agnostic core of the JS surface: every `*_impl` method returns
+/// `Result<_, String>` so the forwarding logic (including error paths) runs
+/// and tests natively; the `#[wasm_bindgen]` wrappers above convert errors
+/// with [`js_err`] only at the boundary.
+impl WasmFigure {
+    /// Run `f` on axes `axes`, or report an out-of-range index.
+    fn with_axes<T>(
+        &mut self,
+        axes: usize,
+        f: impl FnOnce(&mut crate::figure::Axes) -> T,
+    ) -> Result<T, String> {
+        let count = self.fig.axes().len();
+        self.fig
+            .axes_mut()
+            .get_mut(axes)
+            .map(f)
+            .ok_or_else(|| format!("axes index {axes} out of range (figure has {count} axes)"))
+    }
+
+    fn add_subplot_impl(
+        &mut self,
+        nrows: usize,
+        ncols: usize,
+        index: usize,
+    ) -> Result<usize, String> {
+        if index == 0 || index > nrows * ncols {
+            return Err(format!(
+                "subplot index {index} out of range for a {nrows}x{ncols} grid (1-based)"
+            ));
+        }
+        self.fig.add_subplot(nrows, ncols, index);
+        Ok(self.fig.axes().len() - 1)
+    }
+
+    fn plot_impl(&mut self, axes: usize, x: &[f64], y: &[f64]) -> Result<(), String> {
+        self.with_axes(axes, |ax| {
+            ax.plot(x, y);
+        })
+    }
+
+    fn plot_styled_impl(
+        &mut self,
+        axes: usize,
+        x: &[f64],
+        y: &[f64],
+        spec: LineStyleSpec,
+    ) -> Result<(), String> {
+        self.with_axes(axes, |ax| {
+            let color = spec.color.unwrap_or_else(|| ax.next_cycle_color());
+            let mut line = Line2D::new(x.to_vec(), y.to_vec()).with_color(color);
+            if let Some(w) = spec.linewidth {
+                line = line.with_linewidth(w);
+            }
+            if let Some(dashes) = spec.dashes {
+                line = line.with_dashes(dashes);
+            }
+            ax.add_line(line);
+        })
+    }
+
+    fn scatter_impl(&mut self, axes: usize, x: &[f64], y: &[f64]) -> Result<(), String> {
+        self.with_axes(axes, |ax| {
+            ax.scatter(x, y);
+        })
+    }
+
+    fn limits_impl(&self, axes: usize) -> Result<[f64; 4], String> {
+        let count = self.fig.axes().len();
+        let ax =
+            self.fig.axes().get(axes).ok_or_else(|| {
+                format!("axes index {axes} out of range (figure has {count} axes)")
+            })?;
+        let ((xlo, xhi), (ylo, yhi)) = ax.effective_limits();
+        Ok([xlo, xhi, ylo, yhi])
+    }
+
+    fn legend_impl(&mut self, axes: usize, labels: Vec<String>) -> Result<(), String> {
+        self.with_axes(axes, |ax| {
+            if labels.len() > ax.lines.len() {
+                return Err(format!(
+                    "{} legend labels but only {} lines",
+                    labels.len(),
+                    ax.lines.len()
+                ));
+            }
+            let entries = labels
+                .into_iter()
+                .enumerate()
+                .map(|(i, label)| (ax.lines[i].color(), label))
+                .collect();
+            ax.legend(entries);
+            Ok(())
+        })?
+    }
+}
+
+/// Convert a core error message into a JS exception value.
+///
+/// Only called on the wasm boundary; `JsValue` construction is unimplemented
+/// on native targets, which is why the `*_impl` layer carries `String`s.
+fn js_err(msg: String) -> JsValue {
+    JsValue::from_str(&msg)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub use canvas::{WasmSession, draw_sample_to_canvas, render_rgba_to_canvas};
+
 #[cfg(target_arch = "wasm32")]
 mod canvas {
-    use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
-    use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
-    use crate::wasm::{WasmFigure, figure_to_rgba, sample_figure};
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
+    use web_sys::{
+        AddEventListenerOptions, CanvasRenderingContext2d, HtmlCanvasElement, ImageData,
+        PointerEvent, WheelEvent,
+    };
+
+    use crate::figure::{Event, Interactor, MouseButton, Outcome};
+    use crate::wasm::{WasmFigure, figure_to_rgba_scaled, sample_figure};
 
     #[wasm_bindgen]
     impl WasmFigure {
-        /// Render this figure onto the canvas element with id `canvas_id`.
-        ///
-        /// Rasterizes via the shared RGBA path and blits the result with
-        /// `putImageData`, sizing the canvas to the figure's pixel size.
+        /// Render this figure onto the canvas element with id `canvas_id`,
+        /// HiDPI-crisp: the backing store is `devicePixelRatio` × the figure's
+        /// logical pixel size and the canvas CSS size is set to the logical
+        /// size.
         ///
         /// # Errors
         ///
         /// Returns a [`JsValue`] error if the canvas element cannot be found, is
         /// not a canvas, has no 2D context, or `ImageData`/`putImageData` fails.
         pub fn render(&self, canvas_id: &str) -> Result<(), JsValue> {
-            let (rgba, width, height) = figure_to_rgba(&self.fig);
-            render_rgba_to_canvas(canvas_id, &rgba, width, height)
+            let (canvas, context) = canvas_context(canvas_id)?;
+            let scale = device_scale();
+            let (rgba, width, height) = figure_to_rgba_scaled(&self.fig, scale);
+            set_css_size(&canvas, self.fig.size_px())?;
+            blit(&canvas, &context, &rgba, width, height)
         }
+
+        /// Consume this figure and attach it to the canvas with id `canvas_id`
+        /// as an interactive session: HiDPI rendering plus wheel zoom
+        /// (anchored at the cursor), left-drag pan, double-click reset, and a
+        /// hover callback. Keep the returned [`WasmSession`] alive for as long
+        /// as the canvas should stay interactive.
+        ///
+        /// # Errors
+        ///
+        /// Returns a [`JsValue`] error if the canvas element cannot be found,
+        /// is not a canvas, has no 2D context, or rendering fails.
+        pub fn bind(self, canvas_id: &str) -> Result<WasmSession, JsValue> {
+            WasmSession::attach(self.fig, canvas_id)
+        }
+    }
+
+    /// Shared mutable state behind an interactive canvas session.
+    struct SessionState {
+        /// The interaction state machine owning the figure.
+        interactor: Interactor,
+        /// The bound canvas element.
+        canvas: HtmlCanvasElement,
+        /// The canvas' 2D context, used for `putImageData`.
+        context: CanvasRenderingContext2d,
+        /// Device pixel ratio captured at bind time.
+        scale: f64,
+        /// Whether a `requestAnimationFrame` repaint is already queued.
+        raf_pending: bool,
+        /// Host hover callback: called `(axes, x, y)` over data, `(null)` on
+        /// leave.
+        hover_cb: Option<js_sys::Function>,
+    }
+
+    /// An interactive figure bound to a canvas.
+    ///
+    /// Created by [`WasmFigure::bind`]. Dropping the session leaves the last
+    /// frame on the canvas but stops all interaction (the DOM listeners it
+    /// owns are dropped).
+    #[wasm_bindgen]
+    pub struct WasmSession {
+        /// Interaction + rendering state shared with the event closures.
+        state: Rc<RefCell<SessionState>>,
+        /// Owned DOM event closures; dropping them detaches interaction.
+        _listeners: Vec<Closure<dyn FnMut(web_sys::Event)>>,
+    }
+
+    #[wasm_bindgen]
+    impl WasmSession {
+        /// The figure's **logical** pixel size as `[width, height]` (CSS
+        /// pixels; multiply by `devicePixelRatio` for the backing size).
+        #[wasm_bindgen(getter)]
+        #[must_use]
+        pub fn size(&self) -> Box<[f64]> {
+            let (w, h) = self.state.borrow().interactor.figure().size_px();
+            Box::new([w, h])
+        }
+
+        /// Repaint the canvas now (outside the rAF coalescing).
+        ///
+        /// # Errors
+        ///
+        /// Returns a [`JsValue`] error if `ImageData`/`putImageData` fails.
+        pub fn render(&self) -> Result<(), JsValue> {
+            render_now(&self.state)
+        }
+
+        /// The effective `[xlo, xhi, ylo, yhi]` limits of axes `axes` (the
+        /// live values pan/zoom mutate).
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if `axes` is out of range.
+        pub fn limits(&self, axes: usize) -> Result<Box<[f64]>, JsValue> {
+            let state = self.state.borrow();
+            let fig = state.interactor.figure();
+            let ax = fig.axes().get(axes).ok_or_else(|| {
+                JsValue::from_str(&format!(
+                    "axes index {axes} out of range (figure has {} axes)",
+                    fig.axes().len()
+                ))
+            })?;
+            let ((xlo, xhi), (ylo, yhi)) = ax.effective_limits();
+            Ok(Box::new([xlo, xhi, ylo, yhi]))
+        }
+
+        /// Map a **logical canvas pixel** to `[axes, x, y]` data coordinates,
+        /// or `undefined` when the pixel is over no axes.
+        #[must_use]
+        pub fn data_at(&self, px: f64, py: f64) -> Option<Box<[f64]>> {
+            let state = self.state.borrow();
+            let fig = state.interactor.figure();
+            let axes = fig.axes_at(px, py)?;
+            let (x, y) = fig.pixel_to_data(axes, px, py)?;
+            Some(Box::new([axes as f64, x, y]))
+        }
+
+        /// Register a hover callback, called as `cb(axes, x, y)` while the
+        /// cursor is over axes data and `cb(null)` when it leaves the canvas.
+        pub fn on_hover(&self, cb: js_sys::Function) {
+            self.state.borrow_mut().hover_cb = Some(cb);
+        }
+
+        /// Build the session: size the canvas for HiDPI, paint the first
+        /// frame, and attach the DOM listeners.
+        fn attach(fig: crate::figure::Figure, canvas_id: &str) -> Result<WasmSession, JsValue> {
+            let (canvas, context) = canvas_context(canvas_id)?;
+            set_css_size(&canvas, fig.size_px())?;
+            let state = Rc::new(RefCell::new(SessionState {
+                interactor: Interactor::new(fig),
+                canvas,
+                context,
+                scale: device_scale(),
+                raf_pending: false,
+                hover_cb: None,
+            }));
+            render_now(&state)?;
+
+            let mut listeners = Vec::new();
+            add_pointer_listeners(&state, &mut listeners)?;
+            add_wheel_listener(&state, &mut listeners)?;
+            Ok(WasmSession {
+                state,
+                _listeners: listeners,
+            })
+        }
+    }
+
+    /// Map a DOM `MouseEvent.button` code to a [`MouseButton`].
+    fn dom_button(code: i16) -> Option<MouseButton> {
+        match code {
+            0 => Some(MouseButton::Left),
+            1 => Some(MouseButton::Middle),
+            2 => Some(MouseButton::Right),
+            _ => None,
+        }
+    }
+
+    /// Normalize a DOM wheel delta to "lines" (one detent ≈ 1.0).
+    fn wheel_lines(ev: &WheelEvent) -> f64 {
+        match ev.delta_mode() {
+            WheelEvent::DOM_DELTA_PIXEL => ev.delta_y() / 120.0,
+            WheelEvent::DOM_DELTA_PAGE => ev.delta_y() * 10.0,
+            // DOM_DELTA_LINE and anything else pass through unscaled.
+            _ => ev.delta_y(),
+        }
+    }
+
+    /// Attach the pointer listeners (`down`/`move`/`up`/`leave`, `dblclick`).
+    ///
+    /// Positions use `offsetX`/`offsetY`, which are CSS pixels relative to the
+    /// canvas — identical to logical figure pixels because the canvas CSS size
+    /// is pinned to the figure's logical size.
+    fn add_pointer_listeners(
+        state: &Rc<RefCell<SessionState>>,
+        listeners: &mut Vec<Closure<dyn FnMut(web_sys::Event)>>,
+    ) -> Result<(), JsValue> {
+        add_listener(state, listeners, "pointerdown", |ev| {
+            let pe: &PointerEvent = ev.dyn_ref()?;
+            let button = dom_button(pe.button())?;
+            // Capture the pointer so a pan drag keeps flowing after the
+            // cursor leaves the canvas.
+            if let Some(canvas) = ev
+                .current_target()
+                .and_then(|t| t.dyn_into::<HtmlCanvasElement>().ok())
+            {
+                let _ = canvas.set_pointer_capture(pe.pointer_id());
+            }
+            Some(Event::MouseDown {
+                x: f64::from(pe.offset_x()),
+                y: f64::from(pe.offset_y()),
+                button,
+            })
+        })?;
+        add_listener(state, listeners, "pointermove", |ev| {
+            let pe: &PointerEvent = ev.dyn_ref()?;
+            Some(Event::MouseMove {
+                x: f64::from(pe.offset_x()),
+                y: f64::from(pe.offset_y()),
+            })
+        })?;
+        add_listener(state, listeners, "pointerup", |ev| {
+            let pe: &PointerEvent = ev.dyn_ref()?;
+            let button = dom_button(pe.button())?;
+            Some(Event::MouseUp {
+                x: f64::from(pe.offset_x()),
+                y: f64::from(pe.offset_y()),
+                button,
+            })
+        })?;
+        add_listener(state, listeners, "pointerleave", |_| Some(Event::Leave))?;
+        add_listener(state, listeners, "dblclick", |ev| {
+            let me: &web_sys::MouseEvent = ev.dyn_ref()?;
+            Some(Event::DoubleClick {
+                x: f64::from(me.offset_x()),
+                y: f64::from(me.offset_y()),
+            })
+        })
+    }
+
+    /// Attach the wheel listener non-passively so zooming can suppress page
+    /// scroll with `preventDefault`.
+    fn add_wheel_listener(
+        state: &Rc<RefCell<SessionState>>,
+        listeners: &mut Vec<Closure<dyn FnMut(web_sys::Event)>>,
+    ) -> Result<(), JsValue> {
+        let st = state.clone();
+        let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |ev: web_sys::Event| {
+            let Some(we) = ev.dyn_ref::<WheelEvent>() else {
+                return;
+            };
+            ev.prevent_default();
+            let event = Event::Wheel {
+                x: f64::from(we.offset_x()),
+                y: f64::from(we.offset_y()),
+                dy: wheel_lines(we),
+            };
+            dispatch(&st, event);
+        });
+        let canvas = state.borrow().canvas.clone();
+        let opts = AddEventListenerOptions::new();
+        opts.set_passive(false);
+        canvas.add_event_listener_with_callback_and_add_event_listener_options(
+            "wheel",
+            cb.as_ref().unchecked_ref(),
+            &opts,
+        )?;
+        listeners.push(cb);
+        Ok(())
+    }
+
+    /// Attach one passive listener that maps the DOM event through `map` and
+    /// dispatches the result.
+    fn add_listener(
+        state: &Rc<RefCell<SessionState>>,
+        listeners: &mut Vec<Closure<dyn FnMut(web_sys::Event)>>,
+        name: &str,
+        map: impl Fn(&web_sys::Event) -> Option<Event> + 'static,
+    ) -> Result<(), JsValue> {
+        let st = state.clone();
+        let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |ev: web_sys::Event| {
+            if let Some(event) = map(&ev) {
+                dispatch(&st, event);
+            }
+        });
+        let canvas = state.borrow().canvas.clone();
+        canvas.add_event_listener_with_callback(name, cb.as_ref().unchecked_ref())?;
+        listeners.push(cb);
+        Ok(())
+    }
+
+    /// Feed one event to the interactor and act on the outcome.
+    ///
+    /// The state borrow is dropped before any JS callback runs, so a hover
+    /// callback may freely call back into the session.
+    fn dispatch(state: &Rc<RefCell<SessionState>>, event: Event) {
+        let outcome = state.borrow_mut().interactor.handle(event);
+        match outcome {
+            Outcome::NeedsRedraw => schedule_redraw(state),
+            Outcome::Hover { axes, x, y } => {
+                let cb = state.borrow().hover_cb.clone();
+                if let Some(cb) = cb {
+                    let _ = cb.call3(
+                        &JsValue::NULL,
+                        &JsValue::from_f64(axes as f64),
+                        &JsValue::from_f64(x),
+                        &JsValue::from_f64(y),
+                    );
+                }
+            }
+            Outcome::Unchanged => {
+                if matches!(event, Event::Leave) {
+                    let cb = state.borrow().hover_cb.clone();
+                    if let Some(cb) = cb {
+                        let _ = cb.call1(&JsValue::NULL, &JsValue::NULL);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Queue a repaint on the next animation frame, coalescing bursts: any
+    /// number of `NeedsRedraw` outcomes between frames paint exactly once.
+    fn schedule_redraw(state: &Rc<RefCell<SessionState>>) {
+        {
+            let mut st = state.borrow_mut();
+            if st.raf_pending {
+                return;
+            }
+            st.raf_pending = true;
+        }
+        let st = state.clone();
+        // `once_into_js` hands ownership to the JS GC; the closure memory is
+        // reclaimed after it runs, so per-frame scheduling does not leak.
+        let cb = Closure::once_into_js(move || {
+            st.borrow_mut().raf_pending = false;
+            let _ = render_now(&st);
+        });
+        if let Some(win) = web_sys::window() {
+            let _ = win.request_animation_frame(cb.unchecked_ref());
+        }
+    }
+
+    /// Render the session's figure at its DPR scale and blit it.
+    fn render_now(state: &Rc<RefCell<SessionState>>) -> Result<(), JsValue> {
+        let st = state.borrow();
+        let (rgba, width, height) = figure_to_rgba_scaled(st.interactor.figure(), st.scale);
+        blit(&st.canvas, &st.context, &rgba, width, height)
+    }
+
+    /// The window's `devicePixelRatio`, guarded to a sane positive value.
+    fn device_scale() -> f64 {
+        web_sys::window()
+            .map(|w| w.device_pixel_ratio())
+            .filter(|s| s.is_finite() && *s > 0.0)
+            .unwrap_or(1.0)
+    }
+
+    /// Pin the canvas' CSS size to the figure's logical pixel size, so the
+    /// HiDPI backing store is presented at 1 logical px = 1 CSS px.
+    fn set_css_size(canvas: &HtmlCanvasElement, logical: (f64, f64)) -> Result<(), JsValue> {
+        let style = canvas.style();
+        style.set_property("width", &format!("{}px", logical.0))?;
+        style.set_property("height", &format!("{}px", logical.1))
+    }
+
+    /// Size the canvas backing store to `(width, height)` device pixels and
+    /// `putImageData` the buffer at the origin.
+    fn blit(
+        canvas: &HtmlCanvasElement,
+        context: &CanvasRenderingContext2d,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+    ) -> Result<(), JsValue> {
+        if canvas.width() != width {
+            canvas.set_width(width);
+        }
+        if canvas.height() != height {
+            canvas.set_height(height);
+        }
+        let clamped = wasm_bindgen::Clamped(rgba);
+        let image_data = ImageData::new_with_u8_clamped_array_and_sh(clamped, width, height)?;
+        context.put_image_data(&image_data, 0.0, 0.0)
     }
 
     /// Look up the canvas with `canvas_id` and return it with its 2D context.
@@ -179,8 +937,8 @@ mod canvas {
         Ok((canvas, context))
     }
 
-    /// Render the built-in [`sample_figure`] and blit it onto the canvas element
-    /// with id `canvas_id`.
+    /// Render the built-in [`sample_figure`] onto the canvas element with id
+    /// `canvas_id` (HiDPI-crisp, non-interactive).
     ///
     /// # Errors
     ///
@@ -188,14 +946,15 @@ mod canvas {
     /// a canvas, has no 2D context, or `ImageData`/`putImageData` fails.
     #[wasm_bindgen]
     pub fn draw_sample_to_canvas(canvas_id: &str) -> Result<(), JsValue> {
-        let (rgba, width, height) = figure_to_rgba(&sample_figure());
-        render_rgba_to_canvas(canvas_id, &rgba, width, height)
+        WasmFigure {
+            fig: sample_figure(),
+        }
+        .render(canvas_id)
     }
 
-    /// Blit a straight-RGBA8 buffer onto the canvas element with id `canvas_id`.
-    ///
-    /// Sizes the canvas to `width` by `height`, wraps `rgba` in an
-    /// [`ImageData`], and draws it at the origin via `putImageData`.
+    /// Blit a straight-RGBA8 buffer onto the canvas element with id
+    /// `canvas_id`, sizing the backing store to `width` by `height` device
+    /// pixels (no CSS sizing — presentation scale is the caller's concern).
     ///
     /// # Errors
     ///
@@ -209,13 +968,7 @@ mod canvas {
         height: u32,
     ) -> Result<(), JsValue> {
         let (canvas, context) = canvas_context(canvas_id)?;
-        canvas.set_width(width);
-        canvas.set_height(height);
-
-        let clamped = wasm_bindgen::Clamped(rgba);
-        let image_data = ImageData::new_with_u8_clamped_array_and_sh(clamped, width, height)?;
-        context.put_image_data(&image_data, 0.0, 0.0)?;
-        Ok(())
+        blit(&canvas, &context, rgba, width, height)
     }
 }
 
@@ -244,6 +997,114 @@ mod tests {
             rgba.iter().any(|&b| b != 0),
             "expected non-zero pixels (something drawn)"
         );
+    }
+
+    #[test]
+    fn dash_patterns_map_matplotlib_tokens() {
+        assert_eq!(dash_pattern("-").unwrap(), None);
+        assert_eq!(dash_pattern("solid").unwrap(), None);
+        assert_eq!(dash_pattern("--").unwrap(), Some((0.0, vec![3.7, 1.6])));
+        assert_eq!(dash_pattern(":").unwrap(), Some((0.0, vec![1.0, 1.65])));
+        assert_eq!(
+            dash_pattern("-.").unwrap(),
+            Some((0.0, vec![6.4, 1.6, 1.0, 1.6]))
+        );
+        assert!(dash_pattern("~~").is_err());
+    }
+
+    #[test]
+    fn build_line_style_validates_parts() {
+        let spec = build_line_style(Some("tab:orange"), Some(2.5), Some("--")).unwrap();
+        assert!(spec.color.is_some());
+        assert_eq!(spec.linewidth, Some(2.5));
+        assert_eq!(spec.dashes, Some(Some((0.0, vec![3.7, 1.6]))));
+
+        assert_eq!(
+            build_line_style(None, None, None).unwrap(),
+            LineStyleSpec::default()
+        );
+        assert!(build_line_style(Some("not-a-color"), None, None).is_err());
+        assert!(build_line_style(None, Some(-1.0), None).is_err());
+        assert!(build_line_style(None, Some(f64::NAN), None).is_err());
+        assert!(build_line_style(None, None, Some("wavy")).is_err());
+    }
+
+    #[test]
+    fn js_surface_builds_a_real_figure() {
+        // Drive the target-agnostic `_impl` layer the browser wrappers
+        // forward to (the JsValue boundary itself is covered by the
+        // wasm-pack browser tests).
+        let mut wf = WasmFigure::new(4.0, 3.0);
+        let ax = wf.add_axes(0.1, 0.1, 0.8, 0.8);
+        assert_eq!(ax, 0);
+        wf.plot_impl(0, &[0.0, 1.0, 2.0], &[0.0, 1.0, 4.0]).unwrap();
+        let styled = build_line_style(Some("tab:red"), Some(3.0), Some("--")).unwrap();
+        wf.plot_styled_impl(0, &[0.0, 2.0], &[4.0, 0.0], styled)
+            .unwrap();
+        wf.scatter_impl(0, &[0.5, 1.5], &[0.2, 2.0]).unwrap();
+        wf.with_axes(0, |ax| {
+            ax.set_title("t");
+            ax.set_xlabel("x");
+            ax.set_ylabel("y");
+            ax.set_xlim(0.0, 2.0);
+            ax.set_ylim(0.0, 4.0);
+        })
+        .unwrap();
+        wf.legend_impl(0, vec!["line".into(), "styled".into()])
+            .unwrap();
+
+        assert_eq!(wf.limits_impl(0).unwrap(), [0.0, 2.0, 0.0, 4.0]);
+        // Out-of-range axes and over-long legends error.
+        assert!(wf.plot_impl(3, &[0.0], &[0.0]).is_err());
+        assert!(wf.limits_impl(3).is_err());
+        assert!(
+            wf.legend_impl(0, vec!["a".into(), "b".into(), "c".into()])
+                .is_err()
+        );
+
+        // The built figure actually renders ink.
+        let (rgba, w, h) = figure_to_rgba(&wf.fig);
+        assert_eq!(rgba.len(), (w as usize) * (h as usize) * 4);
+        assert!(rgba.chunks_exact(4).any(|px| px != [255, 255, 255, 255]));
+    }
+
+    #[test]
+    fn subplot_index_validation() {
+        let mut wf = WasmFigure::new(4.0, 3.0);
+        assert!(wf.add_subplot_impl(2, 2, 0).is_err());
+        assert!(wf.add_subplot_impl(2, 2, 5).is_err());
+        assert_eq!(wf.add_subplot_impl(2, 2, 1).unwrap(), 0);
+        assert_eq!(wf.add_subplot_impl(2, 2, 4).unwrap(), 1);
+    }
+
+    #[test]
+    fn scaled_render_matches_double_dpi_render() {
+        // The W1 acceptance criterion: rendering at scale 2 must be
+        // bit-identical to rendering the same figure built at 2x DPI.
+        let fig = sample_figure();
+        let scaled = fig.render_scaled(2.0);
+
+        let mut hidpi = sample_figure();
+        let dpi = hidpi.dpi();
+        hidpi = hidpi.with_dpi(dpi * 2.0);
+        let reference = hidpi.render();
+
+        assert_eq!(scaled.pixmap().width(), reference.pixmap().width());
+        assert_eq!(scaled.pixmap().height(), reference.pixmap().height());
+        assert_eq!(
+            scaled.pixmap().data(),
+            reference.pixmap().data(),
+            "scale-2 render must be bit-identical to a 2x-DPI render"
+        );
+    }
+
+    #[test]
+    fn scaled_rgba_doubles_dimensions() {
+        let fig = sample_figure();
+        let (rgba1, w1, h1) = figure_to_rgba_scaled(&fig, 1.0);
+        let (rgba2, w2, h2) = figure_to_rgba_scaled(&fig, 2.0);
+        assert_eq!((w2, h2), (w1 * 2, h1 * 2));
+        assert_eq!(rgba2.len(), rgba1.len() * 4);
     }
 
     #[test]

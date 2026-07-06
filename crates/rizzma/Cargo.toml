@@ -20,11 +20,12 @@ workspace = true
 default = ["plot3d", "pyplot", "wasm"]
 plot3d = []
 pyplot = []
-wasm = ["dep:wasm-bindgen", "dep:web-sys"]
+wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys"]
 
 [dependencies]
 base64 = "0.22.1"
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
+js-sys = { version = "0.3", optional = true }
 png = "0.18.1"
 serde = { version = "1.0.228", features = ["derive"] }
 tiny-skia = "0.12.0"
@@ -33,11 +34,29 @@ wasm-bindgen = { version = "0.2.126", optional = true }
 web-sys = { version = "0.3.103", optional = true, features = [
     "Window",
     "Document",
+    "Element",
+    "EventTarget",
+    "HtmlElement",
     "HtmlCanvasElement",
     "CanvasRenderingContext2d",
+    "CssStyleDeclaration",
     "ImageData",
+    "AddEventListenerOptions",
+    "MouseEvent",
+    "PointerEvent",
+    "WheelEvent",
 ] }
 
 [dev-dependencies]
 resvg = { version = "0.47.0", default-features = false, features = ["raster-images"] }
 serde_json = "1.0.150"
+
+# Browser-only integration tests (`wasm-pack test --headless --chrome`); the
+# extra web-sys features here are for synthesizing DOM events in those tests.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+web-sys = { version = "0.3.103", features = [
+    "MouseEventInit",
+    "PointerEventInit",
+    "WheelEventInit",
+] }

@@ -7,6 +7,28 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [Unreleased]
+
+### Added
+- **Interactive wasm plots** (design doc 06, W1–W6). `WasmFigure` is now a real
+  JS plotting surface — `new(w, h)`, `add_axes`/`add_subplot`, `plot`,
+  `plot_styled({color, lw, ls})`, `scatter`, titles/labels/limits, log scales,
+  and `legend` — and `WasmFigure.bind(canvas_id)` returns a `WasmSession` with
+  wheel zoom anchored at the cursor, left-drag pan (log-scale-aware), double-click
+  home reset, and an `on_hover` callback, repainting through a
+  `requestAnimationFrame`-coalesced loop.
+- HiDPI rendering: `Figure::render_scaled` / `wasm::figure_to_rgba_scaled`
+  render at `devicePixelRatio` × DPI (bit-identical to a double-DPI render) and
+  the canvas is presented at logical CSS size, so browser plots are crisp on
+  retina displays.
+- Host-agnostic interaction core: `figure::{Event, MouseButton}` (top-down
+  logical pixels, no y-flip anywhere), `Figure::axes_at` hit-testing, and
+  `figure::Interactor`/`Outcome` — pure Rust, fully covered by native tests.
+- CI: `wasm browser tests` job runs the new `wasm-pack test --headless
+  --chrome` suite (canvas pixel readback + synthetic pointer/wheel event
+  end-to-end), and a native per-frame render budget test guards interactive
+  latency (~14 ms release at 1600×1200 vs the 16 ms design target).
+
 ## [1.0.1] - 2026-07-01
 
 ### Changed

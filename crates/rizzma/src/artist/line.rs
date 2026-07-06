@@ -58,6 +58,12 @@ impl Line2D {
         }
     }
 
+    /// The stroke color.
+    #[must_use]
+    pub fn color(&self) -> Rgba {
+        self.color
+    }
+
     /// Set the stroke color, returning `self` for chaining.
     #[must_use]
     pub fn with_color(mut self, color: Rgba) -> Self {

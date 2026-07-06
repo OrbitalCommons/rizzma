@@ -1,9 +1,17 @@
 # Wasm Support Charter & Interactive Plotting Plan
 
-> **Status:** planning. This document consolidates the wasm commitments that were
-> previously scattered across `01-architecture.md` §11.6, `04-implementation-plan.md`
-> Phase 9 (PR-44…46), `AGENTS.md`, and CI — and extends them into a concrete plan
-> for **interactive plots in the browser** (hover, pan, zoom, reset).
+> **Status:** implemented — W1–W6 landed 2026-07 (see the Unreleased CHANGELOG
+> entry). Known deviations from the plan below: the DOM bridge omits a
+> `ResizeObserver` (the figure's inch size is fixed, so a container resize
+> changes nothing; `Event::Resize` exists for hosts that want to feed it
+> manually), `grid` is not on the JS surface (there is no Rust `Axes::grid`
+> yet, and the surface never runs ahead of the Rust API), and `legend(labels)`
+> pairs labels with plotted lines by index.
+>
+> This document consolidates the wasm commitments that were previously
+> scattered across `01-architecture.md` §11.6, `04-implementation-plan.md`
+> Phase 9 (PR-44…46), `AGENTS.md`, and CI — and extends them into a concrete
+> plan for **interactive plots in the browser** (hover, pan, zoom, reset).
 >
 > Written 2026-07-05 against `crates/rizzma` 1.0.1.
 
