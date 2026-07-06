@@ -96,6 +96,8 @@ See `design/`:
 - [`02-plot-types.md`](design/02-plot-types.md) — catalogue of plot types, tiered by priority
 - [`03-foundational-components.md`](design/03-foundational-components.md) — the engine room + crate mapping
 - [`04-implementation-plan.md`](design/04-implementation-plan.md) — milestones and the PR DAG
+- [`05-log-scale-axis-integration.md`](design/05-log-scale-axis-integration.md) — log-scale axes integration
+- [`06-wasm-interactive-plan.md`](design/06-wasm-interactive-plan.md) — wasm charter + interactive plotting plan
 
 ## Development
 
