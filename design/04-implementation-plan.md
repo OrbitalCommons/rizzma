@@ -265,14 +265,23 @@ acceptance signal.
 
 ### Phase 9 — Second backends + wasm  *(→ M4)*
 
+> **Status (2026-07):** PR-43 and PR-44 landed (SVG renderer; `src/wasm/` blit path,
+> `WasmFigure`, demo page, CI size budget). The remainder — DPR-correct rendering, a
+> real JS plotting surface, the event bridge, pan/zoom/hover tools, the per-frame
+> perf budget, and headless-browser CI — is re-planned in detail as PR-45/-46's
+> successor: see [`06-wasm-interactive-plan.md`](06-wasm-interactive-plan.md).
+> The rows below are kept for the historical DAG; W1–W6 in doc 06 supersede
+> PR-45/-46.
+
 | PR | Title | Size | Deps | Acceptance |
 |----|-------|------|------|------------|
 | **PR-43** | `rizzma-svg` vector renderer (path/marker/clip/hatch/image/text via defs+use) | L | PR-11 | SVG of Tier-1 figure rasterizes (resvg) to match PNG golden |
 | **PR-44** | `rizzma-wasm` canvas renderer (tiny-skia `Pixmap` → `putImageData`) + `wasm-bindgen` entry | L | PR-12 | headless canvas render matches PNG golden |
-| **PR-45** | DOM event bridge: mouse/key/resize → `MouseEvent`/`KeyEvent` (y-flip, button remap) | M | PR-44 | events dispatch; pan/zoom hook works |
-| **PR-46** | wasm demo page + `.wasm` size & per-frame perf budget | S | PR-44 | demo renders Tier-1 plot in-browser under budget |
+| **PR-45** | DOM event bridge: mouse/key/resize → `MouseEvent`/`KeyEvent` (y-flip, button remap) | M | PR-44 | superseded by doc 06 W3a/W3b (no y-flip: core is top-down px) |
+| **PR-46** | wasm demo page + `.wasm` size & per-frame perf budget | S | PR-44 | demo + size budget done; perf budget superseded by doc 06 W5 |
 
 > **M4 reached:** identical figure to PNG / SVG / browser canvas, interactive.
+> (Interactivity criterion maps to doc 06's W5.)
 
 ### Phase 10 — Tier-2/3/4 expansion  *(→ M5; highly parallel, each depends only on its primitives)*
 
