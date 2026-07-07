@@ -5,6 +5,7 @@
 use std::f64::consts::{PI, TAU};
 
 use chrono::NaiveDate;
+use rizzma::artist::Patch;
 use rizzma::axis::dates::date2num;
 use rizzma::core::color::Rgba;
 use rizzma::figure::{Figure, PolarAxes};
@@ -824,6 +825,52 @@ fn main() {
         ax.contourf(&z, nr, nc);
         ax.set_title("island chain, filled by elevation");
         fig.save_png("target/gallery_contourf.png").unwrap();
+    }
+
+    // 43. patches — shape overlays in data coordinates: an aperture ring on a
+    // star, a dashed region-of-interest box, and a measurement arc.
+    {
+        let mut fig = Figure::new(5.0, 3.8);
+        let (nr, nc) = (60usize, 80usize);
+        let mut data = vec![0.0; nr * nc];
+        for r in 0..nr {
+            for col in 0..nc {
+                // A bright PSF-ish star plus a faint neighbor.
+                let star = |cx: f64, cy: f64, amp: f64, sigma: f64| {
+                    let d2 = (col as f64 - cx).powi(2) + (r as f64 - cy).powi(2);
+                    amp * (-d2 / (2.0 * sigma * sigma)).exp()
+                };
+                data[r * nc + col] =
+                    star(30.0, 28.0, 1.0, 4.0) + star(58.0, 44.0, 0.35, 3.0) + 0.02;
+            }
+        }
+        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        ax.imshow(&data, nr, nc);
+        // The image displays row 0 at the bottom, so overlay y = nr - row.
+        let (bright, faint) = ((30.0, 60.0 - 28.0), (58.0, 60.0 - 44.0));
+        // Aperture ring around the bright star (outline-only circle).
+        ax.add_patch(
+            Patch::circle([bright.0, bright.1], 9.0)
+                .facecolor(None)
+                .edgecolor(Some(Rgba::from_hex("#f5f5f5").unwrap()))
+                .linewidth(1.6),
+        );
+        // Dashed ROI box around the faint neighbor.
+        ax.add_patch(
+            Patch::rectangle(faint.0 - 8.0, faint.1 - 8.0, 16.0, 16.0)
+                .facecolor(None)
+                .edgecolor(Some(Rgba::from_hex("#ff7f0e").unwrap()))
+                .linewidth(1.4)
+                .dashes(Some((0.0, vec![4.0, 3.0]))),
+        );
+        // A measurement arc sweeping from the ring toward the neighbor.
+        ax.add_patch(
+            Patch::arc([bright.0, bright.1], 22.0, -60.0, 30.0)
+                .edgecolor(Some(Rgba::from_hex("#2ca02c").unwrap()))
+                .linewidth(1.6),
+        );
+        ax.set_title("patches: aperture ring, ROI box, arc");
+        fig.save_png("target/gallery_patches.png").unwrap();
     }
 
     println!("wrote target/gallery_*.png");
