@@ -12,12 +12,13 @@
 //! into the data-to-color pipeline used by scatter/imshow.
 
 pub mod cmap;
+mod cmap_data;
 pub mod named;
 pub mod norm;
 
 pub use cmap::{
-    Colormap, LinearSegmentedColormap, ListedColormap, SegmentPoint, VIRIDIS_DATA, colormap, gray,
-    viridis,
+    Colormap, LinearSegmentedColormap, ListedColormap, SegmentPoint, VIRIDIS_DATA, cividis,
+    colormap, coolwarm, gray, inferno, magma, plasma, rdbu, viridis,
 };
 pub use named::{BASE_COLORS, CSS4_COLORS, DEFAULT_COLOR_CYCLE, TABLEAU_COLORS, to_rgba};
 pub use norm::{BoundaryNorm, LinearNorm, LogNorm, Normalize, PowerNorm};

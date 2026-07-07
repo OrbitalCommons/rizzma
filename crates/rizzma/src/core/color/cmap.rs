@@ -458,17 +458,76 @@ pub fn gray() -> LinearSegmentedColormap {
     LinearSegmentedColormap::new(&ramp, &ramp, &ramp)
 }
 
+/// Build the builtin magma colormap from the embedded data.
+#[must_use]
+pub fn magma() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_table(&super::cmap_data::MAGMA_DATA)
+}
+
+/// Build the builtin inferno colormap from the embedded data.
+#[must_use]
+pub fn inferno() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_table(&super::cmap_data::INFERNO_DATA)
+}
+
+/// Build the builtin plasma colormap from the embedded data.
+#[must_use]
+pub fn plasma() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_table(&super::cmap_data::PLASMA_DATA)
+}
+
+/// Build the builtin cividis colormap from the embedded data.
+#[must_use]
+pub fn cividis() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_table(&super::cmap_data::CIVIDIS_DATA)
+}
+
+/// Build the RdBu diverging colormap (red → near-white → blue) from its
+/// ColorBrewer anchor colors.
+#[must_use]
+pub fn rdbu() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_table(&super::cmap_data::RDBU_DATA)
+}
+
+/// Build the coolwarm diverging colormap (cool blue → near-white → warm red;
+/// Moreland's smooth diverging map) from its segment data.
+#[must_use]
+pub fn coolwarm() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::new(
+        &super::cmap_data::COOLWARM_RED,
+        &super::cmap_data::COOLWARM_GREEN,
+        &super::cmap_data::COOLWARM_BLUE,
+    )
+}
+
 /// Look up a builtin colormap by name.
 ///
-/// Recognized names: `"viridis"`, `"gray"`, and their reversed variants
-/// `"viridis_r"` and `"gray_r"`. Returns [`None`] for unknown names.
+/// Recognized names: the perceptually-uniform sequential maps `"viridis"`,
+/// `"magma"`, `"inferno"`, `"plasma"`, `"cividis"`; the diverging maps
+/// `"RdBu"` and `"coolwarm"`; `"gray"`; and every map's reversed variant via
+/// the matplotlib `_r` suffix (`"magma_r"`, `"RdBu_r"`, …). Returns [`None`]
+/// for unknown names.
 #[must_use]
 pub fn colormap(name: &str) -> Option<Box<dyn Colormap>> {
+    // The `_r` suffix reverses any known map rather than being a separate
+    // registry entry per map.
+    if let Some(base) = name.strip_suffix("_r") {
+        return base_colormap(base).map(|m| Box::new(m.reversed()) as Box<dyn Colormap>);
+    }
+    base_colormap(name).map(|m| Box::new(m) as Box<dyn Colormap>)
+}
+
+/// The forward (non-reversed) builtin colormaps by name.
+fn base_colormap(name: &str) -> Option<LinearSegmentedColormap> {
     match name {
-        "viridis" => Some(Box::new(viridis())),
-        "viridis_r" => Some(Box::new(viridis().reversed())),
-        "gray" => Some(Box::new(gray())),
-        "gray_r" => Some(Box::new(gray().reversed())),
+        "viridis" => Some(viridis()),
+        "gray" => Some(gray()),
+        "magma" => Some(magma()),
+        "inferno" => Some(inferno()),
+        "plasma" => Some(plasma()),
+        "cividis" => Some(cividis()),
+        "RdBu" => Some(rdbu()),
+        "coolwarm" => Some(coolwarm()),
         _ => None,
     }
 }
@@ -547,5 +606,93 @@ mod tests {
         let cm = colormap("gray_r").unwrap();
         assert_eq!(cm.sample(0.0), Rgba::WHITE);
         assert_eq!(cm.sample(1.0), Rgba::BLACK);
+    }
+
+    #[test]
+    fn registry_resolves_new_maps_and_reversals() {
+        for name in ["magma", "inferno", "plasma", "cividis", "RdBu", "coolwarm"] {
+            assert!(colormap(name).is_some(), "{name} must resolve");
+            let reversed = format!("{name}_r");
+            assert!(colormap(&reversed).is_some(), "{reversed} must resolve");
+        }
+        // `_r` on an unknown base stays unknown.
+        assert!(colormap("nope_r").is_none());
+    }
+
+    #[test]
+    fn listed_map_endpoints_match_embedded_data() {
+        // Endpoints of a from_rgb_table map are the first/last table rows.
+        let cases: [(&str, [f64; 3], [f64; 3]); 4] = [
+            (
+                "magma",
+                super::super::cmap_data::MAGMA_DATA[0],
+                super::super::cmap_data::MAGMA_DATA[255],
+            ),
+            (
+                "inferno",
+                super::super::cmap_data::INFERNO_DATA[0],
+                super::super::cmap_data::INFERNO_DATA[255],
+            ),
+            (
+                "plasma",
+                super::super::cmap_data::PLASMA_DATA[0],
+                super::super::cmap_data::PLASMA_DATA[255],
+            ),
+            (
+                "cividis",
+                super::super::cmap_data::CIVIDIS_DATA[0],
+                super::super::cmap_data::CIVIDIS_DATA[255],
+            ),
+        ];
+        for (name, lo, hi) in cases {
+            let cm = colormap(name).unwrap();
+            let s0 = cm.sample(0.0);
+            let s1 = cm.sample(1.0);
+            approx(s0.r, lo[0]);
+            approx(s0.g, lo[1]);
+            approx(s0.b, lo[2]);
+            approx(s1.r, hi[0]);
+            approx(s1.g, hi[1]);
+            approx(s1.b, hi[2]);
+        }
+    }
+
+    #[test]
+    fn diverging_maps_have_near_white_midpoints_and_opposed_ends() {
+        for name in ["RdBu", "coolwarm"] {
+            let cm = colormap(name).unwrap();
+            let mid = cm.sample(0.5);
+            assert!(
+                mid.r > 0.85 && mid.g > 0.85 && mid.b > 0.85,
+                "{name} midpoint must be near-white, got ({}, {}, {})",
+                mid.r,
+                mid.g,
+                mid.b
+            );
+            // One end warm (red-dominant), the other cool (blue-dominant).
+            let (a, b) = (cm.sample(0.0), cm.sample(1.0));
+            let (warm, cool) = if name == "RdBu" { (a, b) } else { (b, a) };
+            assert!(warm.r > warm.b, "{name} warm end must be red-dominant");
+            assert!(cool.b > cool.r, "{name} cool end must be blue-dominant");
+        }
+    }
+
+    #[test]
+    fn rdbu_r_matches_downstream_usage_direction() {
+        // The heaviest downstream user maps RdBu_r: blue (negative) -> red
+        // (positive), i.e. sample(0) blue-dominant.
+        let cm = colormap("RdBu_r").unwrap();
+        assert!(cm.sample(0.0).b > cm.sample(0.0).r);
+        assert!(cm.sample(1.0).r > cm.sample(1.0).b);
+    }
+
+    #[test]
+    fn coolwarm_endpoints_match_moreland_values() {
+        let cm = colormap("coolwarm").unwrap();
+        // First/last segment values from the embedded Moreland table.
+        approx(cm.sample(0.0).r, 0.2298057);
+        approx(cm.sample(0.0).b, 0.753683153);
+        approx(cm.sample(1.0).r, 0.705673158);
+        approx(cm.sample(1.0).b, 0.150232812);
     }
 }
