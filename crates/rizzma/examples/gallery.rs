@@ -917,5 +917,28 @@ fn main() {
         fig.save_png("target/gallery_tricontour.png").unwrap();
     }
 
+    // 46. pcolormesh gouraud — a chirp spectrogram, smoothly shaded.
+    {
+        let mut fig = Figure::new(5.0, 3.8);
+        let (nr, nc) = (48usize, 64usize);
+        let mut z = vec![0.0; nr * nc];
+        for r in 0..nr {
+            for col in 0..nc {
+                let t = col as f64 / (nc - 1) as f64; // time 0..1
+                let f = r as f64 / (nr - 1) as f64; // frequency 0..1
+                // A rising chirp ridge plus a faint constant tone.
+                let chirp = (-((f - (0.15 + 0.7 * t)) / 0.06).powi(2)).exp();
+                let tone = 0.35 * (-((f - 0.75) / 0.03).powi(2)).exp();
+                z[r * nc + col] = chirp + tone;
+            }
+        }
+        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        ax.pcolormesh_gouraud(&z, nr, nc);
+        ax.set_title("gouraud pcolormesh: chirp spectrogram, no blocky cells");
+        ax.set_xlabel("time");
+        ax.set_ylabel("frequency");
+        fig.save_png("target/gallery_gouraud.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
