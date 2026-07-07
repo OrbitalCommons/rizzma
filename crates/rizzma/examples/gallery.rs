@@ -231,8 +231,12 @@ fn main() {
             }
         }
         let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
-        ax.imshow(&data, nr, nc);
-        ax.set_title("two-source interference");
+        // Signed field -> zero-centered diverging map.
+        ax.imshow(&data, nr, nc)
+            .cmap("coolwarm")
+            .vmin(-2.0)
+            .vmax(2.0);
+        ax.set_title("two-source interference (coolwarm, diverging)");
         fig.save_png("target/gallery_imshow.png").unwrap();
     }
 
