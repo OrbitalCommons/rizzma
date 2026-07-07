@@ -1,4 +1,6 @@
-//! # rizzma
+//! # Scientific communication reflects on the scientist, and your figures should carry the same *rizzma* as your ideas.
+//!
+//! ## rizzma
 //!
 //! A single-crate Rust reimplementation of the good parts of matplotlib / pyplot,
 //! with first-class WebAssembly support.
