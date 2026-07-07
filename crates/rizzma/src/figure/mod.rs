@@ -76,6 +76,7 @@ mod plotting_tri;
 mod plotting_violin;
 pub mod polar;
 pub mod richtext;
+pub mod sky;
 mod subplotspec;
 
 pub use axes::Axes;
@@ -84,4 +85,5 @@ pub use figure::Figure;
 pub use gridspec::GridSpec;
 pub use interact::{Interactor, Outcome};
 pub use polar::PolarAxes;
+pub use sky::{SkyAxes, SkyProjection};
 pub use subplotspec::SubplotSpec;
