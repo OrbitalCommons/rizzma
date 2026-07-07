@@ -7,6 +7,22 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [Unreleased]
+
+### Fixed
+- Interaction hardening (from codex's post-release review): pan/zoom limit
+  candidates are now rejected when non-finite and clamped to the axis scale's
+  domain before being stored, so an extreme wheel or drag on a log/logit axis
+  can no longer poison the view; `pointercancel`/`lostpointercapture` cancel an
+  in-progress drag (touch/pen interruptions); a failed `requestAnimationFrame`
+  no longer wedges the redraw flag; and the device pixel ratio is re-read every
+  frame, so browser zoom or moving between monitors re-renders at the right
+  density.
+- Degenerate axis ranges are now judged relative to the values' magnitude
+  (matplotlib's `nonsingular` semantics): a deep-zoomed log axis at tiny
+  magnitudes — e.g. `(1e-30, 1e-22)`, eight healthy decades — is no longer
+  misclassified as zero-width and blown up to `(-0.5, 0.5)`.
+
 ## [1.1.0] - 2026-07-05
 
 ### Added
