@@ -50,6 +50,35 @@ pub(crate) enum ScaleSpec {
 const DEFAULT_TITLE_SIZE: f64 = 12.0;
 const DEFAULT_TITLE_PAD: f64 = 6.0;
 
+/// Default annotation/text font size in pixels (matplotlib's `font.size`).
+const DEFAULT_ANNOTATION_SIZE: f64 = 10.0;
+/// Gap between an annotation's text anchor and the start of its leader arrow,
+/// in pixels.
+const ANNOTATION_ARROW_GAP: f64 = 4.0;
+/// Pull-back of the arrow tip from the annotated point, in pixels
+/// (matplotlib's `shrinkB`).
+const ANNOTATION_ARROW_SHRINK: f64 = 3.0;
+/// Arrowhead length along the shaft, in pixels.
+const ANNOTATION_HEAD_LEN: f64 = 8.0;
+/// Arrowhead half-width across the shaft, in pixels.
+const ANNOTATION_HEAD_HALF_WIDTH: f64 = 3.5;
+
+/// A text annotation in data coordinates, optionally with a leader arrow.
+#[derive(Debug, Clone)]
+struct Annotation {
+    /// The label; `$...$` spans render as mathtext.
+    text: String,
+    /// The annotated data point (the arrow's target when `text_at` is set).
+    xy: (f64, f64),
+    /// Where the text's baseline-left anchor sits, in data coordinates.
+    /// `None` anchors the text at `xy` and draws no arrow.
+    text_at: Option<(f64, f64)>,
+    /// Text (and arrow) color.
+    color: Rgba,
+    /// Font size in pixels.
+    size: f64,
+}
+
 impl ScaleSpec {
     fn transform(self, value: f64) -> f64 {
         match self {
@@ -219,6 +248,8 @@ pub struct Axes {
     yaxis: Axis,
     /// Optional title drawn above the axes.
     title: Option<String>,
+    /// Text annotations (with optional leader arrows) in data coordinates.
+    annotations: Vec<Annotation>,
     /// Whether to stroke the axes frame (border rectangle).
     frame: bool,
     /// When `true`, the axes pixel rectangle is shrunk so data units span the
@@ -351,6 +382,7 @@ impl Axes {
             xaxis: Axis::new(AxisSide::Bottom),
             yaxis: Axis::new(AxisSide::Left),
             title: None,
+            annotations: Vec::new(),
             frame: true,
             aspect_equal: false,
             axis_visible: true,
@@ -459,6 +491,65 @@ impl Axes {
     /// Set the axes title (drawn centered above the axes).
     pub fn set_title(&mut self, title: impl Into<String>) -> &mut Self {
         self.title = Some(title.into());
+        self
+    }
+
+    /// Place `s` at the data point `(x, y)` (baseline-left anchored, like
+    /// matplotlib's `Axes.text`). `$...$` spans render as mathtext.
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    ///
+    /// let mut fig = Figure::new(3.0, 2.0);
+    /// let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+    /// ax.set_xlim(0.0, 10.0).set_ylim(0.0, 10.0);
+    /// ax.text(2.0, 5.0, "local $\\mu$");
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn text(&mut self, x: f64, y: f64, s: impl Into<String>) -> &mut Self {
+        self.annotations.push(Annotation {
+            text: s.into(),
+            xy: (x, y),
+            text_at: None,
+            color: Rgba::BLACK,
+            size: DEFAULT_ANNOTATION_SIZE,
+        });
+        self
+    }
+
+    /// Annotate the data point `xy` with `s`, drawing the text at `xytext`
+    /// (both in data coordinates) and a leader arrow from the text toward the
+    /// point — matplotlib's `annotate(s, xy=…, xytext=…,
+    /// arrowprops={'arrowstyle': '->'})`.
+    ///
+    /// The gallery's annotated peak
+    /// (![annotate](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_annotate.png))
+    /// is drawn exactly this way.
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    ///
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+    /// let x: Vec<f64> = (0..100).map(|i| i as f64 * 0.1).collect();
+    /// let y: Vec<f64> = x.iter().map(|v| (-((v - 5.0).powi(2))).exp()).collect();
+    /// ax.plot(&x, &y);
+    /// ax.annotate("the peak", (5.0, 1.0), (6.5, 0.8));
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn annotate(
+        &mut self,
+        s: impl Into<String>,
+        xy: (f64, f64),
+        xytext: (f64, f64),
+    ) -> &mut Self {
+        self.annotations.push(Annotation {
+            text: s.into(),
+            xy,
+            text_at: Some(xytext),
+            color: Rgba::BLACK,
+            size: DEFAULT_ANNOTATION_SIZE,
+        });
         self
     }
 
@@ -1210,6 +1301,13 @@ impl Axes {
         // 6a. Draw the legend box inside the upper-right of the axes.
         self.draw_legend(renderer, &axes_px, font);
 
+        // 6b. Draw text annotations and their leader arrows, mapping their
+        // data-space anchors through the same scale + data transform as the
+        // artists.
+        for ann in &self.annotations {
+            self.draw_annotation(renderer, ann, &td, font);
+        }
+
         // 7. Draw the title, centered above the axes. Math spans (`$...$`) are
         // laid out by the mathtext engine via `layout_rich_text`; plain titles
         // reduce to the previous single-string path.
@@ -1234,6 +1332,112 @@ impl Axes {
             }
         }
     }
+}
+
+impl Axes {
+    /// Draw one [`Annotation`]: the text at its anchor, plus a leader arrow
+    /// from the text toward the annotated point when `text_at` is set.
+    ///
+    /// All geometry here is in y-up display pixels; `td` maps scaled data
+    /// coordinates into that frame.
+    fn draw_annotation(
+        &self,
+        renderer: &mut dyn Renderer,
+        ann: &Annotation,
+        td: &Affine2D,
+        font: &FontSource,
+    ) {
+        let mapper = self.data_to_scaled();
+        let to_display = |(x, y): (f64, f64)| {
+            let [sx, sy] = mapper.map_point(x, y);
+            td.transform_point((sx, sy))
+        };
+
+        let anchor = to_display(ann.text_at.unwrap_or(ann.xy));
+        let rich = layout_rich_text(font, &ann.text, ann.size);
+        let shift = Affine2D::from_translation(anchor.0, anchor.1);
+        for path in &rich.paths {
+            renderer.draw_path(
+                &GraphicsContext::new(),
+                &path.transformed(&shift),
+                &Affine2D::identity(),
+                Some(ann.color),
+            );
+        }
+
+        if ann.text_at.is_some() {
+            let target = to_display(ann.xy);
+            // Start the arrow at the edge of the text nearest the target: the
+            // left or right end of the baseline, whichever faces the point.
+            let from = if target.0 < anchor.0 {
+                anchor
+            } else {
+                (anchor.0 + rich.width, anchor.1)
+            };
+            draw_annotation_arrow(renderer, from, target, ann.color);
+        }
+    }
+}
+
+/// Stroke a straight leader arrow from `from` to `to` (display pixels) with a
+/// filled triangular head at the `to` end.
+///
+/// The tail is inset by [`ANNOTATION_ARROW_GAP`] so it clears the text, and
+/// the tip pulled back by [`ANNOTATION_ARROW_SHRINK`] so it points at — not
+/// covers — the annotated datum. Degenerate (near-zero-length) arrows are
+/// skipped entirely.
+fn draw_annotation_arrow(
+    renderer: &mut dyn Renderer,
+    from: (f64, f64),
+    to: (f64, f64),
+    color: Rgba,
+) {
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let len = dx.hypot(dy);
+    if len <= ANNOTATION_ARROW_GAP + ANNOTATION_ARROW_SHRINK + ANNOTATION_HEAD_LEN {
+        return;
+    }
+    let (ux, uy) = (dx / len, dy / len);
+    let tail = (
+        from.0 + ux * ANNOTATION_ARROW_GAP,
+        from.1 + uy * ANNOTATION_ARROW_GAP,
+    );
+    let tip = (
+        to.0 - ux * ANNOTATION_ARROW_SHRINK,
+        to.1 - uy * ANNOTATION_ARROW_SHRINK,
+    );
+    let head_base = (
+        tip.0 - ux * ANNOTATION_HEAD_LEN,
+        tip.1 - uy * ANNOTATION_HEAD_LEN,
+    );
+
+    let gc = GraphicsContext::new()
+        .with_stroke(color)
+        .with_line_width(1.0);
+    let shaft = Path::from_polyline(&[[tail.0, tail.1], [head_base.0, head_base.1]]);
+    renderer.draw_path(&gc, &shaft, &Affine2D::identity(), None);
+
+    // Filled triangular head: tip plus the two base corners perpendicular to
+    // the shaft.
+    let (px, py) = (-uy, ux);
+    let head = Path::from_polyline(&[
+        [tip.0, tip.1],
+        [
+            head_base.0 + px * ANNOTATION_HEAD_HALF_WIDTH,
+            head_base.1 + py * ANNOTATION_HEAD_HALF_WIDTH,
+        ],
+        [
+            head_base.0 - px * ANNOTATION_HEAD_HALF_WIDTH,
+            head_base.1 - py * ANNOTATION_HEAD_HALF_WIDTH,
+        ],
+        [tip.0, tip.1],
+    ]);
+    renderer.draw_path(
+        &GraphicsContext::new(),
+        &head,
+        &Affine2D::identity(),
+        Some(color),
+    );
 }
 
 /// A closed-rectangle [`Path`] tracing `bbox`'s four corners.

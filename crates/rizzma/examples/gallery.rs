@@ -877,5 +877,26 @@ fn main() {
         fig.save_png("target/gallery_patches.png").unwrap();
     }
 
+    // 44. annotate — resonance curve with the peak called out.
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let x = linspace(0.0, 10.0, 400);
+        let y: Vec<f64> = x
+            .iter()
+            .map(|&f| 1.0 / ((f * f - 25.0).powi(2) + 4.0 * f * f).sqrt() * 10.0)
+            .collect();
+        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        ax.plot(&x, &y);
+        ax.set_xlim(0.0, 10.0);
+        ax.set_ylim(0.0, 1.2);
+        ax.annotate("resonance at $\\omega_0 = 5$", (4.96, 1.0), (6.0, 1.05));
+        ax.annotate("half-power point", (5.7, 0.62), (6.9, 0.75));
+        ax.text(0.5, 1.1, "driven oscillator response");
+        ax.set_title("annotate: callouts with leader arrows");
+        ax.set_xlabel("drive frequency $\\omega$");
+        ax.set_ylabel("amplitude");
+        fig.save_png("target/gallery_annotate.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
