@@ -1,4 +1,6 @@
-# rizzma
+# Scientific communication reflects on the scientist, and your figures should carry the same *rizzma* as your ideas.
+
+## rizzma
 
 [![Crates.io](https://img.shields.io/crates/v/rizzma.svg)](https://crates.io/crates/rizzma)
 [![Docs.rs](https://docs.rs/rizzma/badge.svg)](https://docs.rs/rizzma)
