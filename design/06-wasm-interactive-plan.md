@@ -91,9 +91,14 @@ The wasm blit sets `canvas.width/height` to the scaled pixel size and
 `canvas.style.width/height` to the logical CSS size. `WasmFigure::render` reads
 `devicePixelRatio` itself; a `render_with_scale` escape hatch keeps it testable.
 
-**Crucially, event coordinates stay in *logical* (CSS) pixels** — `data_at` and the
-event bridge (W3) divide out the scale internally, so JS callers never think about
-DPR at all.
+**The coordinate invariant:** `Figure`'s pixel APIs (`pixel_to_data`,
+`data_to_pixel`, `axes_at`) and the core event layer operate in **top-down
+logical figure pixels** (`size_px()`), before any DPR scaling — exactly the
+space they already used. Backing-store (device) pixels exist only on the
+render/blit side. The **DOM bridge alone** converts browser coordinates (CSS
+pixels relative to the canvas) into logical figure pixels; with the canvas CSS
+size pinned to the logical size this is the identity map, so JS callers never
+think about DPR at all.
 
 Scaling must multiply the effective DPI (so line widths, fonts, and markers scale
 together), not just the pixmap dimensions. If `Figure` DPI is immutable at render
@@ -137,8 +142,11 @@ Conventions:
 
 - **Axes are indices** (`usize` into `Figure::axes`), matching the existing
   `pixel_to_data(axes_index, …)` convention. No JS-side axes objects to keep alive.
-- **`&[f64]` crosses as `Float64Array`** without copying on the JS side
-  (wasm-bindgen borrows the view).
+- **`&[f64]` accepts `Float64Array`-compatible input**; wasm-bindgen copies the
+  typed array's contents into wasm memory at the boundary (it is *not*
+  zero-copy), and the figure copies again into its own plot data. `Figure`
+  must retain the data anyway, so the copies are fine; revisit bulk/borrowing
+  APIs only if profiling shows W2 ingestion matters.
 - **Styling via a plain JS object** (`serde-wasm-bindgen` or manual `Reflect`
   reads) rather than N positional-arg variants. Unknown keys are errors.
 - Coverage target is **Tier-1 plot types** (line, scatter, bar, hist, imshow as
@@ -255,11 +263,20 @@ Interactivity turns rendering from once into per-frame. Design:
 - **Coalesce redraws with `requestAnimationFrame`.** `NeedsRedraw` sets a dirty
   flag; the rAF callback renders at most once per frame, skipping when clean.
   Never render synchronously inside an event handler.
-- **Budget:** a Tier-1 line plot at 800×600 logical, DPR 2 (1600×1200 backing)
-  must render + blit in **< 16 ms** on CI hardware; a stretch target of < 8 ms
-  leaves headroom for DPR 3. Measured by a native criterion-style bench on
-  `figure_to_rgba_scaled` (the blit is ~1 ms and constant) so the budget runs in
-  ordinary CI — this is the "per-frame perf budget" PR-46 chartered and never got.
+- **Budget — really two budgets.** (a) A **native render budget**, asserted in
+  ordinary CI: a Tier-1 line plot at 800×600 logical, DPR 2 (1600×1200
+  backing), through `figure_to_rgba_scaled`, must stay under **16 ms** (stretch
+  < 8 ms for DPR-3 headroom). This is the "per-frame perf budget" PR-46
+  chartered and never got. (b) The **browser render + blit** total, which a
+  native bench cannot prove: `putImageData` of a 1600×1200 `ImageData` is
+  small-but-nonzero and browser-dependent, so it is covered by the headless
+  browser suite as a smoke path today, with real timing telemetry as a
+  follow-up if interaction ever feels sluggish. Measured native median at ship
+  time: ~14 ms release.
+- **Non-integer DPR rounding.** At DPR 1.5/2.25 etc., backing dimensions are
+  `trunc(size_px() * scale)` (the pixmap's integer size), and the blit sizes
+  the canvas backing store from the returned buffer dimensions — never
+  recomputed independently — so buffer and canvas cannot disagree by a pixel.
 - **Known costs to attack if the budget fails**, in order: (1) the per-pixel
   un-premultiply loop — chunk it or precompute a LUT; (2) full-figure redraw —
   cache the static background (axes, gridlines, text) as a pixmap and re-render
@@ -313,6 +330,10 @@ interactive" — is reached at W5.**
 - **`ResizeObserver` semantics.** Resizing re-renders at the new logical size
   (figure inches fixed, canvas CSS size drives nothing yet). True responsive
   figures (inches derived from container) are out of scope here.
+- **Event modifiers.** `Event` carries no `shift`/`ctrl`/`alt` state yet; box
+  zoom or axis-constrained pan will need them, which means extending the enum's
+  variants when they arrive. Accepted: the enum is crate-internal enough that
+  the change is cheap, and speculative fields invite dead plumbing.
 - **Wheel-delta chaos across browsers/trackpads.** Normalize at the bridge, and
   clamp per-event zoom factor to [1/2, 2] so a momentum-scroll burst can't teleport
   the view.
