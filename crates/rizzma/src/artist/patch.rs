@@ -1,11 +1,16 @@
 //! The [`Patch`] artist: a filled and/or stroked closed shape.
 //!
 //! Mirrors matplotlib's `patches.Patch` hierarchy (`Rectangle`, `Polygon`,
-//! `Circle`, `Ellipse`, `RegularPolygon`, `Wedge`) collapsed into a single type
-//! parameterized by its data-space [`Path`]. The shape constructors bake the
-//! position and size into the path's vertices, so a [`Patch`] carries data-space
-//! geometry directly and is drawn by filling with its `facecolor` and stroking
-//! with its `edgecolor`.
+//! `Circle`, `Ellipse`, `RegularPolygon`, `Wedge`, `Arc`) collapsed into a
+//! single type parameterized by its data-space [`Path`]. The shape constructors
+//! bake the position and size into the path's vertices, so a [`Patch`] carries
+//! data-space geometry directly and is drawn by filling with its `facecolor`
+//! and stroking with its `edgecolor`.
+//!
+//! Overlaying shapes on data (aperture rings on an image, region boxes on a
+//! scatter) is the gallery's `patches` case:
+//!
+//! ![patches](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_patches.png)
 
 use crate::core::{Affine2D, Bbox, Path, color::Rgba};
 use crate::render::{CapStyle, GraphicsContext, JoinStyle, Renderer};
@@ -154,6 +159,40 @@ impl Patch {
         }
         verts.push([cx, cy]);
         Self::new(Path::from_polyline(&verts))
+    }
+
+    /// An open circular arc of radius `r` centered at `center`, swept from
+    /// `theta1_deg` to `theta2_deg` (degrees, counter-clockwise).
+    ///
+    /// Unlike [`wedge`](Patch::wedge) the path is not closed back through the
+    /// center, and the patch defaults to **unfilled** — an arc is a stroked
+    /// curve (matplotlib's `Arc` is likewise never filled). Style the stroke
+    /// with [`edgecolor`](Patch::edgecolor)/[`linewidth`](Patch::linewidth).
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    /// use rizzma::artist::Patch;
+    ///
+    /// let mut fig = Figure::new(3.0, 3.0);
+    /// let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+    /// ax.set_xlim(-2.0, 2.0);
+    /// ax.set_ylim(-2.0, 2.0);
+    /// // A 90-degree arc over the first quadrant.
+    /// ax.add_patch(Patch::arc([0.0, 0.0], 1.5, 0.0, 90.0));
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    #[must_use]
+    pub fn arc(center: [f64; 2], r: f64, theta1_deg: f64, theta2_deg: f64) -> Self {
+        let [cx, cy] = center;
+        let theta1 = theta1_deg.to_radians();
+        let theta2 = theta2_deg.to_radians();
+        let verts: Vec<[f64; 2]> = (0..=WEDGE_ARC_SAMPLES)
+            .map(|i| {
+                let t = theta1 + (theta2 - theta1) * (i as f64 / WEDGE_ARC_SAMPLES as f64);
+                [cx + r * t.cos(), cy + r * t.sin()]
+            })
+            .collect();
+        Self::new(Path::from_polyline(&verts)).facecolor(None)
     }
 
     /// Set the fill color (or `None` for unfilled), returning `self` for
@@ -386,5 +425,31 @@ mod tests {
                 "vertex ({x}, {y}) outside radius"
             );
         }
+    }
+
+    #[test]
+    fn arc_vertices_lie_on_the_radius_and_span_the_sweep() {
+        let patch = Patch::arc([2.0, -1.0], 3.0, 45.0, 180.0);
+        let verts = patch.path().vertices();
+        // Open arc: no center point, no closure back to the start.
+        for &[x, y] in verts {
+            approx((x - 2.0).hypot(y + 1.0), 3.0);
+        }
+        let first = verts.first().copied().unwrap();
+        let last = verts.last().copied().unwrap();
+        approx(first[0], 2.0 + 3.0 * 45f64.to_radians().cos());
+        approx(first[1], -1.0 + 3.0 * 45f64.to_radians().sin());
+        approx(last[0], 2.0 - 3.0); // 180 degrees
+        approx(last[1], -1.0);
+    }
+
+    #[test]
+    fn arc_defaults_to_unfilled_stroke_only() {
+        let patch = Patch::arc([0.0, 0.0], 1.0, 0.0, 90.0);
+        let mut r = MockRenderer::default();
+        patch.draw(&mut r, &Affine2D::identity());
+        // Exactly one draw call, and it carries no fill color.
+        assert_eq!(r.calls.len(), 1);
+        assert_eq!(r.calls[0].1, None);
     }
 }
