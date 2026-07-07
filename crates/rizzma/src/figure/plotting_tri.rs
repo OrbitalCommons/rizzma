@@ -168,6 +168,267 @@ impl Axes {
         }
         self
     }
+
+    /// Draw isolines of the scalar field `values` over the triangulation
+    /// `(x, y, triangles)` at the default seven levels.
+    ///
+    /// Equivalent to [`tricontour_levels`](Axes::tricontour_levels) with
+    /// `n_levels = 7`.
+    ///
+    /// ![tricontour](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_tricontour.png)
+    ///
+    /// ```
+    /// use rizzma::core::Bbox;
+    /// use rizzma::figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// // One triangle with a ramp field: isolines cross it.
+    /// let x = [0.0, 1.0, 0.0];
+    /// let y = [0.0, 0.0, 1.0];
+    /// ax.tricontour(&x, &y, &[[0, 1, 2]], &[0.0, 1.0, 1.0]);
+    /// assert!(ax.data_limits().is_some());
+    /// ```
+    pub fn tricontour(
+        &mut self,
+        x: &[f64],
+        y: &[f64],
+        triangles: &[[usize; 3]],
+        values: &[f64],
+    ) -> &mut Self {
+        self.tricontour_levels(x, y, triangles, values, TRI_DEFAULT_N_LEVELS)
+    }
+
+    /// Draw `n_levels` isolines of `values` over the triangulation.
+    ///
+    /// Levels are evenly spaced strictly between the finite value minimum and
+    /// maximum (the same convention as [`contour_levels`](Axes::contour_levels)).
+    /// Within each triangle the field is linearly interpolated, so a level
+    /// crossing is a straight segment whose endpoints are found by inverse
+    /// interpolation along the two crossed edges — the triangle analogue of
+    /// marching squares, with no ambiguous cases. Each segment becomes a
+    /// two-point [`Line2D`] colored by its level through `viridis`.
+    ///
+    /// Mismatched lengths, an empty mesh, a flat field, or `n_levels == 0`
+    /// draw nothing (never panic).
+    pub fn tricontour_levels(
+        &mut self,
+        x: &[f64],
+        y: &[f64],
+        triangles: &[[usize; 3]],
+        values: &[f64],
+        n_levels: usize,
+    ) -> &mut Self {
+        let Some((vmin, vmax)) = self.tri_setup(x, y, triangles, values) else {
+            return self;
+        };
+        if vmax <= vmin || n_levels == 0 {
+            return self;
+        }
+        let norm = LinearNorm::new(vmin, vmax);
+        let cmap = colormap("viridis").expect("viridis is built in");
+        let span = vmax - vmin;
+        let n = x.len();
+
+        for k in 0..n_levels {
+            let level = vmin + (k + 1) as f64 / (n_levels + 1) as f64 * span;
+            let color = cmap.sample(norm.normalize(level));
+            for t in valid_triangles(triangles, n) {
+                let [a, b, c] = *t;
+                if let Some([p0, p1]) = triangle_level_segment(
+                    [[x[a], y[a]], [x[b], y[b]], [x[c], y[c]]],
+                    [values[a], values[b], values[c]],
+                    level,
+                ) {
+                    self.add_line(
+                        Line2D::new(vec![p0[0], p1[0]], vec![p0[1], p1[1]]).with_color(color),
+                    );
+                }
+            }
+        }
+        self
+    }
+
+    /// Fill the bands between isolines of `values` over the triangulation, at
+    /// the default seven bands.
+    ///
+    /// Equivalent to [`tricontourf_levels`](Axes::tricontourf_levels) with
+    /// `n_bands = 7`.
+    ///
+    /// ![tricontour](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_tricontour.png)
+    ///
+    /// ```
+    /// use rizzma::core::Bbox;
+    /// use rizzma::figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// let x = [0.0, 1.0, 0.0];
+    /// let y = [0.0, 0.0, 1.0];
+    /// ax.tricontourf(&x, &y, &[[0, 1, 2]], &[0.0, 1.0, 1.0]);
+    /// assert!(ax.data_limits().is_some());
+    /// ```
+    pub fn tricontourf(
+        &mut self,
+        x: &[f64],
+        y: &[f64],
+        triangles: &[[usize; 3]],
+        values: &[f64],
+    ) -> &mut Self {
+        self.tricontourf_levels(x, y, triangles, values, TRI_DEFAULT_N_LEVELS)
+    }
+
+    /// Fill `n_bands` value bands over the triangulation.
+    ///
+    /// The value range `[vmin, vmax]` is split into `n_bands` equal bands.
+    /// Each triangle is clipped against each band's `[lo, hi]` interval in
+    /// *value space* (Sutherland–Hodgman with the scalar field interpolated
+    /// along edges), producing exact polygonal band pieces — smooth marching
+    /// bands, unlike the per-cell flat banding of
+    /// [`contourf`](Axes::contourf). Each piece is a [`Patch`] colored by the
+    /// band's center value through `viridis`.
+    ///
+    /// Mismatched lengths, an empty mesh, a flat field, or `n_bands == 0`
+    /// draw nothing (never panic).
+    pub fn tricontourf_levels(
+        &mut self,
+        x: &[f64],
+        y: &[f64],
+        triangles: &[[usize; 3]],
+        values: &[f64],
+        n_bands: usize,
+    ) -> &mut Self {
+        let Some((vmin, vmax)) = self.tri_setup(x, y, triangles, values) else {
+            return self;
+        };
+        if vmax <= vmin || n_bands == 0 {
+            return self;
+        }
+        let norm = LinearNorm::new(vmin, vmax);
+        let cmap = colormap("viridis").expect("viridis is built in");
+        let span = vmax - vmin;
+        let n = x.len();
+
+        for band in 0..n_bands {
+            let lo = vmin + band as f64 / n_bands as f64 * span;
+            let hi = vmin + (band + 1) as f64 / n_bands as f64 * span;
+            let color = cmap.sample(norm.normalize((lo + hi) / 2.0));
+            for t in valid_triangles(triangles, n) {
+                let [a, b, c] = *t;
+                let tri = [
+                    ([x[a], y[a]], values[a]),
+                    ([x[b], y[b]], values[b]),
+                    ([x[c], y[c]], values[c]),
+                ];
+                // Clip to v >= lo, then v <= hi. The top band's upper bound is
+                // widened a hair so vmax itself is included.
+                let hi = if band == n_bands - 1 {
+                    hi + span * 1e-12
+                } else {
+                    hi
+                };
+                let piece = clip_by_value(&tri, lo, true);
+                let piece = clip_by_value(&piece, hi, false);
+                if piece.len() >= 3 {
+                    let poly: Vec<[f64; 2]> = piece.iter().map(|&(p, _)| p).collect();
+                    self.add_patch(
+                        Patch::polygon(&poly)
+                            .facecolor(Some(color))
+                            .edgecolor(Some(color)),
+                    );
+                }
+            }
+        }
+        self
+    }
+
+    /// Shared validation + data-limits registration for the tricontour
+    /// family. Returns the finite `(vmin, vmax)` of `values`, or `None` when
+    /// the inputs cannot be drawn.
+    fn tri_setup(
+        &mut self,
+        x: &[f64],
+        y: &[f64],
+        triangles: &[[usize; 3]],
+        values: &[f64],
+    ) -> Option<(f64, f64)> {
+        if x.is_empty() || x.len() != y.len() || values.len() != x.len() {
+            return None;
+        }
+        let n = x.len();
+        let mut any = false;
+        let (mut xmin, mut xmax) = (f64::INFINITY, f64::NEG_INFINITY);
+        let (mut ymin, mut ymax) = (f64::INFINITY, f64::NEG_INFINITY);
+        for t in valid_triangles(triangles, n) {
+            for &i in t.iter() {
+                xmin = xmin.min(x[i]);
+                xmax = xmax.max(x[i]);
+                ymin = ymin.min(y[i]);
+                ymax = ymax.max(y[i]);
+                any = true;
+            }
+        }
+        if !any {
+            return None;
+        }
+        self.include_data_bbox(xmin, ymin, xmax, ymax);
+
+        let mut vmin = f64::INFINITY;
+        let mut vmax = f64::NEG_INFINITY;
+        for &v in values {
+            if v.is_finite() {
+                vmin = vmin.min(v);
+                vmax = vmax.max(v);
+            }
+        }
+        (vmin <= vmax).then_some((vmin, vmax))
+    }
+}
+
+/// Default number of levels/bands for the tricontour family (matches the
+/// rectangular-grid `contour`).
+const TRI_DEFAULT_N_LEVELS: usize = 7;
+
+/// The straight level-set segment of a linearly interpolated field across one
+/// triangle, or `None` when `level` does not cross it.
+///
+/// Vertices are classified `v >= level`; when the sides differ, the two
+/// crossed edges each contribute one inverse-interpolated point.
+fn triangle_level_segment(pts: [[f64; 2]; 3], vals: [f64; 3], level: f64) -> Option<[[f64; 2]; 2]> {
+    let above = [vals[0] >= level, vals[1] >= level, vals[2] >= level];
+    if above.iter().all(|&a| a) || above.iter().all(|&a| !a) {
+        return None;
+    }
+    let mut crossings = Vec::with_capacity(2);
+    for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+        if above[i] != above[j] {
+            let t = (level - vals[i]) / (vals[j] - vals[i]);
+            crossings.push([
+                pts[i][0] + t * (pts[j][0] - pts[i][0]),
+                pts[i][1] + t * (pts[j][1] - pts[i][1]),
+            ]);
+        }
+    }
+    (crossings.len() == 2).then(|| [crossings[0], crossings[1]])
+}
+
+/// Clip a value-annotated polygon against the half-space `v >= bound` (when
+/// `keep_above`) or `v <= bound` (otherwise), interpolating both position and
+/// value at the crossings (Sutherland–Hodgman with a scalar field).
+fn clip_by_value(poly: &[([f64; 2], f64)], bound: f64, keep_above: bool) -> Vec<([f64; 2], f64)> {
+    let inside = |v: f64| if keep_above { v >= bound } else { v <= bound };
+    let mut out = Vec::with_capacity(poly.len() + 2);
+    for k in 0..poly.len() {
+        let (p, vp) = poly[k];
+        let (q, vq) = poly[(k + 1) % poly.len()];
+        let (pin, qin) = (inside(vp), inside(vq));
+        if pin {
+            out.push((p, vp));
+        }
+        if pin != qin {
+            let t = (bound - vp) / (vq - vp);
+            out.push(([p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])], bound));
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -289,5 +550,103 @@ mod tests {
         assert!(ax.lines.is_empty());
         assert!(ax.patches.is_empty());
         assert!(ax.data_limits().is_none());
+    }
+
+    fn approx(a: f64, b: f64) {
+        assert!((a - b).abs() < 1e-9, "expected {b}, got {a}");
+    }
+
+    #[test]
+    fn triangle_level_segment_crosses_a_ramp_at_the_right_x() {
+        // Right triangle with v = x: the level set v = 0.5 is the vertical
+        // line x = 0.5 clipped to the triangle.
+        let pts = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
+        let vals = [0.0, 1.0, 0.0];
+        let seg = super::triangle_level_segment(pts, vals, 0.5).expect("level crosses");
+        approx(seg[0][0], 0.5);
+        approx(seg[1][0], 0.5);
+        // No crossing outside the value range.
+        assert!(super::triangle_level_segment(pts, vals, 1.5).is_none());
+        assert!(super::triangle_level_segment(pts, vals, -0.5).is_none());
+    }
+
+    #[test]
+    fn clip_by_value_splits_a_ramp_triangle_exactly() {
+        // Same ramp triangle; keep v >= 0.5 leaves the right-hand sliver whose
+        // area is 1/4 of the whole (similar triangle at half scale).
+        let tri = [([0.0, 0.0], 0.0), ([1.0, 0.0], 1.0), ([0.0, 1.0], 0.0)];
+        let piece = super::clip_by_value(&tri, 0.5, true);
+        assert!(piece.len() >= 3);
+        let area = |poly: &[([f64; 2], f64)]| {
+            let mut a = 0.0;
+            for k in 0..poly.len() {
+                let (p, _) = poly[k];
+                let (q, _) = poly[(k + 1) % poly.len()];
+                a += p[0] * q[1] - q[0] * p[1];
+            }
+            a.abs() / 2.0
+        };
+        approx(area(&piece), 0.125);
+        // Keeping both halves partitions the triangle's area (0.5).
+        let below = super::clip_by_value(&tri, 0.5, false);
+        approx(area(&piece) + area(&below), 0.5);
+    }
+
+    #[test]
+    fn tricontour_draws_level_lines_on_a_ramp_mesh() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        // Unit square split into two triangles, v = x.
+        let x = [0.0, 1.0, 1.0, 0.0];
+        let y = [0.0, 0.0, 1.0, 1.0];
+        let v = [0.0, 1.0, 1.0, 0.0];
+        ax.tricontour_levels(&x, &y, &[[0, 1, 2], [0, 2, 3]], &v, 3);
+        assert!(!ax.lines.is_empty());
+        // Every contour segment is vertical (v = x field) at one of the three
+        // expected levels x = 0.25, 0.5, 0.75.
+        for line in &ax.lines {
+            let pts = line.points();
+            approx(pts[0][0], pts[1][0]);
+            let lx = pts[0][0];
+            assert!(
+                [0.25, 0.5, 0.75].iter().any(|&e| (lx - e).abs() < 1e-9),
+                "unexpected contour x {lx}"
+            );
+        }
+    }
+
+    #[test]
+    fn tricontourf_band_pieces_tile_the_mesh_area() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        let x = [0.0, 1.0, 1.0, 0.0];
+        let y = [0.0, 0.0, 1.0, 1.0];
+        let v = [0.0, 1.0, 1.0, 0.0];
+        ax.tricontourf_levels(&x, &y, &[[0, 1, 2], [0, 2, 3]], &v, 4);
+        assert!(!ax.patches.is_empty());
+        // The band pieces partition the unit square: total area 1.
+        let mut total = 0.0;
+        for patch in &ax.patches {
+            let verts = patch.path().vertices();
+            let mut a = 0.0;
+            for k in 0..verts.len() - 1 {
+                let p = verts[k];
+                let q = verts[k + 1];
+                a += p[0] * q[1] - q[0] * p[1];
+            }
+            total += a.abs() / 2.0;
+        }
+        approx(total, 1.0);
+    }
+
+    #[test]
+    fn tricontour_flat_field_or_bad_input_is_a_noop() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        let x = [0.0, 1.0, 0.0];
+        let y = [0.0, 0.0, 1.0];
+        // Flat field: no levels cross.
+        ax.tricontour(&x, &y, &[[0, 1, 2]], &[2.0, 2.0, 2.0]);
+        assert!(ax.lines.is_empty());
+        // Mismatched values length: nothing drawn, no panic.
+        ax.tricontourf(&x, &y, &[[0, 1, 2]], &[1.0]);
+        assert!(ax.patches.is_empty());
     }
 }

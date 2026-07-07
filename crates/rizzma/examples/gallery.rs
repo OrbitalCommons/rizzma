@@ -898,5 +898,24 @@ fn main() {
         fig.save_png("target/gallery_annotate.png").unwrap();
     }
 
+    // 45. tricontour / tricontourf — a wavefront-error map over the same
+    // unstructured mesh: filled bands with isolines on top.
+    {
+        let mut fig = Figure::new(5.0, 3.8);
+        // A tilted gaussian bump sampled at the jittered mesh vertices.
+        let values: Vec<f64> = vx
+            .iter()
+            .zip(&vy)
+            .map(|(&x, &y)| {
+                (-6.0 * ((x - 0.62).powi(2) + (y - 0.4).powi(2))).exp() + 0.35 * (x + y)
+            })
+            .collect();
+        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        ax.tricontourf(&vx, &vy, &triangles, &values);
+        ax.tricontour(&vx, &vy, &triangles, &values);
+        ax.set_title("tricontour(f): field-map bands over a scattered mesh");
+        fig.save_png("target/gallery_tricontour.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
