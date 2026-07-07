@@ -753,6 +753,14 @@ mod canvas {
         add_listener(state, listeners, "pointerup", |ev| {
             let pe: &PointerEvent = ev.dyn_ref()?;
             let button = dom_button(pe.button())?;
+            // Release the capture taken on pointerdown; harmless if the
+            // browser already released it.
+            if let Some(canvas) = ev
+                .current_target()
+                .and_then(|t| t.dyn_into::<HtmlCanvasElement>().ok())
+            {
+                let _ = canvas.release_pointer_capture(pe.pointer_id());
+            }
             Some(Event::MouseUp {
                 x: f64::from(pe.offset_x()),
                 y: f64::from(pe.offset_y()),
@@ -760,6 +768,13 @@ mod canvas {
             })
         })?;
         add_listener(state, listeners, "pointerleave", |_| Some(Event::Leave))?;
+        // Touch/pen interruptions and capture loss must cancel an in-progress
+        // drag, or the interactor keeps panning against a stale anchor when
+        // the pointer later reappears.
+        add_listener(state, listeners, "pointercancel", |_| Some(Event::Leave))?;
+        add_listener(state, listeners, "lostpointercapture", |_| {
+            Some(Event::Leave)
+        })?;
         add_listener(state, listeners, "dblclick", |ev| {
             let me: &web_sys::MouseEvent = ev.dyn_ref()?;
             Some(Event::DoubleClick {
@@ -867,13 +882,26 @@ mod canvas {
             st.borrow_mut().raf_pending = false;
             let _ = render_now(&st);
         });
-        if let Some(win) = web_sys::window() {
-            let _ = win.request_animation_frame(cb.unchecked_ref());
+        let scheduled = web_sys::window()
+            .map(|win| win.request_animation_frame(cb.unchecked_ref()).is_ok())
+            .unwrap_or(false);
+        if !scheduled {
+            // Never leave `raf_pending` wedged when scheduling fails (no
+            // window, rAF error): reset the flag and paint synchronously so
+            // redraws keep flowing.
+            state.borrow_mut().raf_pending = false;
+            let _ = render_now(state);
         }
     }
 
-    /// Render the session's figure at its DPR scale and blit it.
+    /// Render the session's figure at the *current* DPR and blit it.
+    ///
+    /// The device pixel ratio is re-read every frame (browser zoom or a move
+    /// to a different-density monitor changes it after bind); the blit resizes
+    /// the backing store when it changes, and the CSS size stays pinned to the
+    /// logical figure size, so event coordinates are unaffected.
     fn render_now(state: &Rc<RefCell<SessionState>>) -> Result<(), JsValue> {
+        state.borrow_mut().scale = device_scale();
         let st = state.borrow();
         let (rgba, width, height) = figure_to_rgba_scaled(st.interactor.figure(), st.scale);
         blit(&st.canvas, &st.context, &rgba, width, height)

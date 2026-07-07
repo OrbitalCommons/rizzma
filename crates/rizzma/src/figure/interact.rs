@@ -136,23 +136,41 @@ impl Interactor {
 
     /// The current effective limits of `axes` in scale-transformed space, as
     /// `((sx_lo, sx_hi), (sy_lo, sy_hi))`.
+    ///
+    /// Reads the *scale-limited* limits (the draw-time values), so stored
+    /// limits that sit outside the scale's domain — e.g. a log axis whose raw
+    /// limits went non-positive — are repaired before being transformed,
+    /// instead of mapping to non-finite scaled coordinates.
     fn scaled_limits(&self, axes: usize) -> Option<((f64, f64), (f64, f64))> {
         let ax = self.fig.axes().get(axes)?;
-        let ((xlo, xhi), (ylo, yhi)) = ax.effective_limits();
+        let ((xlo, xhi), (ylo, yhi)) = ax.scale_limited_effective_limits();
         let t = ax.data_to_scaled();
         let [sx_lo, sy_lo] = t.map_point(xlo, ylo);
         let [sx_hi, sy_hi] = t.map_point(xhi, yhi);
         Some(((sx_lo, sx_hi), (sy_lo, sy_hi)))
     }
 
-    /// Apply scale-transformed limits back to `axes` as explicit data limits.
-    fn set_scaled_limits(&mut self, axes: usize, sx: (f64, f64), sy: (f64, f64)) {
+    /// Apply scale-transformed limits back to `axes` as explicit data limits,
+    /// returning whether they were stored.
+    ///
+    /// The inverse transform can saturate at the scale's domain edges — a
+    /// logit inverse rounding to exactly `0.0`/`1.0`, a log inverse
+    /// underflowing to `0.0` or overflowing to `inf` — so candidates are
+    /// rejected when non-finite and clamped to the scale's domain before
+    /// `set_xlim`/`set_ylim`. One extreme wheel or drag therefore cannot
+    /// poison the axes for every later interaction.
+    fn set_scaled_limits(&mut self, axes: usize, sx: (f64, f64), sy: (f64, f64)) -> bool {
         let ax = &mut self.fig.axes_mut()[axes];
         let t = ax.data_to_scaled();
         let [xlo, ylo] = t.inverse_point(sx.0, sy.0);
         let [xhi, yhi] = t.inverse_point(sx.1, sy.1);
+        if ![xlo, xhi, ylo, yhi].iter().all(|v| v.is_finite()) {
+            return false;
+        }
+        let ((xlo, xhi), (ylo, yhi)) = ax.clamp_limits_to_scale((xlo, xhi), (ylo, yhi));
         ax.set_xlim(xlo, xhi);
         ax.set_ylim(ylo, yhi);
+        true
     }
 
     /// Capture every axes' current effective limits as "home", once.
@@ -195,8 +213,11 @@ impl Interactor {
         if dx == 0.0 && dy == 0.0 {
             return Outcome::Unchanged;
         }
-        self.set_scaled_limits(axes, (sx.0 + dx, sx.1 + dx), (sy.0 + dy, sy.1 + dy));
-        Outcome::NeedsRedraw
+        if self.set_scaled_limits(axes, (sx.0 + dx, sx.1 + dx), (sy.0 + dy, sy.1 + dy)) {
+            Outcome::NeedsRedraw
+        } else {
+            Outcome::Unchanged
+        }
     }
 
     fn zoom(&mut self, x: f64, y: f64, dy: f64) -> Outcome {
@@ -220,8 +241,11 @@ impl Interactor {
         // point under the cursor stays under the cursor.
         let nx = (cx - (cx - sx.0) * k, cx + (sx.1 - cx) * k);
         let ny = (cy - (cy - sy.0) * k, cy + (sy.1 - cy) * k);
-        self.set_scaled_limits(axes, nx, ny);
-        Outcome::NeedsRedraw
+        if self.set_scaled_limits(axes, nx, ny) {
+            Outcome::NeedsRedraw
+        } else {
+            Outcome::Unchanged
+        }
     }
 
     fn go_home(&mut self, x: f64, y: f64) -> Outcome {
@@ -460,6 +484,112 @@ mod tests {
             }
             other => panic!("expected Hover, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn repeated_extreme_logit_interaction_keeps_limits_in_domain() {
+        let mut fig = Figure::new(4.0, 3.0);
+        let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+        let x: Vec<f64> = (0..50).map(|i| f64::from(i) * 0.2 - 5.0).collect();
+        let p: Vec<f64> = x.iter().map(|v| 1.0 / (1.0 + (-v).exp())).collect();
+        ax.logity(&x, &p);
+        ax.set_xlim(-5.0, 5.0);
+        ax.set_ylim(0.001, 0.999);
+        let mut it = Interactor::new(fig);
+
+        // Hammer the view: repeated max-rate zoom-outs toward the saturating
+        // tails, interleaved with hard pans up and down.
+        for round in 0..60 {
+            it.handle(Event::Wheel {
+                x: 200.0,
+                y: 40.0,
+                dy: 8.0,
+            });
+            it.handle(Event::MouseDown {
+                x: 200.0,
+                y: 150.0,
+                button: MouseButton::Left,
+            });
+            let target_y = if round % 2 == 0 { -400.0 } else { 700.0 };
+            it.handle(Event::MouseMove {
+                x: 200.0,
+                y: target_y,
+            });
+            it.handle(Event::MouseUp {
+                x: 200.0,
+                y: target_y,
+                button: MouseButton::Left,
+            });
+
+            let (_, (ylo, yhi)) = limits(&it);
+            assert!(
+                ylo.is_finite() && yhi.is_finite(),
+                "round {round}: logit limits went non-finite: ({ylo}, {yhi})"
+            );
+            assert!(
+                ylo > 0.0 && yhi < 1.0 && ylo < yhi,
+                "round {round}: logit limits left (0, 1): ({ylo}, {yhi})"
+            );
+        }
+        // The view must still respond to interaction afterwards.
+        assert_eq!(
+            it.handle(Event::Wheel {
+                x: 200.0,
+                y: 150.0,
+                dy: -1.0
+            }),
+            Outcome::NeedsRedraw
+        );
+    }
+
+    #[test]
+    fn repeated_extreme_log_interaction_keeps_limits_positive() {
+        let mut fig = Figure::new(4.0, 3.0);
+        let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+        ax.set_xscale_log(10.0);
+        ax.plot(&[1.0, 10.0, 100.0], &[0.0, 1.0, 2.0]);
+        ax.set_xlim(1.0, 100.0);
+        ax.set_ylim(0.0, 2.0);
+        let mut it = Interactor::new(fig);
+
+        for round in 0..80 {
+            // Zoom out hard at the left edge, then drag far right — both push
+            // the lower limit toward log-underflow territory.
+            it.handle(Event::Wheel {
+                x: 45.0,
+                y: 150.0,
+                dy: 8.0,
+            });
+            it.handle(Event::MouseDown {
+                x: 100.0,
+                y: 150.0,
+                button: MouseButton::Left,
+            });
+            it.handle(Event::MouseMove { x: 900.0, y: 150.0 });
+            it.handle(Event::MouseUp {
+                x: 900.0,
+                y: 150.0,
+                button: MouseButton::Left,
+            });
+
+            let ((xlo, xhi), _) = limits(&it);
+            assert!(
+                xlo.is_finite() && xhi.is_finite(),
+                "round {round}: log limits went non-finite: ({xlo}, {xhi})"
+            );
+            assert!(
+                xlo > 0.0 && xlo < xhi,
+                "round {round}: log limits left the domain: ({xlo}, {xhi})"
+            );
+        }
+        assert_eq!(
+            it.handle(Event::Wheel {
+                x: 200.0,
+                y: 150.0,
+                dy: -1.0
+            }),
+            Outcome::NeedsRedraw
+        );
     }
 
     #[test]

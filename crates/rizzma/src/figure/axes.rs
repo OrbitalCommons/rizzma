@@ -964,8 +964,21 @@ impl Axes {
     /// Public limits remain raw data units. This helper only clamps ranges that
     /// cannot be transformed by the active scale, such as non-positive log
     /// bounds, immediately before draw-time scaling.
-    fn scale_limited_effective_limits(&self) -> ((f64, f64), (f64, f64)) {
+    pub(crate) fn scale_limited_effective_limits(&self) -> ((f64, f64), (f64, f64)) {
         let (xlim, ylim) = self.effective_limits();
+        self.clamp_limits_to_scale(xlim, ylim)
+    }
+
+    /// Clamp candidate `(xlim, ylim)` to the active scales' domains — the same
+    /// guards applied at draw time (non-positive log bounds, logit bounds
+    /// outside `(0, 1)`, degenerate ranges). Interaction code runs candidate
+    /// limits through this before storing them, so one extreme zoom or pan
+    /// cannot poison the axes with out-of-domain explicit limits.
+    pub(crate) fn clamp_limits_to_scale(
+        &self,
+        xlim: (f64, f64),
+        ylim: (f64, f64),
+    ) -> ((f64, f64), (f64, f64)) {
         let (xminpos, yminpos) = self.min_positive_data();
         (
             self.xscale.limit_range(xlim, xminpos),
@@ -1267,13 +1280,19 @@ fn expand_range(min: f64, max: f64, margin: f64) -> (f64, f64) {
 /// Nudge a degenerate (zero- or negative-width) range apart so it has a finite,
 /// positive width suitable for division.
 fn guard_range((min, max): (f64, f64)) -> (f64, f64) {
-    if (max - min).abs() > f64::EPSILON {
+    // Degeneracy is judged *relative* to the values' magnitude (like
+    // matplotlib's `nonsingular`): an absolute epsilon would misjudge a
+    // perfectly healthy tiny-magnitude range — e.g. a deep-zoomed log axis at
+    // (1e-30, 1e-22), eight decades wide — as zero-width and blow it up to
+    // ±0.5, off the scale's domain entirely.
+    let magnitude = min.abs().max(max.abs());
+    if (max - min).abs() > f64::EPSILON * magnitude {
         return (min, max);
     }
     // Expand symmetrically around the value; matplotlib uses a unit pad for a
     // truly zero-width range and a relative pad otherwise.
-    let pad = if min.abs() > f64::EPSILON {
-        min.abs() * 0.05
+    let pad = if magnitude > f64::MIN_POSITIVE {
+        magnitude * 0.05
     } else {
         0.5
     };
