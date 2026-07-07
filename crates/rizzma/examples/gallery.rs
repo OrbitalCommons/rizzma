@@ -467,9 +467,11 @@ fn main() {
                 data[r * nc + col] = ((r + 1) * (col + 1)) as f64;
             }
         }
-        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        let ax = fig.add_axes(0.11, 0.13, 0.70, 0.78);
         ax.matshow(&data, nr, nc);
         ax.set_title("the 12×12 times table, as heat");
+        // Dedicated colorbar column labeled with the real value range.
+        fig.colorbar_at((0.86, 0.13, 0.035, 0.78), "viridis", 1.0, 144.0);
         fig.save_png("target/gallery_matshow.png").unwrap();
     }
 

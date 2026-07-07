@@ -37,6 +37,12 @@ pub(crate) struct Colorbar {
     vmin: f64,
     /// Upper bound of the mapped data range.
     vmax: f64,
+    /// Placement rectangle in figure fractions; `None` uses the legacy
+    /// right-hand default strip.
+    rect: Option<Bbox>,
+    /// Gradient direction: `false` runs bottom→top (ticks right), `true` runs
+    /// left→right (ticks below).
+    horizontal: bool,
 }
 
 impl Figure {
@@ -50,6 +56,69 @@ impl Figure {
             cmap_name: cmap_name.to_string(),
             vmin,
             vmax,
+            rect: None,
+            horizontal: false,
+        });
+        self
+    }
+
+    /// Add a **vertical** colorbar in the figure-fraction rectangle
+    /// `(left, bottom, width, height)` — matplotlib's dedicated-axes
+    /// `colorbar(cax=…)` form, and the primitive a *shared* colorbar for a
+    /// subplot grid is built on: compute one `[vmin, vmax]` across the grid's
+    /// data and place one bar in its own column (a [`GridSpec`] cell resolves
+    /// to exactly such a rectangle via
+    /// [`SubplotSpec::get_position`](crate::figure::SubplotSpec::get_position)).
+    ///
+    /// The gradient runs bottom→top with ticks and labels on the right.
+    ///
+    /// [`GridSpec`]: crate::figure::GridSpec
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    ///
+    /// let mut fig = Figure::new(5.0, 3.0);
+    /// fig.add_axes(0.10, 0.10, 0.36, 0.8);
+    /// fig.add_axes(0.50, 0.10, 0.36, 0.8);
+    /// // One shared colorbar for both axes, in its own right-hand column.
+    /// fig.colorbar_at((0.90, 0.10, 0.03, 0.8), "viridis", 0.0, 1.0);
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn colorbar_at(
+        &mut self,
+        rect: (f64, f64, f64, f64),
+        cmap_name: &str,
+        vmin: f64,
+        vmax: f64,
+    ) -> &mut Self {
+        let (left, bottom, width, height) = rect;
+        self.colorbars.push(Colorbar {
+            cmap_name: cmap_name.to_string(),
+            vmin,
+            vmax,
+            rect: Some(Bbox::from_bounds(left, bottom, width, height)),
+            horizontal: false,
+        });
+        self
+    }
+
+    /// Add a **horizontal** colorbar in the figure-fraction rectangle
+    /// `(left, bottom, width, height)`: the gradient runs left→right with
+    /// ticks and labels below (matplotlib's `orientation="horizontal"`).
+    pub fn colorbar_at_horizontal(
+        &mut self,
+        rect: (f64, f64, f64, f64),
+        cmap_name: &str,
+        vmin: f64,
+        vmax: f64,
+    ) -> &mut Self {
+        let (left, bottom, width, height) = rect;
+        self.colorbars.push(Colorbar {
+            cmap_name: cmap_name.to_string(),
+            vmin,
+            vmax,
+            rect: Some(Bbox::from_bounds(left, bottom, width, height)),
+            horizontal: true,
         });
         self
     }
@@ -70,11 +139,14 @@ impl Colorbar {
             return;
         };
 
+        let frac = self
+            .rect
+            .unwrap_or_else(|| Bbox::from_bounds(BAR_LEFT, BAR_BOTTOM, BAR_WIDTH, BAR_HEIGHT));
         let bar = Bbox::from_extents(
-            BAR_LEFT * fig_w,
-            BAR_BOTTOM * fig_h,
-            (BAR_LEFT + BAR_WIDTH) * fig_w,
-            (BAR_BOTTOM + BAR_HEIGHT) * fig_h,
+            frac.xmin() * fig_w,
+            frac.ymin() * fig_h,
+            frac.xmax() * fig_w,
+            frac.ymax() * fig_h,
         );
 
         self.draw_gradient(renderer, &bar, cmap.as_ref());
@@ -82,17 +154,32 @@ impl Colorbar {
         self.draw_ticks(renderer, &bar, font);
     }
 
-    /// Fill the bar with `N_SLICES` thin rectangles sampled from `cmap`.
+    /// Fill the bar with `N_SLICES` thin rectangles sampled from `cmap`,
+    /// running bottom→top (vertical) or left→right (horizontal).
     fn draw_gradient(&self, renderer: &mut dyn Renderer, bar: &Bbox, cmap: &dyn Colormap) {
         let id = Affine2D::identity();
-        let slice_h = bar.height() / N_SLICES as f64;
+        let along = if self.horizontal {
+            bar.width()
+        } else {
+            bar.height()
+        };
+        let slice = along / N_SLICES as f64;
         for i in 0..N_SLICES {
             let t = i as f64 / (N_SLICES as f64 - 1.0);
-            let y0 = bar.ymin() + i as f64 * slice_h;
+            let a0 = i as f64 * slice;
             // Overlap each slice by a hair to avoid seam gaps from rounding.
-            let y1 = y0 + slice_h + 0.5;
-            let rect = rect_path(&Bbox::from_extents(bar.xmin(), y0, bar.xmax(), y1));
-            renderer.draw_path(&GraphicsContext::new(), &rect, &id, Some(cmap.sample(t)));
+            let a1 = a0 + slice + 0.5;
+            let rect = if self.horizontal {
+                Bbox::from_extents(bar.xmin() + a0, bar.ymin(), bar.xmin() + a1, bar.ymax())
+            } else {
+                Bbox::from_extents(bar.xmin(), bar.ymin() + a0, bar.xmax(), bar.ymin() + a1)
+            };
+            renderer.draw_path(
+                &GraphicsContext::new(),
+                &rect_path(&rect),
+                &id,
+                Some(cmap.sample(t)),
+            );
         }
     }
 
@@ -125,20 +212,36 @@ impl Colorbar {
                 continue;
             }
             let frac = (value - self.vmin) / span;
-            let y = bar.ymin() + frac * bar.height();
-
-            // Tick mark on the right edge.
-            let tx0 = bar.xmax();
-            let tx1 = bar.xmax() + TICK_LEN;
-            let mark = Path::from_polyline(&[[tx0, y], [tx1, y]]);
-            renderer.draw_path(&tick_gc, &mark, &id, None);
-
-            // Label, vertically centered on the tick.
             let label = formatter.format(value, Some(i));
-            let lx = tx1 + TICK_GAP;
-            let ly = y - TICK_FONT_SIZE / 3.0;
-            let text = font.text_to_path(&label, TICK_FONT_SIZE, [lx, ly]);
-            renderer.draw_path(&GraphicsContext::new(), &text, &id, Some(Rgba::BLACK));
+
+            if self.horizontal {
+                // Tick mark below the bar, label centered under it.
+                let x = bar.xmin() + frac * bar.width();
+                let ty0 = bar.ymin();
+                let ty1 = bar.ymin() - TICK_LEN;
+                let mark = Path::from_polyline(&[[x, ty0], [x, ty1]]);
+                renderer.draw_path(&tick_gc, &mark, &id, None);
+
+                let width = font.measure(&label, TICK_FONT_SIZE).width;
+                let lx = x - width / 2.0;
+                let ly = ty1 - TICK_GAP - TICK_FONT_SIZE * 0.8;
+                let text = font.text_to_path(&label, TICK_FONT_SIZE, [lx, ly]);
+                renderer.draw_path(&GraphicsContext::new(), &text, &id, Some(Rgba::BLACK));
+            } else {
+                let y = bar.ymin() + frac * bar.height();
+
+                // Tick mark on the right edge.
+                let tx0 = bar.xmax();
+                let tx1 = bar.xmax() + TICK_LEN;
+                let mark = Path::from_polyline(&[[tx0, y], [tx1, y]]);
+                renderer.draw_path(&tick_gc, &mark, &id, None);
+
+                // Label, vertically centered on the tick.
+                let lx = tx1 + TICK_GAP;
+                let ly = y - TICK_FONT_SIZE / 3.0;
+                let text = font.text_to_path(&label, TICK_FONT_SIZE, [lx, ly]);
+                renderer.draw_path(&GraphicsContext::new(), &text, &id, Some(Rgba::BLACK));
+            }
         }
     }
 }
@@ -188,6 +291,71 @@ mod tests {
             colors.len() > 5,
             "expected a varied gradient, got {} distinct colors",
             colors.len()
+        );
+    }
+
+    /// Count distinct non-background colors along a pixel column (`vertical`)
+    /// or row (`!vertical`) at fraction `at` of the canvas.
+    fn gradient_colors(r: &SkiaRenderer, w: u32, h: u32, at: f64, vertical: bool) -> usize {
+        let mut colors = std::collections::HashSet::new();
+        if vertical {
+            let x = (at * w as f64) as u32;
+            for y in 0..h {
+                let p = pixel(r, x, y);
+                if p != [255, 255, 255, 255] {
+                    colors.insert([p[0], p[1], p[2]]);
+                }
+            }
+        } else {
+            let y = (at * h as f64) as u32;
+            for x in 0..w {
+                let p = pixel(r, x, y);
+                if p != [255, 255, 255, 255] {
+                    colors.insert([p[0], p[1], p[2]]);
+                }
+            }
+        }
+        colors.len()
+    }
+
+    #[test]
+    fn colorbar_at_places_the_gradient_in_the_requested_rect() {
+        let mut fig = Figure::new(4.0, 4.0).with_dpi(100.0);
+        // A bar in the *left* half, well away from the legacy right-side slot.
+        fig.colorbar_at((0.20, 0.10, 0.04, 0.80), "viridis", 0.0, 1.0);
+
+        let r = fig.render();
+        let (w, h) = fig.size_px();
+        let (w, h) = (w as u32, h as u32);
+
+        // Gradient present at the requested column (center of the 0.20..0.24
+        // strip)…
+        assert!(
+            gradient_colors(&r, w, h, 0.22, true) > 5,
+            "expected a gradient in the requested rect"
+        );
+        // …and nothing at the legacy default position.
+        assert_eq!(
+            gradient_colors(&r, w, h, 0.915, true),
+            0,
+            "legacy strip position must stay empty"
+        );
+    }
+
+    #[test]
+    fn horizontal_colorbar_runs_left_to_right() {
+        let mut fig = Figure::new(4.0, 4.0).with_dpi(100.0);
+        fig.colorbar_at_horizontal((0.10, 0.85, 0.80, 0.05), "viridis", 0.0, 1.0);
+
+        let r = fig.render();
+        let (w, h) = fig.size_px();
+        let (w, h) = (w as u32, h as u32);
+
+        // Note: figure fractions are y-up; row 0.875 in y-up is 0.125 in the
+        // top-down pixmap.
+        assert!(
+            gradient_colors(&r, w, h, 0.125, false) > 5,
+            "expected a horizontal gradient across the requested row"
         );
     }
 }
