@@ -90,6 +90,72 @@ impl Axes {
         self.meshes.push(mesh);
         self.meshes.last_mut().expect("just pushed a mesh")
     }
+
+    /// Draw a smoothly shaded pseudocolor mesh (matplotlib's
+    /// `pcolormesh(..., shading="gouraud")`).
+    ///
+    /// Unlike [`pcolormesh`](Axes::pcolormesh), `c` is **vertex-centered**: the
+    /// row-major `nrows x ncols` values sit at the grid *corners* (integer
+    /// coordinates `x = 0..ncols-1`, `y = 0..nrows-1`), yielding
+    /// `(nrows - 1) x (ncols - 1)` cells whose colors interpolate smoothly
+    /// between the corner values instead of flat per-cell blocks. Values map
+    /// through a [`LinearNorm`] and `viridis`. Gouraud cells draw no edges.
+    ///
+    /// ![gouraud](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_gouraud.png)
+    ///
+    /// # Panics
+    ///
+    /// Panics if `c.len()` is not exactly `nrows * ncols` or the grid is
+    /// smaller than `2 x 2`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rizzma::core::Bbox;
+    /// use rizzma::figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// // 2x2 corner values: one smoothly shaded cell.
+    /// ax.pcolormesh_gouraud(&[0.0, 1.0, 2.0, 3.0], 2, 2);
+    /// let limits = ax.data_limits().expect("mesh provides data limits");
+    /// assert_eq!((limits.xmin(), limits.xmax()), (0.0, 1.0));
+    /// ```
+    pub fn pcolormesh_gouraud(&mut self, c: &[f64], nrows: usize, ncols: usize) -> &mut QuadMesh {
+        assert_eq!(
+            c.len(),
+            nrows * ncols,
+            "pcolormesh_gouraud: c length {} must equal nrows * ncols = {}",
+            c.len(),
+            nrows * ncols
+        );
+        assert!(
+            nrows >= 2 && ncols >= 2,
+            "pcolormesh_gouraud: needs at least a 2 x 2 grid of corner values"
+        );
+
+        // Corners at the value positions themselves: the cells sit between
+        // them, (nrows - 1) x (ncols - 1).
+        let (cell_rows, cell_cols) = (nrows - 1, ncols - 1);
+        let mut coordinates = Vec::with_capacity(nrows * ncols);
+        for r in 0..nrows {
+            for col in 0..ncols {
+                coordinates.push([col as f64, r as f64]);
+            }
+        }
+
+        let (vmin, vmax) = data_min_max(c);
+        let norm = LinearNorm::new(vmin, vmax);
+        let cmap = colormap("viridis").expect("viridis is built in");
+        let vertex_colors: Vec<_> = c.iter().map(|&v| cmap.sample(norm.normalize(v))).collect();
+
+        // Flat facecolors are required by the constructor but unused in
+        // gouraud mode.
+        let facecolors = vec![crate::core::color::Rgba::TRANSPARENT; cell_rows * cell_cols];
+        let mesh = QuadMesh::new(cell_rows, cell_cols, coordinates, facecolors)
+            .with_vertex_colors(vertex_colors);
+        self.meshes.push(mesh);
+        self.meshes.last_mut().expect("just pushed a mesh")
+    }
 }
 
 #[cfg(test)]
