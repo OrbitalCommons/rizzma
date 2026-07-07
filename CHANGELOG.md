@@ -7,6 +7,13 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.1.2] - 2026-07-07
+
+### Changed
+- The README and docs.rs crate page now open with the project tagline:
+  "Scientific communication reflects on the scientist, and your figures should
+  carry the same *rizzma* as your ideas."
+
 ## [1.1.1] - 2026-07-07
 
 ### Fixed
