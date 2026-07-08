@@ -71,7 +71,7 @@ fn main() {
             .collect();
         let ax = fig.add_subplot(1, 1, 1);
         ax.plot(&x, &y);
-        ax.set_title("beats: two guitar strings, 5% out of tune");
+        ax.set_title("plot: two guitar strings beating");
         ax.set_xlabel("time (s)");
         ax.set_ylabel("amplitude");
         fig.save_png("target/gallery_plot.png").unwrap();
@@ -97,7 +97,7 @@ fn main() {
         }
         let ax = fig.add_subplot(1, 1, 1);
         ax.scatter_mapped(&x, &y, &t, "bgyw");
-        ax.set_title("a tidy little galaxy (color = arm distance)");
+        ax.set_title("scatter: a tidy little galaxy");
         fig.save_png("target/gallery_scatter.png").unwrap();
     }
 
@@ -116,7 +116,7 @@ fn main() {
             .collect();
         let ax = fig.add_subplot(1, 1, 1);
         ax.bar(&x, &h);
-        ax.set_title("commits by hour of day (note the 2am spike)");
+        ax.set_title("bar: commits by hour of day");
         ax.set_xlabel("hour");
         ax.set_ylabel("commits");
         fig.save_png("target/gallery_bar.png").unwrap();
@@ -129,7 +129,7 @@ fn main() {
         let w = [2.0, 5.0, 9.0, 14.0];
         let ax = fig.add_subplot(1, 1, 1);
         ax.barh(&y, &w);
-        ax.set_title("coffee per release candidate (rows are rc1…rc4)");
+        ax.set_title("barh: coffee per release candidate");
         ax.set_xlabel("cups");
         fig.save_png("target/gallery_barh.png").unwrap();
     }
@@ -150,7 +150,7 @@ fn main() {
         }
         let ax = fig.add_subplot(1, 1, 1);
         ax.hist(&data, 28);
-        ax.set_title("minutes to find the missing semicolon");
+        ax.set_title("hist: minutes to find the semicolon");
         ax.set_xlabel("minutes");
         ax.set_ylabel("incidents");
         fig.save_png("target/gallery_hist.png").unwrap();
@@ -175,7 +175,7 @@ fn main() {
         ax.fill_between(&x, &lo, &hi);
         ax.plot(&x, &lo);
         ax.plot(&x, &hi);
-        ax.set_title("daily temperature range over a year");
+        ax.set_title("fill_between: daily temperature range");
         ax.set_xlabel("month");
         ax.set_ylabel("°C");
         fig.save_png("target/gallery_fill_between.png").unwrap();
@@ -190,7 +190,7 @@ fn main() {
         ];
         let ax = fig.add_subplot(1, 1, 1);
         ax.step(&x, &y);
-        ax.set_title("the thermostat wars (each step is a passive-aggressive adjustment)");
+        ax.set_title("step: the thermostat wars");
         ax.set_xlabel("hour");
         ax.set_ylabel("setpoint (°C)");
         fig.save_png("target/gallery_step.png").unwrap();
@@ -209,7 +209,7 @@ fn main() {
         let ax = fig.add_subplot(1, 1, 1);
         ax.axhline(9.81);
         ax.errorbar(&x, &y, &yerr);
-        ax.set_title("measuring g vs. coffee intake");
+        ax.set_title("errorbar: measuring g vs. coffee intake");
         ax.set_xlabel("cups of coffee");
         ax.set_ylabel("g (m/s²)");
         fig.save_png("target/gallery_errorbar.png").unwrap();
@@ -228,7 +228,7 @@ fn main() {
         ax.hlines(&[5.0], 1.0, 8.0); // nominal temperature
         ax.vlines(&[4.5], 1.5, 8.5); // nominal pressure
         ax.scatter(&[4.6], &[5.2]); // you are here
-        ax.set_title("operating envelope — the dot is doing fine");
+        ax.set_title("reference lines & spans: operating envelope");
         ax.set_xlabel("pressure");
         ax.set_ylabel("temperature");
         fig.save_png("target/gallery_reflines.png").unwrap();
@@ -254,7 +254,7 @@ fn main() {
             .cmap("coolwarm")
             .vmin(-2.0)
             .vmax(2.0);
-        ax.set_title("two-source interference (coolwarm, diverging)");
+        ax.set_title("imshow: two-source interference (coolwarm)");
         fig.save_png("target/gallery_imshow.png").unwrap();
     }
 
@@ -278,7 +278,7 @@ fn main() {
                 (c(0), "hares (k)".into()),
                 (c(1), "lynxes (k)".into()),
             ]);
-            ax.set_title("predator–prey cycles");
+            ax.set_title("legend + colorbar: predator–prey cycles");
             ax.set_xlabel("year");
             ax.set_ylabel("population");
         }
@@ -296,7 +296,7 @@ fn main() {
             .collect();
         let ax = fig.add_subplot(1, 1, 1);
         ax.stem(&x, &y);
-        ax.set_title("struck bell, sampled: impulse response");
+        ax.set_title("stem: struck-bell impulse response");
         ax.set_xlabel("t (s)");
         ax.set_ylabel("amplitude");
         fig.save_png("target/gallery_stem.png").unwrap();
@@ -311,7 +311,7 @@ fn main() {
         let edges: Vec<f64> = (0..=12).map(|k| k as f64 * 0.5).collect();
         let ax = fig.add_subplot(1, 1, 1);
         ax.stairs(&values, &edges);
-        ax.set_title("commute elevation: the hill I die on");
+        ax.set_title("stairs: commute elevation profile");
         ax.set_xlabel("km");
         ax.set_ylabel("m above sea level");
         fig.save_png("target/gallery_stairs.png").unwrap();
@@ -332,7 +332,7 @@ fn main() {
         }
         let ax = fig.add_subplot(1, 1, 1);
         ax.pcolormesh(&cdata, nr, nc);
-        ax.set_title("drumhead standing wave, mode (3, 2)");
+        ax.set_title("pcolormesh: drumhead mode (3, 2)");
         fig.save_png("target/gallery_pcolormesh.png").unwrap();
     }
 
@@ -353,7 +353,7 @@ fn main() {
             (c(1), "meetings".into()),
             (c(2), "chat".into()),
         ]);
-        ax.set_title("where the workday goes, day by sprint day");
+        ax.set_title("stackplot: where the workday goes");
         ax.set_xlabel("sprint day");
         ax.set_ylabel("hours");
         fig.save_png("target/gallery_stackplot.png").unwrap();
@@ -367,7 +367,7 @@ fn main() {
         ax.broken_barh(&[(0.0, 3.0), (3.2, 2.0), (5.4, 1.4)], (10.0, 4.0));
         // Lane 2: tests, with a gap where the flaky one got retried.
         ax.broken_barh(&[(1.0, 4.0), (8.0, 3.5)], (20.0, 4.0));
-        ax.set_title("CI timeline — the gap is the flaky test retrying");
+        ax.set_title("broken_barh: CI timeline with a retry gap");
         ax.set_xlabel("minutes");
         fig.save_png("target/gallery_broken_barh.png").unwrap();
     }
@@ -381,7 +381,7 @@ fn main() {
         let cursed = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 40.0];
         let ax = fig.add_subplot(1, 1, 1);
         ax.boxplot(&[&well_run, &normal, &backlogged, &cursed]);
-        ax.set_title("hours to first PR review — one is still waiting");
+        ax.set_title("boxplot: hours to first PR review");
         ax.set_ylabel("hours");
         fig.save_png("target/gallery_boxplot.png").unwrap();
     }
@@ -396,7 +396,7 @@ fn main() {
             .collect();
         let ax = fig.add_subplot(1, 1, 1);
         ax.plot(&x, &y);
-        ax.set_title("$y = \\frac{\\sin(x)}{x}$");
+        ax.set_title("mathtext: $y = \\frac{\\sin(x)}{x}$");
         fig.save_png("target/gallery_mathtext.png").unwrap();
     }
 
@@ -417,7 +417,7 @@ fn main() {
         }
         let ax = fig.add_subplot(1, 1, 1);
         ax.contour(&z, nr, nc);
-        ax.set_title("two peaks and the saddle between them");
+        ax.set_title("contour: two peaks and a saddle");
         fig.save_png("target/gallery_contour.png").unwrap();
     }
 
@@ -430,7 +430,7 @@ fn main() {
         let kick = vec![0.0, 0.75, 2.5, 3.25, 3.75];
         let ax = fig.add_subplot(1, 1, 1);
         ax.eventplot(&[&kick, &snare, &hihat]);
-        ax.set_title("one bar of drum & bass (kick / snare / hi-hat)");
+        ax.set_title("eventplot: one bar of drum & bass");
         ax.set_xlabel("beat");
         fig.save_png("target/gallery_eventplot.png").unwrap();
     }
@@ -451,7 +451,7 @@ fn main() {
         let right: Vec<f64> = center.iter().zip(&width).map(|(&m, &w)| m + w).collect();
         let ax = fig.add_subplot(1, 1, 1);
         ax.fill_betweenx(&y, &left, &right);
-        ax.set_title("a lazy river, widening downstream");
+        ax.set_title("fill_betweenx: a lazy river");
         ax.set_xlabel("east (km)");
         ax.set_ylabel("downstream (km)");
         fig.save_png("target/gallery_fill_betweenx.png").unwrap();
@@ -468,7 +468,7 @@ fn main() {
         ];
         let ax = fig.add_subplot(1, 1, 1);
         ax.ecdf(&data);
-        ax.set_title("lifetime of a TODO(urgent) comment");
+        ax.set_title("ecdf: lifetime of a TODO(urgent)");
         ax.set_xlabel("days until fixed");
         ax.set_ylabel("fraction fixed");
         fig.save_png("target/gallery_ecdf.png").unwrap();
@@ -486,7 +486,7 @@ fn main() {
         }
         let ax = fig.add_axes(0.11, 0.13, 0.70, 0.78);
         ax.matshow(&data, nr, nc);
-        ax.set_title("the 12×12 times table, as heat");
+        ax.set_title("matshow: the 12×12 times table");
         // Dedicated colorbar column labeled with the real value range.
         fig.colorbar_at((0.86, 0.13, 0.035, 0.78), "bgyw", 1.0, 144.0);
         fig.save_png("target/gallery_matshow.png").unwrap();
@@ -509,7 +509,7 @@ fn main() {
         }
         let ax = fig.add_subplot(1, 1, 1);
         ax.spy(&data, nr, nc);
-        ax.set_title("review matrix: row 3 is the maintainer");
+        ax.set_title("spy: who reviews whom");
         fig.save_png("target/gallery_spy.png").unwrap();
     }
 
@@ -528,7 +528,7 @@ fn main() {
         }
         let ax = fig.add_subplot(1, 1, 1);
         ax.hist2d(&x, &y, 30);
-        ax.set_title("espresso vs. typing speed (r ≈ 0.6, causation implied)");
+        ax.set_title("hist2d: espresso vs. typing speed");
         ax.set_xlabel("espresso (z-score)");
         ax.set_ylabel("wpm (z-score)");
         fig.save_png("target/gallery_hist2d.png").unwrap();
@@ -539,7 +539,7 @@ fn main() {
         let mut fig = gallery_figure(4.0, 4.0);
         let ax = fig.add_subplot(1, 1, 1);
         ax.pie(&[75.0, 25.0]);
-        ax.set_title("fraction of this chart that resembles Pac-Man");
+        ax.set_title("pie: resemblance to Pac-Man");
         fig.save_png("target/gallery_pie.png").unwrap();
     }
 
@@ -566,7 +566,7 @@ fn main() {
             .collect();
         let ax = fig.add_subplot(1, 1, 1);
         ax.violinplot(&[&tight, &wide, &bimodal, &skewed], None);
-        ax.set_title("field guide: tight, wide, bimodal, skewed");
+        ax.set_title("violinplot: tight, wide, bimodal, skewed");
         fig.save_png("target/gallery_violinplot.png").unwrap();
     }
 
@@ -591,7 +591,7 @@ fn main() {
         }
         let ax = fig.add_subplot(1, 1, 1);
         ax.hexbin(&x, &y, 30);
-        ax.set_title("lunchtime GPS pings: taco truck vs. noodle bar");
+        ax.set_title("hexbin: lunchtime GPS pings");
         ax.set_xlabel("blocks east");
         ax.set_ylabel("blocks north");
         fig.save_png("target/gallery_hexbin.png").unwrap();
@@ -610,7 +610,7 @@ fn main() {
             (c(1), "actual".into()),
             (c(2), "shipped".into()),
         ]);
-        ax.set_title("sprint arithmetic, four sprints running");
+        ax.set_title("grouped_bar: sprint arithmetic");
         ax.set_ylabel("story points");
         fig.save_png("target/gallery_grouped_bar.png").unwrap();
     }
@@ -624,7 +624,7 @@ fn main() {
         ax.loglog(&x, &y);
         ax.set_xlim(1.0, 1000.0);
         ax.set_ylim(1.0e3, 1.0e6);
-        ax.set_title("Zipf's law: straight line, eight decades");
+        ax.set_title("loglog: Zipf's law, eight decades");
         ax.set_xlabel("word rank");
         ax.set_ylabel("frequency");
         fig.save_png("target/gallery_loglog.png").unwrap();
@@ -645,7 +645,7 @@ fn main() {
         }
         let ax = fig.add_subplot(1, 1, 1);
         ax.quiver(&x, &y, &u, &v);
-        ax.set_title("wind around a low-pressure system");
+        ax.set_title("quiver: wind around a low");
         fig.save_png("target/gallery_quiver.png").unwrap();
     }
 
@@ -665,7 +665,7 @@ fn main() {
         }
         let ax = fig.add_subplot(1, 1, 1);
         ax.streamplot(&coords, &coords, &u, &v);
-        ax.set_title("streamlines spiraling into the drain");
+        ax.set_title("streamplot: spiraling into the drain");
         fig.save_png("target/gallery_streamplot.png").unwrap();
     }
 
@@ -708,7 +708,7 @@ fn main() {
         let mut fig = gallery_figure(5.0, 3.5);
         let ax = fig.add_subplot(1, 1, 1);
         ax.triplot(&vx, &vy, &triangles);
-        ax.set_title("finite-element mesh (budget edition)");
+        ax.set_title("triplot: a budget finite-element mesh");
         fig.save_png("target/gallery_triplot.png").unwrap();
     }
 
@@ -722,7 +722,7 @@ fn main() {
             .collect();
         let ax = fig.add_subplot(1, 1, 1);
         ax.tripcolor(&vx, &vy, &triangles, &values);
-        ax.set_title("heat spreading from a soldering iron");
+        ax.set_title("tripcolor: heat from a soldering iron");
         fig.save_png("target/gallery_tripcolor.png").unwrap();
     }
 
@@ -737,7 +737,7 @@ fn main() {
             .set_yscale_symlog(10.0, 1.0)
             .set_xlim(-100.0, 100.0)
             .set_ylim(-1_000_000.0, 1_000_000.0);
-        ax.set_title("a leveraged trader's net worth ($x^3$, symlog)");
+        ax.set_title("symlog: a leveraged trader's net worth");
         ax.set_xlabel("conviction");
         ax.set_ylabel("net worth");
         fig.save_png("target/gallery_symlog.png").unwrap();
@@ -751,7 +751,7 @@ fn main() {
         let ax = fig.add_subplot(1, 1, 1);
         ax.logity(&x, &y);
         ax.set_xlim(-7.0, 7.0).set_ylim(0.001, 0.999);
-        ax.set_title("P(demo works) vs. days of rehearsal");
+        ax.set_title("logit: P(demo works) vs. rehearsal");
         ax.set_xlabel("rehearsal days (relative to enough)");
         ax.set_ylabel("P(demo works)");
         fig.save_png("target/gallery_logit.png").unwrap();
@@ -767,7 +767,7 @@ fn main() {
         ax.set_yscale_asinh(1.0)
             .set_xlim(-100.0, 100.0)
             .set_ylim(-1_000_000.0, 1_000_000.0);
-        ax.set_title("asinh axis: linear near zero, log in the tails");
+        ax.set_title("asinh: linear near zero, log in the tails");
         ax.set_xlabel("x");
         ax.set_ylabel("$x^3$");
         fig.save_png("target/gallery_asinh.png").unwrap();
@@ -789,7 +789,7 @@ fn main() {
         ax.plot(&x, &y);
         ax.set_xaxis_date();
         ax.set_xlim(date_num(2026, 1, 1), date_num(2026, 6, 1));
-        ax.set_title("cups of coffee per day (release shipped in May)");
+        ax.set_title("date axis: coffee per day");
         ax.set_xlabel("2026");
         ax.set_ylabel("cups/day");
         fig.save_png("target/gallery_dates.png").unwrap();
@@ -801,6 +801,7 @@ fn main() {
         let r: Vec<f64> = theta.iter().map(|t| (3.0 * t).cos().abs()).collect();
         let mut ax = PolarAxes::new();
         ax.plot(&theta, &r);
+        ax.set_title("polar plot: rose r = |cos 3θ|");
         ax.save_png(
             "target/gallery_polar.png",
             GALLERY_SQUARE_PX,
@@ -820,6 +821,7 @@ fn main() {
             .collect();
         let mut ax = PolarAxes::new();
         ax.scatter(&theta, &r);
+        ax.set_title("polar scatter: sunflower phyllotaxis");
         ax.save_png(
             "target/gallery_polar_scatter.png",
             GALLERY_SQUARE_PX,
@@ -835,6 +837,7 @@ fn main() {
         let r: Vec<f64> = theta.iter().map(|t| (4.0 * t).cos().abs()).collect();
         let mut ax = PolarAxes::new();
         ax.fill(&theta, &r);
+        ax.set_title("polar fill: eight-petal rose");
         ax.save_png(
             "target/gallery_polar_fill.png",
             GALLERY_SQUARE_PX,
@@ -861,7 +864,7 @@ fn main() {
         }
         let ax = fig.add_subplot(1, 1, 1);
         ax.contourf(&z, nr, nc);
-        ax.set_title("island chain, filled by elevation");
+        ax.set_title("contourf: island chain by elevation");
         fig.save_png("target/gallery_contourf.png").unwrap();
     }
 
@@ -947,7 +950,7 @@ fn main() {
         let ax = fig.add_subplot(1, 1, 1);
         ax.tricontourf(&vx, &vy, &triangles, &values);
         ax.tricontour(&vx, &vy, &triangles, &values);
-        ax.set_title("tricontour(f): field-map bands over a scattered mesh");
+        ax.set_title("tricontour(f): bands over a scattered mesh");
         fig.save_png("target/gallery_tricontour.png").unwrap();
     }
 
@@ -968,7 +971,7 @@ fn main() {
         }
         let ax = fig.add_subplot(1, 1, 1);
         ax.pcolormesh_gouraud(&z, nr, nc);
-        ax.set_title("gouraud pcolormesh: chirp spectrogram, no blocky cells");
+        ax.set_title("pcolormesh (gouraud): chirp spectrogram");
         ax.set_xlabel("time");
         ax.set_ylabel("frequency");
         fig.save_png("target/gallery_gouraud.png").unwrap();
@@ -999,6 +1002,7 @@ fn main() {
             clat.push(-0.60 + (noise() - 0.5) * 0.08);
         }
         ax.scatter(&clon, &clat);
+        ax.set_title("mollweide projection: a toy Milky Way");
         ax.save_png(
             "target/gallery_sky.png",
             GALLERY_SKY_WIDTH_PX,
@@ -1064,6 +1068,7 @@ fn main() {
         ax.text3d(0.0, 1.25, 0.0, "+Y");
         ax.text3d(0.0, 0.0, 1.3, "+Z");
         ax.text3d(0.75, -0.55, 1.55, "boresight");
+        ax.set_title("quiver3d: body axes + boresight");
         ax.save_png(
             "target/gallery_quiver3d.png",
             GALLERY_3D_WIDTH_PX,
@@ -1149,6 +1154,7 @@ fn main() {
         }
         let mut ax = SkyAxes::new(SkyProjection::Aitoff);
         ax.scatter(&lon, &lat);
+        ax.set_title("aitoff projection: the same galactic band");
         ax.save_png(
             "target/gallery_sky_aitoff.png",
             GALLERY_SKY_WIDTH_PX,
