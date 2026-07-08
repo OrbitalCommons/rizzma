@@ -72,12 +72,6 @@ impl Axes {
             nrows * ncols
         );
 
-        // Meshes are flush with their grid (matplotlib pins mesh edges).
-        self.sticky_x.push(0.0);
-        self.sticky_x.push(ncols as f64);
-        self.sticky_y.push(0.0);
-        self.sticky_y.push(nrows as f64);
-
         // Regular unit grid corners, row-major: (nrows + 1) * (ncols + 1) points.
         let mut coordinates = Vec::with_capacity((nrows + 1) * (ncols + 1));
         for r in 0..=nrows {
@@ -138,12 +132,6 @@ impl Axes {
             nrows >= 2 && ncols >= 2,
             "pcolormesh_gouraud: needs at least a 2 x 2 grid of corner values"
         );
-
-        // Meshes are flush with their grid (matplotlib pins mesh edges).
-        self.sticky_x.push(0.0);
-        self.sticky_x.push((ncols - 1) as f64);
-        self.sticky_y.push(0.0);
-        self.sticky_y.push((nrows - 1) as f64);
 
         // Corners at the value positions themselves: the cells sit between
         // them, (nrows - 1) x (ncols - 1).

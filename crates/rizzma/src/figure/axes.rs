@@ -677,6 +677,28 @@ impl Axes {
     }
 
     /// Set the autoscale margin (fraction added on each side).
+    /// The sticky edges in force right now: the statically pinned values
+    /// (bar/stem baselines, line x extremes) plus the **live** extents of
+    /// every image and mesh — rasters and meshes stay flush with wherever
+    /// their extent currently is, including after
+    /// [`AxesImage::set_extent`](crate::artist::AxesImage::set_extent).
+    fn gathered_sticky_edges(&self) -> (Vec<f64>, Vec<f64>) {
+        let mut sx = self.sticky_x.clone();
+        let mut sy = self.sticky_y.clone();
+        let extents = self
+            .images
+            .iter()
+            .filter_map(Artist::data_extents)
+            .chain(self.meshes.iter().filter_map(Artist::data_extents));
+        for e in extents {
+            sx.push(e.xmin());
+            sx.push(e.xmax());
+            sy.push(e.ymin());
+            sy.push(e.ymax());
+        }
+        (sx, sy)
+    }
+
     /// Pin the finite extremes of `x` as sticky x edges, so line plots are
     /// tight in x (the y margin still applies). Matplotlib pads lines in both
     /// axes; rizzma deliberately keeps xy line charts flush left/right.
@@ -1157,14 +1179,15 @@ impl Axes {
     #[must_use]
     pub fn effective_limits(&self) -> ((f64, f64), (f64, f64)) {
         let data = self.data_limits();
+        let (sticky_x, sticky_y) = self.gathered_sticky_edges();
         let xlim = self.xlim.unwrap_or_else(|| {
             data.map_or((0.0, 1.0), |b| {
-                expand_range_sticky(b.xmin(), b.xmax(), self.margins, &self.sticky_x)
+                expand_range_sticky(b.xmin(), b.xmax(), self.margins, &sticky_x)
             })
         });
         let ylim = self.ylim.unwrap_or_else(|| {
             data.map_or((0.0, 1.0), |b| {
-                expand_range_sticky(b.ymin(), b.ymax(), self.margins, &self.sticky_y)
+                expand_range_sticky(b.ymin(), b.ymax(), self.margins, &sticky_y)
             })
         });
         (guard_range(xlim), guard_range(ylim))
@@ -2161,6 +2184,55 @@ mod tests {
     fn images_stay_flush_with_their_extent() {
         let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
         axes.imshow(&[0.0, 1.0, 2.0, 3.0], 2, 2);
+        let (xlim, ylim) = axes.effective_limits();
+        approx(xlim.0, 0.0);
+        approx(xlim.1, 2.0);
+        approx(ylim.0, 0.0);
+        approx(ylim.1, 2.0);
+    }
+
+    #[test]
+    fn image_sticky_edges_track_a_changed_extent() {
+        // Change the extent AFTER imshow: the limits must be flush with the
+        // new extent, not the creation-time default.
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.imshow(&[0.0, 1.0, 2.0, 3.0], 2, 2)
+            .set_extent([10.0, 30.0, -5.0, 5.0]);
+        let (xlim, ylim) = axes.effective_limits();
+        approx(xlim.0, 10.0);
+        approx(xlim.1, 30.0);
+        approx(ylim.0, -5.0);
+        approx(ylim.1, 5.0);
+    }
+
+    #[test]
+    fn contourf_and_hist2d_meshes_stay_flush() {
+        // contourf builds its QuadMesh directly (not via pcolormesh); the
+        // live mesh-extent gathering must still pin it.
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        let z: Vec<f64> = (0..9).map(f64::from).collect();
+        axes.contourf(&z, 3, 3);
+        let (xlim, ylim) = axes.effective_limits();
+        approx(xlim.0, 0.0);
+        approx(xlim.1, 2.0);
+        approx(ylim.0, 0.0);
+        approx(ylim.1, 2.0);
+
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.hist2d(&[0.0, 1.0, 2.0, 3.0], &[0.0, 1.0, 2.0, 3.0], 4);
+        let (xlim, ylim) = axes.effective_limits();
+        // The bin grid spans the data range exactly; no margin pad.
+        approx(xlim.0, 0.0);
+        approx(xlim.1, 3.0);
+        approx(ylim.0, 0.0);
+        approx(ylim.1, 3.0);
+    }
+
+    #[test]
+    fn contour_lines_stay_flush_with_their_grid() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        let z = [0.0, 1.0, 2.0, 0.0, 1.0, 2.0, 0.0, 1.0, 2.0];
+        axes.contour(&z, 3, 3);
         let (xlim, ylim) = axes.effective_limits();
         approx(xlim.0, 0.0);
         approx(xlim.1, 2.0);
