@@ -331,6 +331,63 @@ impl Axis {
         extent
     }
 
+    /// The half-size overhang of the outermost tick labels past the two ends
+    /// of the axis span, `(low_end, high_end)`, in pixels at decoration scale
+    /// `s`.
+    ///
+    /// Tick labels are centered on their ticks, so a tick sitting at an axis
+    /// limit spills half its label beyond the frame corner — half its width
+    /// along a horizontal axis, half its height along a vertical one.
+    /// matplotlib's tight layout reserves this room by measuring the axes
+    /// tight bbox; this is the measured equivalent. Only ticks within 2% of
+    /// an end can overhang it.
+    pub(crate) fn end_label_overhangs(
+        &self,
+        lim: (f64, f64),
+        font: &FontSource,
+        s: f64,
+    ) -> (f64, f64) {
+        let (vmin, vmax) = lim;
+        let (lo_v, hi_v) = if vmin <= vmax {
+            (vmin, vmax)
+        } else {
+            (vmax, vmin)
+        };
+        let span = hi_v - lo_v;
+        if !span.is_finite() || span <= 0.0 {
+            return (0.0, 0.0);
+        }
+        let ticks: Vec<f64> = self
+            .locator
+            .tick_values(vmin, vmax)
+            .into_iter()
+            .filter(|&t| t >= lo_v && t <= hi_v)
+            .collect();
+        let labels = self.formatter.format_ticks(&ticks);
+        let (mut low, mut high) = (0.0f64, 0.0f64);
+        for (&t, label) in ticks.iter().zip(&labels) {
+            if label.is_empty() {
+                continue;
+            }
+            let frac = (t - lo_v) / span;
+            if frac > 0.02 && frac < 0.98 {
+                continue;
+            }
+            let rich = layout_rich_text(font, label, self.tick_label_size * s);
+            let half = if self.side.is_horizontal() {
+                rich.width / 2.0
+            } else {
+                (rich.ascent + rich.descent) / 2.0
+            };
+            if frac <= 0.02 {
+                low = low.max(half);
+            } else {
+                high = high.max(half);
+            }
+        }
+        (low, high)
+    }
+
     /// Stroke the spine along the relevant edge.
     fn draw_spine(&self, renderer: &mut dyn Renderer, axes_bbox: &Bbox, gc: &GraphicsContext) {
         let (xmin, xmax) = (axes_bbox.xmin(), axes_bbox.xmax());

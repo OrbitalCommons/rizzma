@@ -1357,16 +1357,25 @@ impl Axes {
             let (xlim, ylim) = self.limits_with_override(xlim_override);
             if !self.xaxis_hidden {
                 bottom = self.xaxis.decoration_extent(xlim, font, s);
+                // End tick labels are centered on their ticks, so they spill
+                // half their width past the frame corners sideways.
+                let (lo, hi) = self.xaxis.end_label_overhangs(xlim, font, s);
+                left = left.max(lo);
+                right = right.max(hi);
             }
             let y_extent = self.yaxis.decoration_extent(ylim, font, s);
             // The y axis decorates whichever side it is drawn on; twins put
             // it on the right.
             if self.yaxis_is_right() {
-                right = y_extent;
+                right = right.max(y_extent);
             } else {
-                left = y_extent;
+                left = left.max(y_extent);
             }
-            top = self.secondary_extent(xlim, font, s);
+            // Likewise the end y tick labels spill half their height past the
+            // bottom and top frame corners.
+            let (y_lo, y_hi) = self.yaxis.end_label_overhangs(ylim, font, s);
+            bottom = bottom.max(y_lo);
+            top = self.secondary_extent(xlim, font, s).max(y_hi);
         }
         if let Some(title) = &self.title
             && !title.is_empty()

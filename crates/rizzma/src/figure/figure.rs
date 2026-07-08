@@ -24,9 +24,10 @@ use crate::figure::gridspec::GridSpec;
 const DEFAULT_DPI: f64 = 100.0;
 
 /// Tight-layout pad between the figure/cell edge and the outermost
-/// decoration, in pixels at the default 100 DPI (≈ matplotlib's
-/// `tight_layout(pad=1.08)` at its default font size).
-const LAYOUT_PAD: f64 = 10.0;
+/// decoration, in pixels at the default 100 DPI. Matches matplotlib's
+/// `tight_layout(pad=1.08)` at its default 10 pt font:
+/// `1.08 x 10 pt / 72 = 0.15 in` = 15 px at 100 DPI.
+const LAYOUT_PAD: f64 = 15.0;
 
 /// A figure: a sized canvas holding one or more [`Axes`].
 ///
@@ -454,16 +455,45 @@ mod tests {
     #[test]
     fn tight_layout_frame_hugs_undecorated_sides() {
         // A subplot with no title and no labels: the right and top frame
-        // edges sit exactly one pad inside the figure; left/bottom leave room
-        // for tick labels only.
+        // edges sit one pad plus the end-tick-label overhang inside the
+        // figure (the last x tick label spills half its width past the frame
+        // corner, the top y tick label half its height); left/bottom leave
+        // room for the tick-label bands.
         let mut fig = Figure::new(4.0, 3.0);
         fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
         let (w, h) = fig.size_px();
         let rect = fig.layout_rect_for(0, w, h).expect("subplot is auto-laid");
-        assert!((rect.xmax() - (w - 10.0)).abs() < 1e-9, "right edge = pad");
-        assert!((rect.ymax() - (h - 10.0)).abs() < 1e-9, "top edge = pad");
-        assert!(rect.xmin() > 10.0, "left leaves tick-label room");
-        assert!(rect.ymin() > 10.0, "bottom leaves tick-label room");
+        assert!(rect.xmax() <= w - LAYOUT_PAD, "right edge sits inside pad");
+        assert!(
+            rect.xmax() > w - LAYOUT_PAD - 30.0,
+            "right inset is only the pad + a half tick label"
+        );
+        assert!(rect.ymax() <= h - LAYOUT_PAD, "top edge sits inside pad");
+        assert!(
+            rect.ymax() > h - LAYOUT_PAD - 15.0,
+            "top inset is only the pad + a half tick label"
+        );
+        assert!(rect.xmin() > LAYOUT_PAD, "left leaves tick-label room");
+        assert!(rect.ymin() > LAYOUT_PAD, "bottom leaves tick-label room");
+        // The band sides claim more than the overhang sides.
+        assert!(rect.xmin() > w - rect.xmax());
+        assert!(rect.ymin() > h - rect.ymax());
+    }
+
+    #[test]
+    fn tight_layout_reserves_end_tick_label_overhang() {
+        // The frame must not run all the way to pad distance from the figure
+        // edge: the last x tick label (e.g. "1.0") is centered on the frame's
+        // right corner and needs half its width beyond it.
+        let mut fig = Figure::new(4.0, 3.0);
+        fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+        let (w, h) = fig.size_px();
+        let rect = fig.layout_rect_for(0, w, h).unwrap();
+        assert!(
+            rect.xmax() < w - LAYOUT_PAD - 4.0,
+            "right margin exceeds the bare pad by the label overhang, got {}",
+            w - rect.xmax()
+        );
     }
 
     #[test]
@@ -519,8 +549,12 @@ mod tests {
         assert!((a.xmax() - b.xmax()).abs() < 1e-9);
         assert!((a.ymin() - b.ymin()).abs() < 1e-9);
         assert!((a.ymax() - b.ymax()).abs() < 1e-9);
-        // The twin's right-side labels claim room: right inset exceeds the pad.
-        assert!(a.xmax() < w - 10.0 - 1.0, "right labels push the frame in");
+        // The twin's right-side labels claim room: right inset exceeds the
+        // pad by more than any end-tick-label overhang could.
+        assert!(
+            a.xmax() < w - LAYOUT_PAD - 20.0,
+            "right labels push the frame in"
+        );
     }
 
     #[test]
