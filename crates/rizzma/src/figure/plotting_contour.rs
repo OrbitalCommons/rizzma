@@ -211,6 +211,11 @@ impl Axes {
         // crosses (flat field, sub-2x2 grid, or zero levels).
         if ncols >= 1 && nrows >= 1 {
             self.include_data_bbox(0.0, 0.0, (ncols - 1) as f64, (nrows - 1) as f64);
+            // Contours are flush with their grid, like matplotlib's.
+            self.sticky_x.push(0.0);
+            self.sticky_x.push((ncols - 1) as f64);
+            self.sticky_y.push(0.0);
+            self.sticky_y.push((nrows - 1) as f64);
         }
 
         let (zmin, zmax) = data_min_max(z);
