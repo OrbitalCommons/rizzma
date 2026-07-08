@@ -1215,6 +1215,43 @@ mod tests {
     }
 
     #[test]
+    fn decorations_scale_with_render_dpi() {
+        // Text (and other decoration geometry) must grow with the DPI, not
+        // stay pixel-fixed: the title band's ink should roughly quadruple at
+        // scale 2 (2x in each dimension, modulo antialiased edges). A
+        // pixel-fixed title would hold the ratio near 1. The axes is turned
+        // off so the band holds nothing but glyphs.
+        let mut fig = Figure::new(4.0, 3.0);
+        let ax = fig.add_axes(0.15, 0.15, 0.78, 0.74);
+        ax.set_axis_off();
+        ax.set_title("A Title To Measure");
+        let band_ink = |scale: f64| {
+            let r = fig.render_scaled(scale);
+            let px = r.pixmap();
+            let (w, h) = (px.width(), px.height());
+            let band = (f64::from(h) * 0.12) as u32;
+            let mut n = 0u32;
+            for y in 0..band {
+                for x in 0..w {
+                    let p = px.pixel(x, y).expect("in bounds").demultiply();
+                    if (p.red(), p.green(), p.blue()) != (255, 255, 255) {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        let one = band_ink(1.0);
+        let two = band_ink(2.0);
+        assert!(one > 0, "the title band must contain ink");
+        let ratio = f64::from(two) / f64::from(one);
+        assert!(
+            ratio > 2.5,
+            "title ink must scale ~quadratically with DPI, got ratio {ratio:.2}"
+        );
+    }
+
+    #[test]
     fn scaled_rgba_doubles_dimensions() {
         let fig = sample_figure();
         let (rgba1, w1, h1) = figure_to_rgba_scaled(&fig, 1.0);

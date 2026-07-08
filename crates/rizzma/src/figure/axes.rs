@@ -1461,7 +1461,8 @@ impl Axes {
         if let Some(title) = &self.title
             && !title.is_empty()
         {
-            let rich = layout_rich_text(font, title, DEFAULT_TITLE_SIZE);
+            let s = renderer.decoration_scale();
+            let rich = layout_rich_text(font, title, DEFAULT_TITLE_SIZE * s);
             let cx = (axes_px.xmin() + axes_px.xmax()) / 2.0;
             let x = cx - rich.width / 2.0;
             // Place the baseline `pad` above the top spine, exactly as the
@@ -1507,8 +1508,9 @@ impl Axes {
             td.transform_point((sx, sy))
         };
 
+        let s = renderer.decoration_scale();
         let anchor = to_display(ann.text_at.unwrap_or(ann.xy));
-        let rich = layout_rich_text(font, &ann.text, ann.size);
+        let rich = layout_rich_text(font, &ann.text, ann.size * s);
         let shift = Affine2D::from_translation(anchor.0, anchor.1);
         for path in &rich.paths {
             renderer.draw_path(
@@ -1528,7 +1530,7 @@ impl Axes {
             } else {
                 (anchor.0 + rich.width, anchor.1)
             };
-            draw_annotation_arrow(renderer, from, target, ann.color);
+            draw_annotation_arrow(renderer, from, target, ann.color, s);
         }
     }
 }
@@ -1545,25 +1547,22 @@ fn draw_annotation_arrow(
     from: (f64, f64),
     to: (f64, f64),
     color: Rgba,
+    s: f64,
 ) {
+    let (gap, shrink, head_len) = (
+        ANNOTATION_ARROW_GAP * s,
+        ANNOTATION_ARROW_SHRINK * s,
+        ANNOTATION_HEAD_LEN * s,
+    );
     let (dx, dy) = (to.0 - from.0, to.1 - from.1);
     let len = dx.hypot(dy);
-    if len <= ANNOTATION_ARROW_GAP + ANNOTATION_ARROW_SHRINK + ANNOTATION_HEAD_LEN {
+    if len <= gap + shrink + head_len {
         return;
     }
     let (ux, uy) = (dx / len, dy / len);
-    let tail = (
-        from.0 + ux * ANNOTATION_ARROW_GAP,
-        from.1 + uy * ANNOTATION_ARROW_GAP,
-    );
-    let tip = (
-        to.0 - ux * ANNOTATION_ARROW_SHRINK,
-        to.1 - uy * ANNOTATION_ARROW_SHRINK,
-    );
-    let head_base = (
-        tip.0 - ux * ANNOTATION_HEAD_LEN,
-        tip.1 - uy * ANNOTATION_HEAD_LEN,
-    );
+    let tail = (from.0 + ux * gap, from.1 + uy * gap);
+    let tip = (to.0 - ux * shrink, to.1 - uy * shrink);
+    let head_base = (tip.0 - ux * head_len, tip.1 - uy * head_len);
 
     let gc = GraphicsContext::new()
         .with_stroke(color)
@@ -1577,12 +1576,12 @@ fn draw_annotation_arrow(
     let head = Path::from_polyline(&[
         [tip.0, tip.1],
         [
-            head_base.0 + px * ANNOTATION_HEAD_HALF_WIDTH,
-            head_base.1 + py * ANNOTATION_HEAD_HALF_WIDTH,
+            head_base.0 + px * ANNOTATION_HEAD_HALF_WIDTH * s,
+            head_base.1 + py * ANNOTATION_HEAD_HALF_WIDTH * s,
         ],
         [
-            head_base.0 - px * ANNOTATION_HEAD_HALF_WIDTH,
-            head_base.1 - py * ANNOTATION_HEAD_HALF_WIDTH,
+            head_base.0 - px * ANNOTATION_HEAD_HALF_WIDTH * s,
+            head_base.1 - py * ANNOTATION_HEAD_HALF_WIDTH * s,
         ],
         [tip.0, tip.1],
     ]);
