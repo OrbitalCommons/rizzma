@@ -37,6 +37,8 @@ use crate::text::FontSource;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkyProjection {
     /// The Aitoff projection (matplotlib's `projection="aitoff"`).
+    ///
+    /// ![aitoff](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_sky_aitoff.png)
     Aitoff,
     /// The Mollweide equal-area projection (`projection="mollweide"`).
     Mollweide,

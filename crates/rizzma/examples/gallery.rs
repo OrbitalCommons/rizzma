@@ -1031,5 +1031,47 @@ fn main() {
             .unwrap();
     }
 
+    // 50. colormap showcase — every builtin ramp as a horizontal colorbar.
+    {
+        let mut fig = Figure::new(5.0, 3.8);
+        let names = [
+            "viridis", "plasma", "inferno", "magma", "cividis", "coolwarm", "RdBu", "gray",
+        ];
+        // A full-figure axes provides the name labels; the bars are
+        // figure-level horizontal colorbars beside them.
+        {
+            let ax = fig.add_axes(0.0, 0.0, 1.0, 1.0);
+            ax.set_xlim(0.0, 1.0);
+            ax.set_ylim(0.0, 1.0);
+            ax.set_axis_off();
+            ax.text(0.36, 0.955, "the builtin colormaps");
+            for (i, name) in names.iter().enumerate() {
+                let y = 0.86 - i as f64 * 0.105;
+                ax.text(0.03, y + 0.012, *name);
+            }
+        }
+        for (i, name) in names.iter().enumerate() {
+            let y = 0.86 - i as f64 * 0.105;
+            fig.colorbar_at_horizontal((0.22, y, 0.72, 0.05), name, 0.0, 1.0);
+        }
+        fig.save_png("target/gallery_colormaps.png").unwrap();
+    }
+
+    // 51. aitoff — the same sky data as case 47, on the aitoff projection.
+    {
+        let mut noise = rng(0x5EEDED5EEDED);
+        let (mut lon, mut lat) = (Vec::new(), Vec::new());
+        for i in 0..240 {
+            let t = i as f64 / 239.0 * TAU;
+            let band_lat = (60f64.to_radians().sin() * t.sin()).asin();
+            lon.push(t - PI + (noise() - 0.5) * 0.15);
+            lat.push(band_lat + (noise() - 0.5) * 0.12);
+        }
+        let mut ax = SkyAxes::new(SkyProjection::Aitoff);
+        ax.scatter(&lon, &lat);
+        ax.save_png("target/gallery_sky_aitoff.png", 640, 340, 100.0)
+            .unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
