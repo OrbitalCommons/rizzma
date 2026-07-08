@@ -50,6 +50,9 @@ impl Axes {
     /// taken from the next entry of the property cycle (advancing it once) and
     /// the edge is black. Only the common prefix of `x` and `height` is used.
     pub fn bar(&mut self, x: &[f64], height: &[f64]) {
+        // Bars grow from the zero baseline: pin it so the autoscale margin
+        // never floats them off the axis floor.
+        self.sticky_y.push(0.0);
         self.bar_with(x, height, DEFAULT_BAR_WIDTH, 0.0);
     }
 
@@ -84,6 +87,8 @@ impl Axes {
     /// Each rectangle spans `left ..= left + width` horizontally and
     /// `y - height/2 ..= y + height/2` vertically.
     pub fn barh_with(&mut self, y: &[f64], width: &[f64], height: f64, left: f64) {
+        // Horizontal bars grow from `left`: pin the baseline in x.
+        self.sticky_x.push(left);
         let face = self.next_cycle_color();
         for (&yc, &w) in y.iter().zip(width.iter()) {
             let patch = Patch::rectangle(left, yc - height / 2.0, w, height)

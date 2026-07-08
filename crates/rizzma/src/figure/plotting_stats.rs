@@ -102,6 +102,8 @@ impl Axes {
     ///
     /// Counts only; density normalization is a later refinement.
     pub fn hist(&mut self, data: &[f64], bins: usize) -> (Vec<f64>, Vec<f64>) {
+        // Count bars rise from zero: pin the baseline.
+        self.sticky_y.push(0.0);
         if bins == 0 {
             return (Vec::new(), Vec::new());
         }

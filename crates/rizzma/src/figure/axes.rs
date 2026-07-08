@@ -227,6 +227,12 @@ fn scaled_tick_position(value: f64, limits: (f64, f64), scale: ScaleSpec) -> f64
 pub struct Axes {
     /// The axes region in figure fractions (`[0, 1]^2`).
     position: Bbox,
+    /// Sticky x values (matplotlib's sticky edges): autoscale margins never
+    /// expand a limit *past* one of these. Bars pin their baseline, images
+    /// their extents, lines their x data range.
+    pub(crate) sticky_x: Vec<f64>,
+    /// Sticky y values; see [`sticky_x`](Axes::sticky_x).
+    pub(crate) sticky_y: Vec<f64>,
     /// Explicit x data limits `(min, max)`, or `None` to autoscale.
     xlim: Option<(f64, f64)>,
     /// Explicit y data limits `(min, max)`, or `None` to autoscale.
@@ -390,6 +396,8 @@ impl Axes {
             position,
             xlim: None,
             ylim: None,
+            sticky_x: Vec::new(),
+            sticky_y: Vec::new(),
             margins: DEFAULT_MARGIN,
             xscale: ScaleSpec::Linear,
             yscale: ScaleSpec::Linear,
@@ -461,6 +469,7 @@ impl Axes {
     /// `*ax.plot(x, y) = Line2D::new(x, y).with_color(c)`.
     pub fn plot(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
         let color = self.next_cycle_color();
+        self.stick_x_extremes(x);
         self.lines
             .push(Line2D::new(x.to_vec(), y.to_vec()).with_color(color));
         self.lines.last_mut().expect("just pushed a line")
@@ -472,6 +481,7 @@ impl Axes {
     /// Unlike [`plot`](Axes::plot), this does not consult or advance the
     /// property cycle: the given color always wins.
     pub fn plot_with_color(&mut self, x: &[f64], y: &[f64], color: Rgba) -> &mut Line2D {
+        self.stick_x_extremes(x);
         self.lines
             .push(Line2D::new(x.to_vec(), y.to_vec()).with_color(color));
         self.lines.last_mut().expect("just pushed a line")
@@ -667,6 +677,23 @@ impl Axes {
     }
 
     /// Set the autoscale margin (fraction added on each side).
+    /// Pin the finite extremes of `x` as sticky x edges, so line plots are
+    /// tight in x (the y margin still applies). Matplotlib pads lines in both
+    /// axes; rizzma deliberately keeps xy line charts flush left/right.
+    fn stick_x_extremes(&mut self, x: &[f64]) {
+        let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for &v in x {
+            if v.is_finite() {
+                lo = lo.min(v);
+                hi = hi.max(v);
+            }
+        }
+        if lo <= hi {
+            self.sticky_x.push(lo);
+            self.sticky_x.push(hi);
+        }
+    }
+
     pub fn set_margins(&mut self, margins: f64) -> &mut Self {
         self.margins = margins;
         self
@@ -1132,12 +1159,12 @@ impl Axes {
         let data = self.data_limits();
         let xlim = self.xlim.unwrap_or_else(|| {
             data.map_or((0.0, 1.0), |b| {
-                expand_range(b.xmin(), b.xmax(), self.margins)
+                expand_range_sticky(b.xmin(), b.xmax(), self.margins, &self.sticky_x)
             })
         });
         let ylim = self.ylim.unwrap_or_else(|| {
             data.map_or((0.0, 1.0), |b| {
-                expand_range(b.ymin(), b.ymax(), self.margins)
+                expand_range_sticky(b.ymin(), b.ymax(), self.margins, &self.sticky_y)
             })
         });
         (guard_range(xlim), guard_range(ylim))
@@ -1634,6 +1661,33 @@ fn expand_range(min: f64, max: f64, margin: f64) -> (f64, f64) {
     (min - pad, max + pad)
 }
 
+/// [`expand_range`] clipped by sticky edges (matplotlib semantics): the margin
+/// never carries a limit *past* a sticky value sitting at (or inside) the data
+/// bound — a bar chart's zero baseline stays on the axis floor and an image
+/// stays flush with its extent, while unsticky ends keep their full margin.
+fn expand_range_sticky(min: f64, max: f64, margin: f64, sticky: &[f64]) -> (f64, f64) {
+    let (mut lo, mut hi) = expand_range(min, max, margin);
+    // The tightest sticky value at or below the data minimum bounds the
+    // low-side expansion; symmetrically for the high side.
+    let lo_bound = sticky
+        .iter()
+        .copied()
+        .filter(|s| s.is_finite() && *s <= min)
+        .fold(f64::NEG_INFINITY, f64::max);
+    if lo < lo_bound {
+        lo = lo_bound;
+    }
+    let hi_bound = sticky
+        .iter()
+        .copied()
+        .filter(|s| s.is_finite() && *s >= max)
+        .fold(f64::INFINITY, f64::min);
+    if hi > hi_bound {
+        hi = hi_bound;
+    }
+    (lo, hi)
+}
+
 /// Nudge a degenerate (zero- or negative-width) range apart so it has a finite,
 /// positive width suitable for division.
 fn guard_range((min, max): (f64, f64)) -> (f64, f64) {
@@ -2069,19 +2123,60 @@ mod tests {
     }
 
     #[test]
-    fn autoscale_expands_data_by_margins() {
+    fn autoscale_pads_y_but_keeps_line_x_tight() {
         let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
         let xs: Vec<f64> = (0..=10).map(|i| i as f64).collect();
         let ys: Vec<f64> = xs.iter().map(|&x| (x / 10.0) * 2.0 - 1.0).collect();
         axes.plot(&xs, &ys);
 
         let (xlim, ylim) = axes.effective_limits();
-        // x in [0, 10] expanded by 0.05*10 = 0.5 each side.
-        approx(xlim.0, -0.5);
-        approx(xlim.1, 10.5);
+        // Line plots pin their x data range (sticky edges): no left/right pad.
+        approx(xlim.0, 0.0);
+        approx(xlim.1, 10.0);
         // y in [-1, 1] expanded by 0.05*2 = 0.1 each side.
         approx(ylim.0, -1.1);
         approx(ylim.1, 1.1);
+    }
+
+    #[test]
+    fn bars_and_hist_sit_on_the_zero_baseline() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.bar(&[0.0, 1.0, 2.0], &[3.0, 7.0, 5.0]);
+        let (_, ylim) = axes.effective_limits();
+        approx(ylim.0, 0.0); // baseline pinned, no float
+        assert!(ylim.1 > 7.0); // top keeps its margin
+
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.hist(&[0.0, 0.1, 0.2, 0.9, 1.0], 4);
+        let (_, ylim) = axes.effective_limits();
+        approx(ylim.0, 0.0);
+
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.barh(&[0.0, 1.0], &[4.0, 6.0]);
+        let (xlim, _) = axes.effective_limits();
+        approx(xlim.0, 0.0); // horizontal baseline pinned in x
+    }
+
+    #[test]
+    fn images_stay_flush_with_their_extent() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.imshow(&[0.0, 1.0, 2.0, 3.0], 2, 2);
+        let (xlim, ylim) = axes.effective_limits();
+        approx(xlim.0, 0.0);
+        approx(xlim.1, 2.0);
+        approx(ylim.0, 0.0);
+        approx(ylim.1, 2.0);
+    }
+
+    #[test]
+    fn sticky_edges_do_not_shrink_data_beyond_them() {
+        // A line crossing below zero on an axes that also has a bar: the
+        // sticky zero must not clip the *data* range, only the margin.
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.bar(&[0.0, 1.0], &[2.0, 3.0]);
+        axes.plot(&[0.0, 1.0], &[-5.0, 3.0]);
+        let (_, ylim) = axes.effective_limits();
+        assert!(ylim.0 <= -5.0, "data below a sticky edge stays visible");
     }
 
     #[test]

@@ -44,6 +44,8 @@ impl Axes {
     /// assert_eq!(limits.ymax(), 3.0);
     /// ```
     pub fn stackplot(&mut self, x: &[f64], ys: &[&[f64]]) {
+        // The stack grows from the zero baseline: pin it.
+        self.sticky_y.push(0.0);
         for (i, series) in ys.iter().enumerate() {
             assert!(
                 series.len() == x.len(),

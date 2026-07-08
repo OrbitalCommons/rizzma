@@ -46,6 +46,8 @@ impl Axes {
     // TODO: group the stems, markers, and baseline into a dedicated
     // `StemContainer` artist once one exists, rather than loose artists.
     pub fn stem(&mut self, x: &[f64], y: &[f64]) {
+        // Stems rise from the zero baseline: pin it.
+        self.sticky_y.push(0.0);
         let n = x.len().min(y.len());
         if n == 0 {
             return;
@@ -105,6 +107,8 @@ impl Axes {
     /// assert_eq!((limits.ymin(), limits.ymax()), (1.0, 3.0));
     /// ```
     pub fn stairs(&mut self, values: &[f64], edges: &[f64]) {
+        // A stairs outline sits on the zero baseline (matplotlib pins it too).
+        self.sticky_y.push(0.0);
         assert!(
             !values.is_empty(),
             "stairs requires at least one value (got {} values)",
