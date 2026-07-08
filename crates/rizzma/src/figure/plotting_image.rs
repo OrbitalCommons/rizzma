@@ -24,6 +24,12 @@ impl Axes {
     ///
     /// Panics if `data.len()` is not exactly `nrows * ncols`.
     pub fn imshow(&mut self, data: &[f64], nrows: usize, ncols: usize) -> &mut AxesImage {
+        // Images are flush with their extent (matplotlib pins image edges):
+        // pin the default extent so the margin never pads around the raster.
+        self.sticky_x.push(0.0);
+        self.sticky_x.push(ncols as f64);
+        self.sticky_y.push(0.0);
+        self.sticky_y.push(nrows as f64);
         let image = AxesImage::new(data.to_vec(), nrows, ncols);
         self.images.push(image);
         self.images.last_mut().expect("just pushed an image")
