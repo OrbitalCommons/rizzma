@@ -227,6 +227,11 @@ fn scaled_tick_position(value: f64, limits: (f64, f64), scale: ScaleSpec) -> f64
 pub struct Axes {
     /// The axes region in figure fractions (`[0, 1]^2`).
     position: Bbox,
+    /// When set, the frame rect is derived at layout time: this envelope
+    /// (figure fractions) minus the measured decoration extents minus a pad —
+    /// matplotlib's tight layout. `add_subplot` axes get one; `add_axes`
+    /// rects stay literal.
+    pub(crate) layout_envelope: Option<Bbox>,
     /// Sticky x values (matplotlib's sticky edges): autoscale margins never
     /// expand a limit *past* one of these. Bars pin their baseline, images
     /// their extents, lines their x data range.
@@ -396,6 +401,7 @@ impl Axes {
             position,
             xlim: None,
             ylim: None,
+            layout_envelope: None,
             sticky_x: Vec::new(),
             sticky_y: Vec::new(),
             margins: DEFAULT_MARGIN,
@@ -1308,30 +1314,25 @@ impl Axes {
     /// Both [`Axes::draw`] and the figure-level coordinate-inversion helpers
     /// call this so they cannot drift apart.
     #[must_use]
-    pub(crate) fn pixel_rect_and_trans_data(
-        &self,
-        fig_w_px: f64,
-        fig_h_px: f64,
-    ) -> (Bbox, Affine2D) {
-        self.pixel_rect_and_trans_data_with(fig_w_px, fig_h_px, None)
-    }
-
-    /// [`pixel_rect_and_trans_data`](Axes::pixel_rect_and_trans_data) with the
-    /// x-limits optionally replaced by `xlim_override` — how a twin axes
-    /// ([`Figure::twinx`](crate::figure::Figure::twinx)) shares its source's
-    /// x mapping while keeping its own y.
-    pub(crate) fn pixel_rect_and_trans_data_with(
+    /// The frame's pixel rectangle and data transform, with the x-limits
+    /// optionally replaced (a twin sharing its source's x mapping) and the
+    /// rectangle optionally replaced (the figure's tight-layout-resolved rect
+    /// for auto-layout axes).
+    pub(crate) fn pixel_rect_and_trans_data_in(
         &self,
         fig_w_px: f64,
         fig_h_px: f64,
         xlim_override: Option<(f64, f64)>,
+        rect_override: Option<Bbox>,
     ) -> (Bbox, Affine2D) {
-        let mut axes_px = Bbox::from_extents(
-            self.position.xmin() * fig_w_px,
-            self.position.ymin() * fig_h_px,
-            self.position.xmax() * fig_w_px,
-            self.position.ymax() * fig_h_px,
-        );
+        let mut axes_px = rect_override.unwrap_or_else(|| {
+            Bbox::from_extents(
+                self.position.xmin() * fig_w_px,
+                self.position.ymin() * fig_h_px,
+                self.position.xmax() * fig_w_px,
+                self.position.ymax() * fig_h_px,
+            )
+        });
         let (xlim, ylim) = self.limits_with_override(xlim_override);
         let mapper = self.data_to_scaled();
         let (scaled_xlim, scaled_ylim) = mapper.map_limits(xlim, ylim);
@@ -1340,6 +1341,63 @@ impl Axes {
         }
         let td = self.trans_data(&axes_px, scaled_xlim, scaled_ylim);
         (axes_px, td)
+    }
+
+    /// The per-side decoration insets `(left, right, bottom, top)` in pixels
+    /// at decoration scale `s`: how far the frame must sit inside its layout
+    /// envelope so ticks, labels, and the title fit (tight layout).
+    pub(crate) fn layout_insets(
+        &self,
+        font: &FontSource,
+        s: f64,
+        xlim_override: Option<(f64, f64)>,
+    ) -> (f64, f64, f64, f64) {
+        let (mut left, mut right, mut bottom, mut top) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        if self.axis_visible {
+            let (xlim, ylim) = self.limits_with_override(xlim_override);
+            if !self.xaxis_hidden {
+                bottom = self.xaxis.decoration_extent(xlim, font, s);
+            }
+            let y_extent = self.yaxis.decoration_extent(ylim, font, s);
+            // The y axis decorates whichever side it is drawn on; twins put
+            // it on the right.
+            if self.yaxis_is_right() {
+                right = y_extent;
+            } else {
+                left = y_extent;
+            }
+            top = self.secondary_extent(xlim, font, s);
+        }
+        if let Some(title) = &self.title
+            && !title.is_empty()
+        {
+            let rich = layout_rich_text(font, title, DEFAULT_TITLE_SIZE * s);
+            top += DEFAULT_TITLE_PAD * s + rich.ascent + rich.descent;
+        }
+        (left, right, bottom, top)
+    }
+
+    /// The measured decoration extent of the secondary top x axis (0 when
+    /// there is none) — shared by tight layout and title placement so the
+    /// title always clears the real decoration, not an estimate.
+    fn secondary_extent(&self, xlim: (f64, f64), font: &FontSource, s: f64) -> f64 {
+        let Some(sec) = &self.secondary_x else {
+            return 0.0;
+        };
+        let converted = (
+            sec.scale * xlim.0 + sec.offset,
+            sec.scale * xlim.1 + sec.offset,
+        );
+        let mut top_axis = Axis::new(AxisSide::Top);
+        if let Some(label) = &sec.label {
+            top_axis = top_axis.with_label(label.clone());
+        }
+        top_axis.decoration_extent(converted, font, s)
+    }
+
+    /// Whether the y axis is drawn on the right side (twin axes).
+    fn yaxis_is_right(&self) -> bool {
+        self.yaxis.side() == AxisSide::Right
     }
 
     /// The scale-limited effective `(xlim, ylim)` with the x-limits optionally
@@ -1368,7 +1426,7 @@ impl Axes {
         fig_h_px: f64,
         font: &FontSource,
     ) {
-        self.draw_with(renderer, fig_w_px, fig_h_px, font, None);
+        self.draw_with(renderer, fig_w_px, fig_h_px, font, None, None);
     }
 
     /// [`draw`](Axes::draw) with the x-limits optionally overridden — the
@@ -1380,10 +1438,12 @@ impl Axes {
         fig_h_px: f64,
         font: &FontSource,
         xlim_override: Option<(f64, f64)>,
+        rect_override: Option<Bbox>,
     ) {
         // 1. Resolve the pixel rectangle and the data transform via the shared
         // forward path (also used by `Figure`'s coordinate inversion).
-        let (axes_px, td) = self.pixel_rect_and_trans_data_with(fig_w_px, fig_h_px, xlim_override);
+        let (axes_px, td) =
+            self.pixel_rect_and_trans_data_in(fig_w_px, fig_h_px, xlim_override, rect_override);
         let (xlim, ylim) = self.limits_with_override(xlim_override);
         let mapper = self.data_to_scaled();
 
@@ -1519,13 +1579,10 @@ impl Axes {
             // previous single-string path did; the rich paths are in a
             // baseline-relative y-up frame.
             // A secondary top axis occupies the strip above the spine (ticks,
-            // tick labels, axis label); lift the title clear of it.
-            let secondary_clearance = if self.secondary_x.is_some() {
-                36.0
-            } else {
-                0.0
-            };
-            let y = axes_px.ymax() + DEFAULT_TITLE_PAD + secondary_clearance;
+            // tick labels, axis label); lift the title clear of its measured
+            // extent — the same number tight layout reserves.
+            let secondary_clearance = self.secondary_extent(xlim, font, s);
+            let y = axes_px.ymax() + DEFAULT_TITLE_PAD * s + secondary_clearance;
             let shift = Affine2D::from_translation(x, y);
             for path in &rich.paths {
                 renderer.draw_path(
@@ -1958,7 +2015,7 @@ mod tests {
 
         let (xlim, _) = axes.scale_limited_effective_limits();
         assert_eq!(xlim, (-100.0, 100.0));
-        let (axes_px, td) = axes.pixel_rect_and_trans_data(200.0, 100.0);
+        let (axes_px, td) = axes.pixel_rect_and_trans_data_in(200.0, 100.0, None, None);
         assert!(axes_px.width().is_finite());
         assert!(td.transform_point((0.0, 0.0)).0.is_finite());
     }
@@ -1972,7 +2029,7 @@ mod tests {
         let (xlim, _) = axes.scale_limited_effective_limits();
         assert!(xlim.0 > 0.0, "logit lower bound must be open: {xlim:?}");
         assert!(xlim.1 < 1.0, "logit upper bound must be open: {xlim:?}");
-        let (axes_px, td) = axes.pixel_rect_and_trans_data(200.0, 100.0);
+        let (axes_px, td) = axes.pixel_rect_and_trans_data_in(200.0, 100.0, None, None);
         assert!(axes_px.width().is_finite());
         assert!(
             td.transform_point((LogitScale::new().transform(xlim.0), 0.0))
@@ -1992,7 +2049,7 @@ mod tests {
 
         let (xlim, _) = axes.scale_limited_effective_limits();
         assert_eq!(xlim, (-100.0, 100.0));
-        let (axes_px, td) = axes.pixel_rect_and_trans_data(200.0, 100.0);
+        let (axes_px, td) = axes.pixel_rect_and_trans_data_in(200.0, 100.0, None, None);
         assert!(axes_px.width().is_finite());
         assert!(td.transform_point((0.0, 0.0)).0.is_finite());
     }
@@ -2127,7 +2184,7 @@ mod tests {
         let (xlim, _) = axes.scale_limited_effective_limits();
         assert!(xlim.0 > 0.0, "log lower bound must be positive: {xlim:?}");
         assert_eq!(xlim.1, 100.0);
-        let (axes_px, td) = axes.pixel_rect_and_trans_data(200.0, 100.0);
+        let (axes_px, td) = axes.pixel_rect_and_trans_data_in(200.0, 100.0, None, None);
         assert!(axes_px.width().is_finite());
         assert!(td.transform_point((xlim.0.log10(), 0.0)).0.is_finite());
     }
@@ -2136,7 +2193,7 @@ mod tests {
     fn pixel_rect_and_trans_data_linear_matches_direct_affine() {
         let mut axes = Axes::new(Bbox::from_extents(0.1, 0.2, 0.9, 0.8));
         axes.set_xlim(-1.0, 3.0).set_ylim(10.0, 20.0);
-        let (axes_px, td) = axes.pixel_rect_and_trans_data(500.0, 400.0);
+        let (axes_px, td) = axes.pixel_rect_and_trans_data_in(500.0, 400.0, None, None);
         let direct = axes.trans_data(&axes_px, (-1.0, 3.0), (10.0, 20.0));
 
         let points = [[-1.0, 10.0], [3.0, 20.0], [1.5, 13.0]];
@@ -2354,7 +2411,7 @@ mod tests {
         axes.set_xlim(-1.0, 1.0).set_ylim(-1.0, 1.0);
         let (fig_w, fig_h) = (400.0, 200.0);
 
-        let (_, td_default) = axes.pixel_rect_and_trans_data(fig_w, fig_h);
+        let (_, td_default) = axes.pixel_rect_and_trans_data_in(fig_w, fig_h, None, None);
         let sx =
             td_default.transform_point((1.0, 0.0)).0 - td_default.transform_point((0.0, 0.0)).0;
         let sy =
@@ -2365,7 +2422,7 @@ mod tests {
         );
 
         axes.set_aspect_equal();
-        let (_, td_equal) = axes.pixel_rect_and_trans_data(fig_w, fig_h);
+        let (_, td_equal) = axes.pixel_rect_and_trans_data_in(fig_w, fig_h, None, None);
         let ex = td_equal.transform_point((1.0, 0.0)).0 - td_equal.transform_point((0.0, 0.0)).0;
         let ey = td_equal.transform_point((0.0, 1.0)).1 - td_equal.transform_point((0.0, 0.0)).1;
         approx(ex, ey);
@@ -2376,7 +2433,7 @@ mod tests {
         // With no equal-aspect request the resolved rect spans the full
         // figure-fraction position exactly.
         let axes = Axes::new(Bbox::from_extents(0.1, 0.2, 0.9, 0.8));
-        let (rect, _) = axes.pixel_rect_and_trans_data(400.0, 200.0);
+        let (rect, _) = axes.pixel_rect_and_trans_data_in(400.0, 200.0, None, None);
         approx(rect.xmin(), 40.0);
         approx(rect.xmax(), 360.0);
         approx(rect.ymin(), 40.0);

@@ -129,8 +129,12 @@ impl Interactor {
     fn pixel_to_scaled(&self, axes: usize, px: f64, py: f64) -> Option<(f64, f64)> {
         let ax = self.fig.axes().get(axes)?;
         let (fig_w, fig_h) = self.fig.size_px();
-        let (_rect, td) =
-            ax.pixel_rect_and_trans_data_with(fig_w, fig_h, self.fig.xlim_override_for(axes));
+        let (_rect, td) = ax.pixel_rect_and_trans_data_in(
+            fig_w,
+            fig_h,
+            self.fig.xlim_override_for(axes),
+            self.fig.layout_rect_for(axes, fig_w, fig_h),
+        );
         let inv = td.inverted()?;
         Some(inv.transform_point((px, fig_h - py)))
     }
