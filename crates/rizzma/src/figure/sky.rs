@@ -268,11 +268,12 @@ impl SkyAxes {
         text: &str,
         anchor_x: f64,
         anchor_y: f64,
+        size: f64,
     ) {
-        let extent = font.measure(text, LABEL_SIZE);
+        let extent = font.measure(text, size);
         let x = anchor_x - 0.5 * extent.width;
         let y = anchor_y - 0.5 * (extent.ascent - extent.descent);
-        let path = font.text_to_path(text, LABEL_SIZE, [x, y]);
+        let path = font.text_to_path(text, size, [x, y]);
         renderer.draw_path(
             &GraphicsContext::new(),
             &path,
@@ -307,6 +308,8 @@ impl SkyAxes {
     /// Draw the sky boundary, graticule, labels, and data to `renderer`.
     pub fn draw(&self, renderer: &mut dyn Renderer, font: &FontSource) {
         let (width, height) = renderer.canvas_size();
+        // Labels and markers are px at the default 100 DPI, DPI-scaled.
+        let s = renderer.decoration_scale();
 
         // 1. Graticule parallels (skipping the poles, which are points or
         // lines of zero visual weight) and meridians (skipping ±180°, which
@@ -339,14 +342,28 @@ impl SkyAxes {
         while lat_deg < 90 {
             let lat = f64::from(lat_deg).to_radians();
             let (px, py) = self.to_pixel(-PI + 1e-9, lat, width, height);
-            Self::draw_label(renderer, font, &format!("{lat_deg}°"), px - 18.0, py);
+            Self::draw_label(
+                renderer,
+                font,
+                &format!("{lat_deg}°"),
+                px - 18.0 * s,
+                py,
+                LABEL_SIZE * s,
+            );
             lat_deg += PARALLEL_STEP_DEG;
         }
         let mut lon_deg = -180 + MERIDIAN_STEP_DEG;
         while lon_deg < 180 {
             if lon_deg != 0 {
                 let (px, py) = self.to_pixel(f64::from(lon_deg).to_radians(), 0.0, width, height);
-                Self::draw_label(renderer, font, &format!("{lon_deg}°"), px, py + 8.0);
+                Self::draw_label(
+                    renderer,
+                    font,
+                    &format!("{lon_deg}°"),
+                    px,
+                    py + 8.0 * s,
+                    LABEL_SIZE * s,
+                );
             }
             lon_deg += MERIDIAN_STEP_DEG;
         }
@@ -366,10 +383,9 @@ impl SkyAxes {
         for scatter in &self.scatters {
             for &(lon, lat) in &scatter.points {
                 let (px, py) = self.to_pixel(lon, lat, width, height);
-                let marker = Path::unit_circle().transformed(
-                    &Affine2D::from_scale(SCATTER_MARKER_RADIUS, SCATTER_MARKER_RADIUS)
-                        .translate(px, py),
-                );
+                let r = SCATTER_MARKER_RADIUS * s;
+                let marker =
+                    Path::unit_circle().transformed(&Affine2D::from_scale(r, r).translate(px, py));
                 renderer.draw_path(
                     &GraphicsContext::new(),
                     &marker,

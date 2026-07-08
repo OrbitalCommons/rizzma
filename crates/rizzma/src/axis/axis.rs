@@ -284,10 +284,13 @@ impl Axis {
             self.draw_grid(renderer, axes_bbox, &ticks, vmin, vmax);
         }
 
+        // Decoration geometry (ticks, label sizes, pads) is authored in px at
+        // the default 100 DPI and scales with the renderer's DPI.
+        let s = renderer.decoration_scale();
         self.draw_spine(renderer, axes_bbox, &stroke_gc);
-        self.draw_ticks(renderer, axes_bbox, &ticks, vmin, vmax, &stroke_gc);
-        self.draw_tick_labels(renderer, axes_bbox, &ticks, vmin, vmax, font);
-        self.draw_axis_label(renderer, axes_bbox, &ticks, font);
+        self.draw_ticks(renderer, axes_bbox, &ticks, (vmin, vmax), &stroke_gc, s);
+        self.draw_tick_labels(renderer, axes_bbox, &ticks, (vmin, vmax), font, s);
+        self.draw_axis_label(renderer, axes_bbox, &ticks, font, s);
     }
 
     /// Stroke the spine along the relevant edge.
@@ -337,11 +340,12 @@ impl Axis {
         renderer: &mut dyn Renderer,
         axes_bbox: &Bbox,
         ticks: &[f64],
-        vmin: f64,
-        vmax: f64,
+        lim: (f64, f64),
         gc: &GraphicsContext,
+        s: f64,
     ) {
-        let len = self.tick_length;
+        let (vmin, vmax) = lim;
+        let len = self.tick_length * s;
         for &t in ticks {
             let p = self.data_to_pixel(t, axes_bbox, vmin, vmax);
             let line = match self.side {
@@ -365,19 +369,20 @@ impl Axis {
         renderer: &mut dyn Renderer,
         axes_bbox: &Bbox,
         ticks: &[f64],
-        vmin: f64,
-        vmax: f64,
+        lim: (f64, f64),
         font: &FontSource,
+        s: f64,
     ) {
+        let (vmin, vmax) = lim;
         let gc = GraphicsContext::new();
         let labels = self.formatter.format_ticks(ticks);
         for (&t, text) in ticks.iter().zip(labels.iter()) {
             if text.is_empty() {
                 continue;
             }
-            let rich = layout_rich_text(font, text, self.tick_label_size);
+            let rich = layout_rich_text(font, text, self.tick_label_size * s);
             let p = self.data_to_pixel(t, axes_bbox, vmin, vmax);
-            let origin = self.tick_label_origin(axes_bbox, p, &rich);
+            let origin = self.tick_label_origin(axes_bbox, p, &rich, s);
             let shift = Affine2D::from_translation(origin[0], origin[1]);
             for path in &rich.paths {
                 renderer.draw_path(
@@ -392,39 +397,40 @@ impl Axis {
 
     /// Compute the baseline origin `(x, y)` for a tick label centered on the
     /// tick position `p` and offset out of the axes by `tick_label_pad`.
-    fn tick_label_origin(&self, axes_bbox: &Bbox, p: f64, rich: &RichText) -> [f64; 2] {
+    fn tick_label_origin(&self, axes_bbox: &Bbox, p: f64, rich: &RichText, s: f64) -> [f64; 2] {
+        let out = (self.tick_length + self.tick_label_pad) * s;
         match self.side {
             AxisSide::Bottom => {
                 let x = p - rich.width / 2.0;
-                let y = axes_bbox.ymin() - self.tick_length - self.tick_label_pad - rich.ascent;
+                let y = axes_bbox.ymin() - out - rich.ascent;
                 [x, y]
             }
             AxisSide::Top => {
                 let x = p - rich.width / 2.0;
-                let y = axes_bbox.ymax() + self.tick_length + self.tick_label_pad + rich.descent;
+                let y = axes_bbox.ymax() + out + rich.descent;
                 [x, y]
             }
             AxisSide::Left => {
                 // Left of the tick: right-align the text to the offset point.
-                let x = axes_bbox.xmin() - self.tick_length - self.tick_label_pad - rich.width;
+                let x = axes_bbox.xmin() - out - rich.width;
                 let y = p - (rich.ascent - rich.descent) / 2.0;
                 [x, y]
             }
             AxisSide::Right => {
-                let x = axes_bbox.xmax() + self.tick_length + self.tick_label_pad;
+                let x = axes_bbox.xmax() + out;
                 let y = p - (rich.ascent - rich.descent) / 2.0;
                 [x, y]
             }
         }
     }
 
-    fn tick_label_band_extent(&self, ticks: &[f64], font: &FontSource) -> f64 {
+    fn tick_label_band_extent(&self, ticks: &[f64], font: &FontSource, s: f64) -> f64 {
         self.formatter
             .format_ticks(ticks)
             .iter()
             .filter(|label| !label.is_empty())
             .map(|label| {
-                let rich = layout_rich_text(font, label, self.tick_label_size);
+                let rich = layout_rich_text(font, label, self.tick_label_size * s);
                 if self.side.is_horizontal() {
                     rich.ascent + rich.descent
                 } else {
@@ -442,6 +448,7 @@ impl Axis {
         axes_bbox: &Bbox,
         ticks: &[f64],
         font: &FontSource,
+        s: f64,
     ) {
         let Some(label) = &self.label else {
             return;
@@ -450,10 +457,10 @@ impl Axis {
             return;
         }
         let gc = GraphicsContext::new();
-        let rich = layout_rich_text(font, label, self.axis_label_size);
-        let tick_label_extent = self.tick_label_band_extent(ticks, font);
+        let rich = layout_rich_text(font, label, self.axis_label_size * s);
+        let tick_label_extent = self.tick_label_band_extent(ticks, font, s);
         let label_offset =
-            self.tick_length + self.tick_label_pad + tick_label_extent + self.axis_label_pad;
+            (self.tick_length + self.tick_label_pad + self.axis_label_pad) * s + tick_label_extent;
         let transform = match self.side {
             AxisSide::Bottom => {
                 let x = (axes_bbox.xmin() + axes_bbox.xmax()) / 2.0 - rich.width / 2.0;

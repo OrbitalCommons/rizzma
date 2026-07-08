@@ -193,6 +193,8 @@ impl Colorbar {
 
     /// Draw tick marks and labels mapping the gradient onto `[vmin, vmax]`.
     fn draw_ticks(&self, renderer: &mut dyn Renderer, bar: &Bbox, font: &FontSource) {
+        let s = renderer.decoration_scale();
+        let (tick_len, tick_gap, font_size) = (TICK_LEN * s, TICK_GAP * s, TICK_FONT_SIZE * s);
         let locator = AutoLocator::new();
         let ticks = locator.tick_values(self.vmin, self.vmax);
         let mut formatter = ScalarFormatter::new();
@@ -218,28 +220,28 @@ impl Colorbar {
                 // Tick mark below the bar, label centered under it.
                 let x = bar.xmin() + frac * bar.width();
                 let ty0 = bar.ymin();
-                let ty1 = bar.ymin() - TICK_LEN;
+                let ty1 = bar.ymin() - tick_len;
                 let mark = Path::from_polyline(&[[x, ty0], [x, ty1]]);
                 renderer.draw_path(&tick_gc, &mark, &id, None);
 
-                let width = font.measure(&label, TICK_FONT_SIZE).width;
+                let width = font.measure(&label, font_size).width;
                 let lx = x - width / 2.0;
-                let ly = ty1 - TICK_GAP - TICK_FONT_SIZE * 0.8;
-                let text = font.text_to_path(&label, TICK_FONT_SIZE, [lx, ly]);
+                let ly = ty1 - tick_gap - font_size * 0.8;
+                let text = font.text_to_path(&label, font_size, [lx, ly]);
                 renderer.draw_path(&GraphicsContext::new(), &text, &id, Some(Rgba::BLACK));
             } else {
                 let y = bar.ymin() + frac * bar.height();
 
                 // Tick mark on the right edge.
                 let tx0 = bar.xmax();
-                let tx1 = bar.xmax() + TICK_LEN;
+                let tx1 = bar.xmax() + tick_len;
                 let mark = Path::from_polyline(&[[tx0, y], [tx1, y]]);
                 renderer.draw_path(&tick_gc, &mark, &id, None);
 
                 // Label, vertically centered on the tick.
-                let lx = tx1 + TICK_GAP;
-                let ly = y - TICK_FONT_SIZE / 3.0;
-                let text = font.text_to_path(&label, TICK_FONT_SIZE, [lx, ly]);
+                let lx = tx1 + tick_gap;
+                let ly = y - font_size / 3.0;
+                let text = font.text_to_path(&label, font_size, [lx, ly]);
                 renderer.draw_path(&GraphicsContext::new(), &text, &id, Some(Rgba::BLACK));
             }
         }

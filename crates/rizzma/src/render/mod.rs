@@ -224,6 +224,19 @@ pub trait Renderer {
         points
     }
 
+    /// Scale factor for fixed-size decoration geometry — font sizes, pads,
+    /// tick lengths, marker radii, annotation arrows — whose constants are
+    /// authored in pixels **at the default 100 DPI**.
+    ///
+    /// Backends with a DPI return `dpi / 100`, so decorations grow
+    /// proportionally with the canvas on high-DPI renders instead of shrinking
+    /// relative to it (stroke widths already scale via
+    /// [`points_to_pixels`](Renderer::points_to_pixels)). The default is `1.0`
+    /// for DPI-less renderers.
+    fn decoration_scale(&self) -> f64 {
+        1.0
+    }
+
     /// The canvas size in device pixels as `(width, height)`.
     fn canvas_size(&self) -> (f64, f64);
 }

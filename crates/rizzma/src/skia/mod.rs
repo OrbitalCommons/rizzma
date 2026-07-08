@@ -298,6 +298,10 @@ impl Renderer for SkiaRenderer {
         points * self.dpi / 72.0
     }
 
+    fn decoration_scale(&self) -> f64 {
+        self.dpi / 100.0
+    }
+
     fn flipy(&self) -> bool {
         true
     }

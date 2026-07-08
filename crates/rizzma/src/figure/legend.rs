@@ -67,19 +67,27 @@ impl Axes {
             return;
         }
 
+        // Layout constants are px at the default 100 DPI; scale with the
+        // renderer so the key stays proportionate on high-DPI renders.
+        let s = renderer.decoration_scale();
+        let font_size = layout::FONT_SIZE * s;
+        let (sample_len, sample_gap) = (layout::SAMPLE_LEN * s, layout::SAMPLE_GAP * s);
+        let (row_height, margin, pad) =
+            (layout::ROW_HEIGHT * s, layout::MARGIN * s, layout::PAD * s);
+
         // Size the box from the longest label and the row count.
         let label_w = self
             .legend
             .iter()
-            .map(|e| font.measure(&e.label, layout::FONT_SIZE).width)
+            .map(|e| font.measure(&e.label, font_size).width)
             .fold(0.0_f64, f64::max);
-        let content_w = layout::SAMPLE_LEN + layout::SAMPLE_GAP + label_w;
-        let box_w = content_w + 2.0 * layout::PAD;
-        let box_h = self.legend.len() as f64 * layout::ROW_HEIGHT + 2.0 * layout::PAD;
+        let content_w = sample_len + sample_gap + label_w;
+        let box_w = content_w + 2.0 * pad;
+        let box_h = self.legend.len() as f64 * row_height + 2.0 * pad;
 
         // Position the box just inside the upper-right corner.
-        let x1 = axes_px.xmax() - layout::MARGIN;
-        let y1 = axes_px.ymax() - layout::MARGIN;
+        let x1 = axes_px.xmax() - margin;
+        let y1 = axes_px.ymax() - margin;
         let x0 = x1 - box_w;
         let y0 = y1 - box_h;
         let box_bbox = Bbox::from_extents(x0, y0, x1, y1);
@@ -96,12 +104,12 @@ impl Axes {
         // Rows are laid out top-to-bottom; the y-axis is y-up so the first row
         // sits at the largest y.
         for (i, entry) in self.legend.iter().enumerate() {
-            let row_top = y1 - layout::PAD - i as f64 * layout::ROW_HEIGHT;
-            let row_mid = row_top - layout::ROW_HEIGHT / 2.0;
+            let row_top = y1 - pad - i as f64 * row_height;
+            let row_mid = row_top - row_height / 2.0;
 
             // Colored line sample.
-            let sx0 = x0 + layout::PAD;
-            let sx1 = sx0 + layout::SAMPLE_LEN;
+            let sx0 = x0 + pad;
+            let sx1 = sx0 + sample_len;
             let sample = Path::from_polyline(&[[sx0, row_mid], [sx1, row_mid]]);
             let sample_gc = GraphicsContext::new()
                 .with_stroke(entry.color)
@@ -109,9 +117,9 @@ impl Axes {
             renderer.draw_path(&sample_gc, &sample, &id, None);
 
             // Label text, baseline centered on the row.
-            let tx = sx1 + layout::SAMPLE_GAP;
-            let ty = row_mid - layout::FONT_SIZE / 3.0;
-            let text = font.text_to_path(&entry.label, layout::FONT_SIZE, [tx, ty]);
+            let tx = sx1 + sample_gap;
+            let ty = row_mid - font_size / 3.0;
+            let text = font.text_to_path(&entry.label, font_size, [tx, ty]);
             renderer.draw_path(&GraphicsContext::new(), &text, &id, Some(Rgba::BLACK));
         }
     }

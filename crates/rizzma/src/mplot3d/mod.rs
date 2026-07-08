@@ -851,7 +851,9 @@ impl Axes3D {
                 }
                 DrawKind::Text { anchor, text } => {
                     if let Some(font) = &font {
-                        let path = font.text_to_path(&text, TEXT3D_SIZE, anchor);
+                        let s = renderer.decoration_scale();
+                        let anchor = [anchor[0] + 5.0 * s, anchor[1]];
+                        let path = font.text_to_path(&text, TEXT3D_SIZE * s, anchor);
                         renderer.draw_path(
                             &GraphicsContext::new(),
                             &path,

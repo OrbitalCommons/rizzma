@@ -351,6 +351,10 @@ impl Renderer for PdfRenderer {
         points * self.dpi / 72.0
     }
 
+    fn decoration_scale(&self) -> f64 {
+        self.dpi / 100.0
+    }
+
     /// PDF user space shares matplotlib's bottom-left, y-up origin, so no flip
     /// is applied.
     fn flipy(&self) -> bool {

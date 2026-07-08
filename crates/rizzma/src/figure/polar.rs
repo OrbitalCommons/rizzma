@@ -379,9 +379,12 @@ impl PolarAxes {
             Self::stroke_polyline(renderer, &pts, line.color, line.width);
         }
 
-        // 6. Scatter marker points, on top of curves.
+        // 6. Scatter marker points, on top of curves. Marker radius and label
+        // sizes are px at the default 100 DPI, DPI-scaled.
+        let s = renderer.decoration_scale();
         let marker = Path::unit_circle();
-        let marker_transform = Affine2D::from_scale(SCATTER_MARKER_RADIUS, SCATTER_MARKER_RADIUS);
+        let marker_r = SCATTER_MARKER_RADIUS * s;
+        let marker_transform = Affine2D::from_scale(marker_r, marker_r);
         for sc in &self.scatters {
             let offsets: Vec<[f64; 2]> = sc
                 .points
@@ -405,7 +408,7 @@ impl PolarAxes {
 
         // 7. Angular tick labels just outside the perimeter at each spoke.
         let label_r = radius * 1.08;
-        let label_size = 11.0;
+        let label_size = 11.0 * s;
         for k in 0..8 {
             let deg = 45 * k;
             let a = std::f64::consts::FRAC_PI_4 * k as f64;
@@ -415,7 +418,7 @@ impl PolarAxes {
         }
 
         // 8. Radial tick labels along the 0-degree (horizontal) spoke.
-        let radial_size = 9.0;
+        let radial_size = 9.0 * s;
         for &tick in &self.radial_ticks() {
             let frac = (tick / rmax).clamp(0.0, 1.0);
             let pr = frac * radius;
