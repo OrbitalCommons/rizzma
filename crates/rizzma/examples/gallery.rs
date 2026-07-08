@@ -995,5 +995,41 @@ fn main() {
         fig.save_png("target/gallery_twinx.png").unwrap();
     }
 
+    // 49. 3D quiver + text — a toy spacecraft scene: body-axes triad and a
+    // star-tracker boresight over a wireframe dish.
+    {
+        use rizzma::mplot3d::Axes3D;
+        let n = 10usize;
+        let gx: Vec<f64> = (0..n)
+            .map(|i| -1.0 + 2.0 * i as f64 / (n - 1) as f64)
+            .collect();
+        let gy = gx.clone();
+        let mut gz = Vec::with_capacity(n * n);
+        for &yv in &gy {
+            for &xv in &gx {
+                gz.push(0.35 * (xv * xv + yv * yv)); // a shallow parabolic dish
+            }
+        }
+        let mut ax = Axes3D::new();
+        ax.plot_wireframe(&gx, &gy, &gz);
+        // Body axes triad from the dish vertex.
+        ax.quiver3d(
+            &[0.0, 0.0, 0.0],
+            &[0.0, 0.0, 0.0],
+            &[0.0, 0.0, 0.0],
+            &[1.2, 0.0, 0.0],
+            &[0.0, 1.2, 0.0],
+            &[0.0, 0.0, 1.2],
+        );
+        // Star-tracker boresight, canted off the +z axis.
+        ax.quiver3d(&[0.0], &[0.0], &[0.6], &[0.7], &[-0.5], &[0.9]);
+        ax.text3d(1.25, 0.0, 0.0, "+X");
+        ax.text3d(0.0, 1.25, 0.0, "+Y");
+        ax.text3d(0.0, 0.0, 1.3, "+Z");
+        ax.text3d(0.75, -0.55, 1.55, "boresight");
+        ax.save_png("target/gallery_quiver3d.png", 500, 420, 100.0)
+            .unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
