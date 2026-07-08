@@ -145,6 +145,22 @@ struct Bar3D {
 /// An orthographic 3D axes that projects collected `(x, y, z)` data to 2D.
 ///
 /// Data is accumulated in raw coordinates; the data bounds and the `(elev,
+/// A set of 3D arrows added with [`Axes3D::quiver3d`].
+#[derive(Debug, Clone)]
+struct Quiver3D {
+    /// `(base, tip)` endpoints in data space.
+    segments: Vec<([f64; 3], [f64; 3])>,
+    color: Rgba,
+}
+
+/// A billboard text label added with [`Axes3D::text3d`].
+#[derive(Debug, Clone)]
+struct Text3D {
+    /// Anchor position in data space.
+    pos: [f64; 3],
+    text: String,
+}
+
 /// azim)` view are resolved at draw time. Construct with [`Axes3D::new`], orient
 /// with [`Axes3D::with_view`], add geometry with [`Axes3D::plot3d`] /
 /// [`Axes3D::scatter3d`], then rasterize with [`Axes3D::render_png`] or
@@ -161,6 +177,8 @@ pub struct Axes3D {
     surfaces: Vec<Surface3D>,
     wireframes: Vec<Wireframe3D>,
     bars: Vec<Bar3D>,
+    quivers: Vec<Quiver3D>,
+    texts: Vec<Text3D>,
     /// Color cycle index for the next auto-colored artist.
     cycle: usize,
 }
@@ -190,6 +208,9 @@ const BAR_SIDE_SHADE: f64 = 0.72;
 /// Fractional pixel margin reserved around the projected cube on every side.
 const MARGIN_FRAC: f64 = 0.12;
 
+/// Font size of [`Axes3D::text3d`] billboard labels, in pixels.
+const TEXT3D_SIZE: f64 = 10.0;
+
 impl Axes3D {
     /// Create an empty axes with the default view (`elev = 30°`, `azim = -60°`).
     #[must_use]
@@ -205,6 +226,8 @@ impl Axes3D {
             surfaces: Vec::new(),
             wireframes: Vec::new(),
             bars: Vec::new(),
+            quivers: Vec::new(),
+            texts: Vec::new(),
             cycle: 0,
         }
     }
@@ -270,6 +293,89 @@ impl Axes3D {
             points,
             color,
             size: 5.0,
+        });
+        self
+    }
+
+    /// Add 3D arrows from each `(x, y, z)` base along its `(u, v, w)` vector
+    /// (matplotlib's 3D `quiver`). Boresight/axis plots pass unit vectors
+    /// scaled to the length they want.
+    ///
+    /// Each arrow is a projected shaft plus a filled head sized from the
+    /// arrow's on-screen length, and joins the painter's-algorithm depth sort
+    /// by its midpoint depth. Only the common prefix length of the six slices
+    /// is used; the data bounds expand over both bases and tips. All arrows
+    /// of one call share the next cycle color.
+    ///
+    /// ![quiver3d](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_quiver3d.png)
+    ///
+    /// ```
+    /// use rizzma::mplot3d::Axes3D;
+    ///
+    /// let mut ax = Axes3D::new();
+    /// // A body-axes triad at the origin.
+    /// ax.quiver3d(
+    ///     &[0.0, 0.0, 0.0],
+    ///     &[0.0, 0.0, 0.0],
+    ///     &[0.0, 0.0, 0.0],
+    ///     &[1.0, 0.0, 0.0],
+    ///     &[0.0, 1.0, 0.0],
+    ///     &[0.0, 0.0, 1.0],
+    /// );
+    /// let r = ax.render_png(300, 300, 100.0);
+    /// assert_eq!(r.pixmap().width(), 300);
+    /// ```
+    pub fn quiver3d(
+        &mut self,
+        x: &[f64],
+        y: &[f64],
+        z: &[f64],
+        u: &[f64],
+        v: &[f64],
+        w: &[f64],
+    ) -> &mut Self {
+        let n = [x.len(), y.len(), z.len(), u.len(), v.len(), w.len()]
+            .into_iter()
+            .min()
+            .unwrap_or(0);
+        let mut segments = Vec::with_capacity(n);
+        let (mut tx, mut ty, mut tz) = (
+            Vec::with_capacity(n),
+            Vec::with_capacity(n),
+            Vec::with_capacity(n),
+        );
+        for i in 0..n {
+            let tip = [x[i] + u[i], y[i] + v[i], z[i] + w[i]];
+            segments.push(([x[i], y[i], z[i]], tip));
+            tx.push(tip[0]);
+            ty.push(tip[1]);
+            tz.push(tip[2]);
+        }
+        self.expand_bounds(&x[..n], &y[..n], &z[..n]);
+        self.expand_bounds(&tx, &ty, &tz);
+        let color = self.next_color();
+        self.quivers.push(Quiver3D { segments, color });
+        self
+    }
+
+    /// Add a billboard text label anchored at the data point `(x, y, z)`.
+    ///
+    /// The text is laid out flat in screen space at the projected anchor (no
+    /// perspective warping) and depth-sorts with the rest of the scene by the
+    /// anchor's depth. The label does not expand the data bounds.
+    ///
+    /// ```
+    /// use rizzma::mplot3d::Axes3D;
+    ///
+    /// let mut ax = Axes3D::new();
+    /// ax.scatter3d(&[0.0, 1.0], &[0.0, 1.0], &[0.0, 1.0]);
+    /// ax.text3d(1.0, 1.0, 1.0, "target");
+    /// assert_eq!(ax.render_png(200, 200, 100.0).pixmap().width(), 200);
+    /// ```
+    pub fn text3d(&mut self, x: f64, y: f64, z: f64, s: impl Into<String>) -> &mut Self {
+        self.texts.push(Text3D {
+            pos: [x, y, z],
+            text: s.into(),
         });
         self
     }
@@ -531,6 +637,51 @@ impl Axes3D {
             });
         }
 
+        for quiver in &self.quivers {
+            for &(base, tip) in &quiver.segments {
+                let (bx, by, bd) = self.project(base[0], base[1], base[2], width, height);
+                let (tx, ty, td) = self.project(tip[0], tip[1], tip[2], width, height);
+                let (dx, dy) = (tx - bx, ty - by);
+                let len = dx.hypot(dy);
+                if len < 1e-9 {
+                    continue;
+                }
+                let (ux, uy) = (dx / len, dy / len);
+                // Head sized from the on-screen arrow length, clamped so short
+                // arrows stay readable and long ones aren't all head.
+                let head_len = (0.25 * len).clamp(4.0, 12.0).min(len);
+                let half_w = 0.45 * head_len;
+                let head_base = [tx - ux * head_len, ty - uy * head_len];
+                let (px, py) = (-uy, ux);
+                items.push(Drawable {
+                    depth: 0.5 * (bd + td),
+                    kind: DrawKind::Arrow {
+                        shaft: [[bx, by], head_base],
+                        head: [
+                            [tx, ty],
+                            [head_base[0] + px * half_w, head_base[1] + py * half_w],
+                            [head_base[0] - px * half_w, head_base[1] - py * half_w],
+                        ],
+                        color: quiver.color,
+                    },
+                });
+            }
+        }
+
+        for label in &self.texts {
+            let (px, py, depth) =
+                self.project(label.pos[0], label.pos[1], label.pos[2], width, height);
+            items.push(Drawable {
+                depth,
+                kind: DrawKind::Text {
+                    // Nudge right of the anchor so the glyphs clear any marker
+                    // sitting at the same point.
+                    anchor: [px + 5.0, py],
+                    text: label.text.clone(),
+                },
+            });
+        }
+
         for surface in &self.surfaces {
             for quad in &surface.quads {
                 let mut projected = [[0.0; 2]; 4];
@@ -639,6 +790,8 @@ impl Axes3D {
     pub fn draw(&self, renderer: &mut dyn Renderer) {
         let (width, height) = renderer.canvas_size();
         let dpi = renderer.points_to_pixels(72.0) / 72.0;
+        // Glyph source for billboard labels, built only when labels exist.
+        let font = (!self.texts.is_empty()).then(crate::text::FontSource::dejavu_sans);
         for item in self.collect_drawables(width, height) {
             match item.kind {
                 DrawKind::Line {
@@ -677,6 +830,35 @@ impl Axes3D {
                         .with_stroke(color)
                         .with_line_width(1.0);
                     renderer.draw_path(&gc, &marker, &Affine2D::identity(), Some(color));
+                }
+                DrawKind::Arrow { shaft, head, color } => {
+                    let gc = GraphicsContext::new()
+                        .with_stroke(color)
+                        .with_line_width(1.5);
+                    renderer.draw_path(
+                        &gc,
+                        &Path::from_polyline(&shaft),
+                        &Affine2D::identity(),
+                        None,
+                    );
+                    let head_path = Path::from_polyline(&[head[0], head[1], head[2], head[0]]);
+                    renderer.draw_path(
+                        &GraphicsContext::new(),
+                        &head_path,
+                        &Affine2D::identity(),
+                        Some(color),
+                    );
+                }
+                DrawKind::Text { anchor, text } => {
+                    if let Some(font) = &font {
+                        let path = font.text_to_path(&text, TEXT3D_SIZE, anchor);
+                        renderer.draw_path(
+                            &GraphicsContext::new(),
+                            &path,
+                            &Affine2D::identity(),
+                            Some(Rgba::BLACK),
+                        );
+                    }
                 }
             }
         }
@@ -744,6 +926,18 @@ enum DrawKind {
         center: [f64; 2],
         color: Rgba,
         size: f64,
+    },
+    Arrow {
+        /// Shaft from tail to the head's base, in pixel space.
+        shaft: [[f64; 2]; 2],
+        /// Filled head triangle `(tip, base_left, base_right)`.
+        head: [[f64; 2]; 3],
+        color: Rgba,
+    },
+    Text {
+        /// Baseline-left anchor in pixel space.
+        anchor: [f64; 2],
+        text: String,
     },
 }
 
@@ -1193,5 +1387,77 @@ mod tests {
         );
         let r = ax.render_png(128, 128, 72.0);
         assert_eq!(r.pixmap().width(), 128);
+    }
+
+    /// Count non-white pixels in the whole pixmap.
+    fn ink(r: &crate::skia::SkiaRenderer) -> usize {
+        r.pixmap()
+            .pixels()
+            .iter()
+            .filter(|p| {
+                let d = p.demultiply();
+                (d.red(), d.green(), d.blue()) != (255, 255, 255)
+            })
+            .count()
+    }
+
+    #[test]
+    fn quiver3d_expands_bounds_over_tips_and_draws_ink() {
+        let mut ax = Axes3D::new();
+        ax.quiver3d(&[0.0], &[0.0], &[0.0], &[2.0], &[3.0], &[4.0]);
+        // Bounds cover base and tip.
+        assert_eq!((ax.xr.min, ax.xr.max), (0.0, 2.0));
+        assert_eq!((ax.yr.min, ax.yr.max), (0.0, 3.0));
+        assert_eq!((ax.zr.min, ax.zr.max), (0.0, 4.0));
+
+        let mut bare = Axes3D::new();
+        bare.scatter3d(&[0.0, 2.0], &[0.0, 3.0], &[0.0, 4.0]);
+        let baseline = ink(&bare.render_png(160, 160, 72.0));
+        bare.quiver3d(&[0.0], &[0.0], &[0.0], &[2.0], &[3.0], &[4.0]);
+        let with_arrow = ink(&bare.render_png(160, 160, 72.0));
+        assert!(
+            with_arrow > baseline + 20,
+            "arrow must add shaft/head ink: {with_arrow} vs {baseline}"
+        );
+    }
+
+    #[test]
+    fn quiver3d_skips_zero_length_vectors() {
+        let mut ax = Axes3D::new();
+        ax.scatter3d(&[0.0, 1.0], &[0.0, 1.0], &[0.0, 1.0]);
+        let before = ink(&ax.render_png(140, 140, 72.0));
+        ax.quiver3d(&[0.5], &[0.5], &[0.5], &[0.0], &[0.0], &[0.0]);
+        let after = ink(&ax.render_png(140, 140, 72.0));
+        assert_eq!(before, after, "a zero vector must draw nothing");
+    }
+
+    #[test]
+    fn text3d_draws_glyphs_near_the_projected_anchor() {
+        let mut ax = Axes3D::new();
+        ax.scatter3d(&[0.0, 1.0], &[0.0, 1.0], &[0.0, 1.0]);
+        let before = ink(&ax.render_png(200, 200, 72.0));
+        ax.text3d(1.0, 1.0, 1.0, "target");
+        let r = ax.render_png(200, 200, 72.0);
+        assert!(ink(&r) > before + 30, "label must add glyph ink");
+
+        // Ink appears near the projected anchor (y-up -> top-down flip).
+        let (px, py, _) = ax.project(1.0, 1.0, 1.0, 200.0, 200.0);
+        let (cx, cy) = (px as i64 + 5, 200 - py as i64);
+        let mut near = 0;
+        for dy in -12..12 {
+            for dx in 0..45 {
+                let (x, y) = (cx + dx, cy + dy);
+                if (0..200).contains(&x)
+                    && (0..200).contains(&y)
+                    && r.pixmap().pixel(x as u32, y as u32).is_some_and(|p| {
+                        let d = p.demultiply();
+                        (d.red(), d.green(), d.blue()) != (255, 255, 255)
+                    })
+                {
+                    near += 1;
+                }
+            }
+        }
+        assert!(near > 10, "expected glyph ink near the anchor, got {near}");
     }
 }
