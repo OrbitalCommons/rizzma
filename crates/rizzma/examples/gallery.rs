@@ -69,7 +69,7 @@ fn main() {
             .iter()
             .map(|t| (3.0 * t).sin() + (3.35 * t).sin())
             .collect();
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.plot(&x, &y);
         ax.set_title("beats: two guitar strings, 5% out of tune");
         ax.set_xlabel("time (s)");
@@ -95,7 +95,7 @@ fn main() {
                 t.push(a);
             }
         }
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.scatter_mapped(&x, &y, &t, "viridis");
         ax.set_title("a tidy little galaxy (color = arm distance)");
         fig.save_png("target/gallery_scatter.png").unwrap();
@@ -114,7 +114,7 @@ fn main() {
                 1.0 + day + evening + two_am
             })
             .collect();
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.bar(&x, &h);
         ax.set_title("commits by hour of day (note the 2am spike)");
         ax.set_xlabel("hour");
@@ -127,7 +127,7 @@ fn main() {
         let mut fig = gallery_figure(5.0, 3.5);
         let y = [0.0, 1.0, 2.0, 3.0];
         let w = [2.0, 5.0, 9.0, 14.0];
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.barh(&y, &w);
         ax.set_title("coffee per release candidate (rows are rc1…rc4)");
         ax.set_xlabel("cups");
@@ -148,7 +148,7 @@ fn main() {
             // …and a haunted few take most of an hour.
             data.push(35.0 + next() * 20.0);
         }
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.hist(&data, 28);
         ax.set_title("minutes to find the missing semicolon");
         ax.set_xlabel("minutes");
@@ -171,7 +171,7 @@ fn main() {
             .zip(&x)
             .map(|(&l, &m)| l + 6.0 + 2.5 * ((m / 12.0) * TAU).sin().abs() + (wob() - 0.5) * 1.6)
             .collect();
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.fill_between(&x, &lo, &hi);
         ax.plot(&x, &lo);
         ax.plot(&x, &hi);
@@ -188,7 +188,7 @@ fn main() {
         let y = [
             21.0, 24.0, 20.0, 24.5, 19.5, 25.0, 19.0, 25.5, 18.5, 26.0, 22.0, 22.0,
         ];
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.step(&x, &y);
         ax.set_title("the thermostat wars (each step is a passive-aggressive adjustment)");
         ax.set_xlabel("hour");
@@ -206,7 +206,7 @@ fn main() {
             .map(|&cups| 9.81 + (jit() - 0.5) * 0.05 * (1.0 + cups * 0.6))
             .collect();
         let yerr: Vec<f64> = x.iter().map(|&cups| 0.05 + 0.05 * cups).collect();
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.axhline(9.81);
         ax.errorbar(&x, &y, &yerr);
         ax.set_title("measuring g vs. coffee intake");
@@ -218,7 +218,7 @@ fn main() {
     // 9. reference lines & spans — an operating envelope, and you.
     {
         let mut fig = gallery_figure(5.0, 3.5);
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.set_xlim(0.0, 10.0);
         ax.set_ylim(0.0, 10.0);
         ax.axhspan(0.0, 1.5); // too-cold band
@@ -248,7 +248,7 @@ fn main() {
                 data[r * nc + col] = (r1 * 1.8).sin() + (r2 * 1.8).sin();
             }
         }
-        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        let ax = fig.add_subplot(1, 1, 1);
         // Signed field -> zero-centered diverging map.
         ax.imshow(&data, nr, nc)
             .cmap("coolwarm")
@@ -294,7 +294,7 @@ fn main() {
             .iter()
             .map(|t| (2.0 * t).sin() * (-0.25 * t).exp())
             .collect();
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.stem(&x, &y);
         ax.set_title("struck bell, sampled: impulse response");
         ax.set_xlabel("t (s)");
@@ -309,7 +309,7 @@ fn main() {
             12.0, 14.0, 15.0, 22.0, 48.0, 74.0, 60.0, 28.0, 16.0, 13.0, 12.0, 11.0,
         ];
         let edges: Vec<f64> = (0..=12).map(|k| k as f64 * 0.5).collect();
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.stairs(&values, &edges);
         ax.set_title("commute elevation: the hill I die on");
         ax.set_xlabel("km");
@@ -330,7 +330,7 @@ fn main() {
                 cdata[r * nc + col] = (3.0 * xx).sin() * (2.0 * yy).sin();
             }
         }
-        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.pcolormesh(&cdata, nr, nc);
         ax.set_title("drumhead standing wave, mode (3, 2)");
         fig.save_png("target/gallery_pcolormesh.png").unwrap();
@@ -346,7 +346,7 @@ fn main() {
             .map(|d| 1.2 + 0.30 * d + 0.3 * (d * 2.0).sin())
             .collect();
         let slack: Vec<f64> = x.iter().map(|d| 1.0 + 0.12 * d).collect();
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.stackplot(&x, &[&deep_work, &meetings, &slack]);
         ax.legend(vec![
             (c(0), "deep work".into()),
@@ -362,7 +362,7 @@ fn main() {
     // 16. broken_barh — a CI timeline with one suspicious gap.
     {
         let mut fig = gallery_figure(5.0, 3.5);
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         // Lane 1: build stages back-to-back.
         ax.broken_barh(&[(0.0, 3.0), (3.2, 2.0), (5.4, 1.4)], (10.0, 4.0));
         // Lane 2: tests, with a gap where the flaky one got retried.
@@ -379,7 +379,7 @@ fn main() {
         let normal = [1.0, 3.0, 5.0, 7.0, 9.0, 11.0];
         let backlogged = [2.0, 2.5, 3.0, 3.5, 4.0, 9.0];
         let cursed = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 40.0];
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.boxplot(&[&well_run, &normal, &backlogged, &cursed]);
         ax.set_title("hours to first PR review — one is still waiting");
         ax.set_ylabel("hours");
@@ -394,7 +394,7 @@ fn main() {
             .iter()
             .map(|&v| if v.abs() < 1e-12 { 1.0 } else { v.sin() / v })
             .collect();
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.plot(&x, &y);
         ax.set_title("$y = \\frac{\\sin(x)}{x}$");
         fig.save_png("target/gallery_mathtext.png").unwrap();
@@ -415,7 +415,7 @@ fn main() {
                 z[r * nc + col] = peak_a + peak_b + bowl;
             }
         }
-        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.contour(&z, nr, nc);
         ax.set_title("two peaks and the saddle between them");
         fig.save_png("target/gallery_contour.png").unwrap();
@@ -428,7 +428,7 @@ fn main() {
         let hihat: Vec<f64> = (0..16).map(|i| i as f64 * 0.25).collect();
         let snare = vec![1.0, 3.0];
         let kick = vec![0.0, 0.75, 2.5, 3.25, 3.75];
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.eventplot(&[&kick, &snare, &hihat]);
         ax.set_title("one bar of drum & bass (kick / snare / hi-hat)");
         ax.set_xlabel("beat");
@@ -449,7 +449,7 @@ fn main() {
             .collect();
         let left: Vec<f64> = center.iter().zip(&width).map(|(&m, &w)| m - w).collect();
         let right: Vec<f64> = center.iter().zip(&width).map(|(&m, &w)| m + w).collect();
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.fill_betweenx(&y, &left, &right);
         ax.set_title("a lazy river, widening downstream");
         ax.set_xlabel("east (km)");
@@ -466,7 +466,7 @@ fn main() {
             0.5, 1.0, 1.0, 2.0, 3.0, 7.0, 7.0, 8.0, 14.0, 14.0, 15.0, 30.0, 31.0, 45.0, 60.0, 90.0,
             90.0, 180.0, 365.0, 730.0,
         ];
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.ecdf(&data);
         ax.set_title("lifetime of a TODO(urgent) comment");
         ax.set_xlabel("days until fixed");
@@ -507,7 +507,7 @@ fn main() {
                 }
             }
         }
-        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.spy(&data, nr, nc);
         ax.set_title("review matrix: row 3 is the maintainer");
         fig.save_png("target/gallery_spy.png").unwrap();
@@ -526,7 +526,7 @@ fn main() {
             x.push(a);
             y.push(0.6 * a + (gy * 2.0 - 1.0));
         }
-        let ax = fig.add_axes(0.14, 0.14, 0.78, 0.76);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.hist2d(&x, &y, 30);
         ax.set_title("espresso vs. typing speed (r ≈ 0.6, causation implied)");
         ax.set_xlabel("espresso (z-score)");
@@ -537,7 +537,7 @@ fn main() {
     // 26. pie — the classic.
     {
         let mut fig = gallery_figure(4.0, 4.0);
-        let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.pie(&[75.0, 25.0]);
         ax.set_title("fraction of this chart that resembles Pac-Man");
         fig.save_png("target/gallery_pie.png").unwrap();
@@ -564,7 +564,7 @@ fn main() {
                 3.0 + 6.0 * t * t
             })
             .collect();
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.violinplot(&[&tight, &wide, &bimodal, &skewed], None);
         ax.set_title("field guide: tight, wide, bimodal, skewed");
         fig.save_png("target/gallery_violinplot.png").unwrap();
@@ -589,7 +589,7 @@ fn main() {
             x.push(gx * 3.0 + 1.0);
             y.push(gy * 3.0 + 1.0);
         }
-        let ax = fig.add_axes(0.14, 0.14, 0.78, 0.76);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.hexbin(&x, &y, 30);
         ax.set_title("lunchtime GPS pings: taco truck vs. noodle bar");
         ax.set_xlabel("blocks east");
@@ -603,7 +603,7 @@ fn main() {
         let estimated = [8.0, 8.0, 8.0, 8.0]; // estimates are remarkably stable
         let actual = [11.0, 9.5, 13.0, 10.5];
         let shipped = [5.0, 6.5, 4.0, 7.0];
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.grouped_bar(&[&estimated, &actual, &shipped]);
         ax.legend(vec![
             (c(0), "estimated".into()),
@@ -620,7 +620,7 @@ fn main() {
         let mut fig = gallery_figure(5.0, 3.5);
         let x = linspace(1.0, 1000.0, 240);
         let y: Vec<f64> = x.iter().map(|r| 1.0e6 / r).collect();
-        let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.loglog(&x, &y);
         ax.set_xlim(1.0, 1000.0);
         ax.set_ylim(1.0e3, 1.0e6);
@@ -643,7 +643,7 @@ fn main() {
                 v.push(gx - 0.35 * gy);
             }
         }
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.quiver(&x, &y, &u, &v);
         ax.set_title("wind around a low-pressure system");
         fig.save_png("target/gallery_quiver.png").unwrap();
@@ -663,7 +663,7 @@ fn main() {
                 v[j * nx + i] = coords[i] - 0.25 * coords[j];
             }
         }
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.streamplot(&coords, &coords, &u, &v);
         ax.set_title("streamlines spiraling into the drain");
         fig.save_png("target/gallery_streamplot.png").unwrap();
@@ -706,7 +706,7 @@ fn main() {
     // 33. triplot (wireframe of the jittered triangulated grid)
     {
         let mut fig = gallery_figure(5.0, 3.5);
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.triplot(&vx, &vy, &triangles);
         ax.set_title("finite-element mesh (budget edition)");
         fig.save_png("target/gallery_triplot.png").unwrap();
@@ -720,7 +720,7 @@ fn main() {
             .zip(&vy)
             .map(|(&x, &y)| (-8.0 * ((x - 0.35).powi(2) + (y - 0.6).powi(2))).exp())
             .collect();
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.tripcolor(&vx, &vy, &triangles, &values);
         ax.set_title("heat spreading from a soldering iron");
         fig.save_png("target/gallery_tripcolor.png").unwrap();
@@ -731,7 +731,7 @@ fn main() {
         let mut fig = gallery_figure(5.0, 3.5);
         let x = linspace(-100.0, 100.0, 161);
         let y: Vec<f64> = x.iter().map(|v| v * v * v).collect();
-        let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.plot(&x, &y);
         ax.set_xscale_symlog(10.0, 1.0)
             .set_yscale_symlog(10.0, 1.0)
@@ -748,7 +748,7 @@ fn main() {
         let mut fig = gallery_figure(5.0, 3.5);
         let x = linspace(-7.0, 7.0, 161);
         let y: Vec<f64> = x.iter().map(|v| 1.0 / (1.0 + (-v).exp())).collect();
-        let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.logity(&x, &y);
         ax.set_xlim(-7.0, 7.0).set_ylim(0.001, 0.999);
         ax.set_title("P(demo works) vs. days of rehearsal");
@@ -762,7 +762,7 @@ fn main() {
         let mut fig = gallery_figure(5.0, 3.5);
         let x = linspace(-100.0, 100.0, 201);
         let y: Vec<f64> = x.iter().map(|v| v * v * v).collect();
-        let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.plot(&x, &y);
         ax.set_yscale_asinh(1.0)
             .set_xlim(-100.0, 100.0)
@@ -785,7 +785,7 @@ fn main() {
             date_num(2026, 6, 1),
         ];
         let y = [2.1, 2.4, 3.2, 4.4, 5.6, 2.0];
-        let ax = fig.add_axes(0.17, 0.20, 0.76, 0.68);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.plot(&x, &y);
         ax.set_xaxis_date();
         ax.set_xlim(date_num(2026, 1, 1), date_num(2026, 6, 1));
@@ -859,7 +859,7 @@ fn main() {
                 z[r * nc + col] = volcano + atoll + islet - 0.18;
             }
         }
-        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.contourf(&z, nr, nc);
         ax.set_title("island chain, filled by elevation");
         fig.save_png("target/gallery_contourf.png").unwrap();
@@ -882,7 +882,7 @@ fn main() {
                     star(30.0, 28.0, 1.0, 4.0) + star(58.0, 44.0, 0.35, 3.0) + 0.02;
             }
         }
-        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.imshow(&data, nr, nc);
         // The image displays row 0 at the bottom, so overlay y = nr - row.
         let (bright, faint) = ((30.0, 60.0 - 28.0), (58.0, 60.0 - 44.0));
@@ -919,7 +919,7 @@ fn main() {
             .iter()
             .map(|&f| 1.0 / ((f * f - 25.0).powi(2) + 4.0 * f * f).sqrt() * 10.0)
             .collect();
-        let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.plot(&x, &y);
         ax.set_xlim(0.0, 10.0);
         ax.set_ylim(0.0, 1.2);
@@ -944,7 +944,7 @@ fn main() {
                 (-6.0 * ((x - 0.62).powi(2) + (y - 0.4).powi(2))).exp() + 0.35 * (x + y)
             })
             .collect();
-        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.tricontourf(&vx, &vy, &triangles, &values);
         ax.tricontour(&vx, &vy, &triangles, &values);
         ax.set_title("tricontour(f): field-map bands over a scattered mesh");
@@ -966,7 +966,7 @@ fn main() {
                 z[r * nc + col] = chirp + tone;
             }
         }
-        let ax = fig.add_axes(0.13, 0.13, 0.80, 0.78);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.pcolormesh_gouraud(&z, nr, nc);
         ax.set_title("gouraud pcolormesh: chirp spectrogram, no blocky cells");
         ax.set_xlabel("time");
@@ -1019,7 +1019,7 @@ fn main() {
             .iter()
             .map(|&m| 40.0 * (m * 0.6).cos() + 6.0 * (m * 2.1).sin())
             .collect();
-        let ax = fig.add_axes(0.13, 0.14, 0.72, 0.56);
+        let ax = fig.add_subplot(1, 1, 1);
         ax.plot(&t, &position);
         ax.set_xlabel("time (min)");
         ax.set_ylabel("position (mm)");

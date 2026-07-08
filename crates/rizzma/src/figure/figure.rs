@@ -23,6 +23,11 @@ use crate::figure::gridspec::GridSpec;
 /// The default dots-per-inch for a new [`Figure`].
 const DEFAULT_DPI: f64 = 100.0;
 
+/// Tight-layout pad between the figure/cell edge and the outermost
+/// decoration, in pixels at the default 100 DPI (≈ matplotlib's
+/// `tight_layout(pad=1.08)` at its default font size).
+const LAYOUT_PAD: f64 = 10.0;
+
 /// A figure: a sized canvas holding one or more [`Axes`].
 ///
 /// Construct with [`Figure::new`], add axes with [`Figure::add_axes`] or
@@ -118,7 +123,14 @@ impl Figure {
         let col = (index - 1) % ncols;
         let gs = GridSpec::new(nrows, ncols);
         let position = gs.subplot(row, col).get_position(&gs);
-        self.axes.push(Axes::new(position));
+        let mut ax = Axes::new(position);
+        // Subplot-managed axes get tight layout: the margin-less grid cell is
+        // the outer envelope and the frame rect is derived from decoration
+        // extents at draw time (matplotlib's tight layout). Explicit
+        // `add_axes` rects stay literal.
+        let envelope_gs = GridSpec::new(nrows, ncols).with_margins(0.0, 1.0, 0.0, 1.0);
+        ax.layout_envelope = Some(envelope_gs.subplot(row, col).get_position(&envelope_gs));
+        self.axes.push(ax);
         self.axes.last_mut().expect("just pushed axes")
     }
 
@@ -156,6 +168,7 @@ impl Figure {
     pub fn twinx(&mut self, source: usize) -> usize {
         assert!(source < self.axes.len(), "twinx: axes index out of range");
         let mut twin = Axes::new(self.axes[source].position());
+        twin.layout_envelope = self.axes[source].layout_envelope;
         twin.configure_as_twinx(source);
         self.axes.push(twin);
         self.axes.len() - 1
@@ -169,6 +182,43 @@ impl Figure {
             return None;
         }
         Some(self.axes.get(src)?.effective_limits().0)
+    }
+
+    /// The tight-layout frame rectangle (pixels) for axes `idx` at figure
+    /// pixel size `(fig_w, fig_h)`, or `None` for literally-placed axes.
+    ///
+    /// All auto-layout axes sharing one envelope (a twin pair) are laid out
+    /// together: their per-side decoration insets are unioned so every frame
+    /// in the group coincides.
+    pub(crate) fn layout_rect_for(&self, idx: usize, fig_w: f64, fig_h: f64) -> Option<Bbox> {
+        let envelope = self.axes.get(idx)?.layout_envelope?;
+        // Decoration scale: DPI-relative, times any render_scaled factor
+        // (fig_w grows with the scale while size_px() stays logical).
+        let (logical_w, _) = self.size_px();
+        let s = self.dpi / 100.0 * (fig_w / logical_w);
+        let pad = LAYOUT_PAD * s;
+
+        let (mut left, mut right, mut bottom, mut top) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        for (i, ax) in self.axes.iter().enumerate() {
+            if ax.layout_envelope != Some(envelope) {
+                continue;
+            }
+            let (l, r, b, t_) = ax.layout_insets(&self.font, s, self.xlim_override_for(i));
+            left = left.max(l);
+            right = right.max(r);
+            bottom = bottom.max(b);
+            top = top.max(t_);
+        }
+
+        let rect = Bbox::from_extents(
+            envelope.xmin() * fig_w + left + pad,
+            envelope.ymin() * fig_h + bottom + pad,
+            envelope.xmax() * fig_w - right - pad,
+            envelope.ymax() * fig_h - top - pad,
+        );
+        // Degenerate (decorations larger than the cell): fall back to the
+        // literal position rather than an inverted rect.
+        (rect.width() > 1.0 && rect.height() > 1.0).then_some(rect)
     }
 
     /// A shared reference to this figure's axes.
@@ -208,7 +258,14 @@ impl Figure {
         );
 
         for (i, ax) in self.axes.iter().enumerate() {
-            ax.draw_with(renderer, w, h, &self.font, self.xlim_override_for(i));
+            ax.draw_with(
+                renderer,
+                w,
+                h,
+                &self.font,
+                self.xlim_override_for(i),
+                self.layout_rect_for(i, w, h),
+            );
         }
 
         // Draw figure-level colorbars on top of the axes.
@@ -327,10 +384,11 @@ impl Figure {
     pub fn data_to_pixel(&self, axes_index: usize, data_x: f64, data_y: f64) -> Option<(f64, f64)> {
         let ax = self.axes.get(axes_index)?;
         let (fig_w_px, fig_h_px) = self.size_px();
-        let (_axes_px, td) = ax.pixel_rect_and_trans_data_with(
+        let (_axes_px, td) = ax.pixel_rect_and_trans_data_in(
             fig_w_px,
             fig_h_px,
             self.xlim_override_for(axes_index),
+            self.layout_rect_for(axes_index, fig_w_px, fig_h_px),
         );
         let [scaled_x, scaled_y] = ax.data_to_scaled().map_point(data_x, data_y);
         let (px, display_y) = td.transform_point((scaled_x, scaled_y));
@@ -362,10 +420,11 @@ impl Figure {
     pub fn pixel_to_data(&self, axes_index: usize, px: f64, py: f64) -> Option<(f64, f64)> {
         let ax = self.axes.get(axes_index)?;
         let (fig_w_px, fig_h_px) = self.size_px();
-        let (axes_px, td) = ax.pixel_rect_and_trans_data_with(
+        let (axes_px, td) = ax.pixel_rect_and_trans_data_in(
             fig_w_px,
             fig_h_px,
             self.xlim_override_for(axes_index),
+            self.layout_rect_for(axes_index, fig_w_px, fig_h_px),
         );
         // Undo the backend Y-flip to recover the y-up display point that
         // `trans_data` operates in.
@@ -390,6 +449,78 @@ mod tests {
     fn pixel(r: &SkiaRenderer, x: u32, y: u32) -> [u8; 4] {
         let p = r.pixmap().pixel(x, y).expect("pixel in bounds");
         [p.red(), p.green(), p.blue(), p.alpha()]
+    }
+
+    #[test]
+    fn tight_layout_frame_hugs_undecorated_sides() {
+        // A subplot with no title and no labels: the right and top frame
+        // edges sit exactly one pad inside the figure; left/bottom leave room
+        // for tick labels only.
+        let mut fig = Figure::new(4.0, 3.0);
+        fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+        let (w, h) = fig.size_px();
+        let rect = fig.layout_rect_for(0, w, h).expect("subplot is auto-laid");
+        assert!((rect.xmax() - (w - 10.0)).abs() < 1e-9, "right edge = pad");
+        assert!((rect.ymax() - (h - 10.0)).abs() < 1e-9, "top edge = pad");
+        assert!(rect.xmin() > 10.0, "left leaves tick-label room");
+        assert!(rect.ymin() > 10.0, "bottom leaves tick-label room");
+    }
+
+    #[test]
+    fn tight_layout_moves_only_the_decorated_side() {
+        let mut fig = Figure::new(4.0, 3.0);
+        fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+        let (w, h) = fig.size_px();
+        let before = fig.layout_rect_for(0, w, h).unwrap();
+
+        fig.axes_mut()[0].set_title("a title");
+        let with_title = fig.layout_rect_for(0, w, h).unwrap();
+        assert!(
+            with_title.ymax() < before.ymax(),
+            "title lowers the top edge"
+        );
+        assert!((with_title.xmin() - before.xmin()).abs() < 1e-9);
+        assert!((with_title.xmax() - before.xmax()).abs() < 1e-9);
+
+        fig.axes_mut()[0].set_ylabel("volts");
+        let with_ylabel = fig.layout_rect_for(0, w, h).unwrap();
+        assert!(
+            with_ylabel.xmin() > with_title.xmin(),
+            "a y label pushes the left edge in"
+        );
+        assert!((with_ylabel.xmax() - with_title.xmax()).abs() < 1e-9);
+    }
+
+    #[test]
+    fn add_axes_rects_stay_literal() {
+        let mut fig = Figure::new(4.0, 3.0);
+        fig.add_axes(0.2, 0.3, 0.5, 0.4)
+            .plot(&[0.0, 1.0], &[0.0, 1.0]);
+        let (w, h) = fig.size_px();
+        assert!(
+            fig.layout_rect_for(0, w, h).is_none(),
+            "explicit rects are never re-laid"
+        );
+    }
+
+    #[test]
+    fn twin_frames_coincide_under_tight_layout() {
+        let mut fig = Figure::new(4.0, 3.0);
+        fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 5.0]);
+        fig.axes_mut()[0].set_ylabel("left units");
+        let twin = fig.twinx(0);
+        fig.axes_mut()[twin].plot(&[0.0, 1.0], &[0.0, 500.0]);
+        fig.axes_mut()[twin].set_ylabel("right units");
+
+        let (w, h) = fig.size_px();
+        let a = fig.layout_rect_for(0, w, h).unwrap();
+        let b = fig.layout_rect_for(twin, w, h).unwrap();
+        assert!((a.xmin() - b.xmin()).abs() < 1e-9);
+        assert!((a.xmax() - b.xmax()).abs() < 1e-9);
+        assert!((a.ymin() - b.ymin()).abs() < 1e-9);
+        assert!((a.ymax() - b.ymax()).abs() < 1e-9);
+        // The twin's right-side labels claim room: right inset exceeds the pad.
+        assert!(a.xmax() < w - 10.0 - 1.0, "right labels push the frame in");
     }
 
     #[test]

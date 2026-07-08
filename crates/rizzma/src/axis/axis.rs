@@ -102,6 +102,12 @@ impl Axis {
         }
     }
 
+    /// Which edge this axis is drawn along.
+    #[must_use]
+    pub fn side(&self) -> AxisSide {
+        self.side
+    }
+
     /// Set the scale, returning `self` for chaining.
     #[must_use]
     pub fn with_scale(mut self, scale: Box<dyn Scale>) -> Self {
@@ -291,6 +297,38 @@ impl Axis {
         self.draw_ticks(renderer, axes_bbox, &ticks, (vmin, vmax), &stroke_gc, s);
         self.draw_tick_labels(renderer, axes_bbox, &ticks, (vmin, vmax), font, s);
         self.draw_axis_label(renderer, axes_bbox, &ticks, font, s);
+    }
+
+    /// The outward extent, in pixels, this axis' decoration (ticks, tick
+    /// labels, and the axis label) occupies beyond the frame edge, for limits
+    /// `lim` at decoration scale `s`. Drives tight layout: the frame is inset
+    /// from its envelope by exactly this much per side (plus a pad).
+    pub(crate) fn decoration_extent(&self, lim: (f64, f64), font: &FontSource, s: f64) -> f64 {
+        let (vmin, vmax) = lim;
+        let (lo_v, hi_v) = if vmin <= vmax {
+            (vmin, vmax)
+        } else {
+            (vmax, vmin)
+        };
+        let ticks: Vec<f64> = self
+            .locator
+            .tick_values(vmin, vmax)
+            .into_iter()
+            .filter(|&t| t >= lo_v && t <= hi_v)
+            .collect();
+        let mut extent = (self.tick_length + self.tick_label_pad) * s
+            + self.tick_label_band_extent(&ticks, font, s);
+        if let Some(label) = &self.label
+            && !label.is_empty()
+        {
+            let rich = layout_rich_text(font, label, self.axis_label_size * s);
+            // The axis label sits past the tick labels by axis_label_pad; its
+            // occupied thickness is its line height (width when the label is
+            // rotated along a vertical axis, but height bounds both since the
+            // rotated label's *thickness* is still one line).
+            extent += self.axis_label_pad * s + rich.ascent + rich.descent;
+        }
+        extent
     }
 
     /// Stroke the spine along the relevant edge.

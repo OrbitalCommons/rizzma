@@ -101,8 +101,13 @@ impl Figure {
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, ax)| {
-                let (rect, _) = ax.pixel_rect_and_trans_data(fig_w_px, fig_h_px);
+            .find(|&(i, ax)| {
+                let (rect, _) = ax.pixel_rect_and_trans_data_in(
+                    fig_w_px,
+                    fig_h_px,
+                    self.xlim_override_for(i),
+                    self.layout_rect_for(i, fig_w_px, fig_h_px),
+                );
                 rect.contains_point(px, display_y)
             })
             .map(|(i, _)| i)
