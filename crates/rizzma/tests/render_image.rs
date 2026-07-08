@@ -3,14 +3,14 @@
 //!
 //! Renders a small vertical gradient (data row `0` = min, last row = max) into
 //! a pixmap with an identity transform and asserts the colors vary across the
-//! image and match the viridis endpoints approximately.
+//! image and match the default colormap's endpoints approximately.
 //!
 //! Y-flip + origin: [`SkiaRenderer`] flips `(x, y) -> (height - y)` internally,
 //! and the image uses `origin="upper"` so data row `0` is drawn at the *top* of
 //! the device extent (the smallest pixmap row).
 
 use rizzma::artist::{Affine2D, Artist, AxesImage};
-use rizzma::core::color::{Colormap, viridis};
+use rizzma::core::color::{Colormap, default_colormap};
 use rizzma::skia::SkiaRenderer;
 
 /// Read the straight RGBA bytes of the pixel at `(x, y)` in pixmap space.
@@ -28,7 +28,7 @@ fn max_diff(a: [u8; 4], b: [u8; 4]) -> i32 {
 }
 
 #[test]
-fn gradient_image_varies_and_matches_viridis_endpoints() {
+fn gradient_image_varies_and_matches_default_cmap_endpoints() {
     let mut renderer = SkiaRenderer::new(100, 100, 72.0);
 
     // A 4-row, 1-column vertical gradient: row 0 = 0.0 (min) .. row 3 = 3.0.
@@ -40,7 +40,7 @@ fn gradient_image_varies_and_matches_viridis_endpoints() {
 
     // origin="upper": data row 0 (the minimum) is at the device top, which the
     // Y-flip maps to the *smallest* pixmap row. So the top pixmap rows are the
-    // viridis low end (dark purple) and the bottom rows the high end (yellow).
+    // colormap low end (dark blue) and the bottom rows the high end (white).
     let top = pixel(&renderer, 50, 2);
     let bottom = pixel(&renderer, 50, 97);
 
@@ -53,15 +53,15 @@ fn gradient_image_varies_and_matches_viridis_endpoints() {
         "gradient should vary: top {top:?} vs bottom {bottom:?}"
     );
 
-    // Endpoints approximately match viridis(0) and viridis(1).
-    let lo = viridis().sample(0.0).to_u8_array();
-    let hi = viridis().sample(1.0).to_u8_array();
+    // Endpoints approximately match cmap(0) and cmap(1).
+    let lo = default_colormap().sample(0.0).to_u8_array();
+    let hi = default_colormap().sample(1.0).to_u8_array();
     assert!(
         max_diff(top, lo) < 40,
-        "top should be ~viridis(0) {lo:?}, got {top:?}"
+        "top should be ~cmap(0) {lo:?}, got {top:?}"
     );
     assert!(
         max_diff(bottom, hi) < 40,
-        "bottom should be ~viridis(1) {hi:?}, got {bottom:?}"
+        "bottom should be ~cmap(1) {hi:?}, got {bottom:?}"
     );
 }

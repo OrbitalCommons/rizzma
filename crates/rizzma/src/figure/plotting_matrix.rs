@@ -9,7 +9,7 @@
 //! and the 2D histogram lays its mesh over the true data extents.
 
 use crate::artist::{AxesImage, QuadMesh};
-use crate::core::color::{LinearNorm, Normalize, colormap};
+use crate::core::color::{Colormap, LinearNorm, Normalize, default_colormap};
 
 use crate::figure::Axes;
 
@@ -18,7 +18,7 @@ impl Axes {
     ///
     /// This is [`imshow`](Axes::imshow) with matrix conventions: the data is
     /// interpreted row-major with `origin="upper"` (row `0` at the top), the
-    /// extent is `(0, ncols, 0, nrows)`, and the default `viridis` colormap
+    /// extent is `(0, ncols, 0, nrows)`, and the default colormap
     /// colorizes the values. Tune the returned handle exactly as for `imshow`
     /// (e.g. `.cmap(..)`, `.vmin(..)`, `.vmax(..)`).
     ///
@@ -85,7 +85,7 @@ impl Axes {
     /// `[xmin, xmax] x [ymin, ymax]` (the data extents). Each cell counts the
     /// points that fall in it (row-major, row `0` at `ymin`); points on the
     /// upper edge are folded into the last bin. The counts are rendered with
-    /// [`pcolormesh`](Axes::pcolormesh) (the `viridis` colormap), and the mesh
+    /// [`pcolormesh`](Axes::pcolormesh) (the default colormap), and the mesh
     /// grid is placed over the true data extents so the axes show the real `x`
     /// and `y` ranges. Returns the mesh.
     ///
@@ -153,10 +153,10 @@ impl Axes {
             }
         }
 
-        // Colormap the counts through LinearNorm + viridis.
+        // Colormap the counts through LinearNorm + the default colormap.
         let cmax = counts.iter().cloned().fold(0.0_f64, f64::max);
         let norm = LinearNorm::new(0.0, cmax);
-        let cmap = colormap("viridis").expect("viridis is built in");
+        let cmap = default_colormap();
         let facecolors = counts
             .iter()
             .map(|&v| cmap.sample(norm.normalize(v)))
@@ -185,7 +185,7 @@ fn data_extent(data: &[f64]) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use crate::core::Bbox;
-    use crate::core::color::{Colormap, Rgba, viridis};
+    use crate::core::color::{Colormap, Rgba, default_colormap};
     use crate::figure::Axes;
 
     /// A [`Renderer`](crate::render::Renderer) that records the fill color of
@@ -249,10 +249,10 @@ mod tests {
         let mesh = ax.hist2d(&x, &y, 2);
 
         // Render and capture per-cell fill colors (row-major). Max count is 2,
-        // so a count of 2 maps to viridis(1.0) and a count of 1 to viridis(0.5).
+        // so a count of 2 maps to cmap(1.0) and a count of 1 to cmap(0.5).
         let mut rec = ColorRecorder::default();
         crate::artist::Artist::draw(mesh, &mut rec, &crate::core::Affine2D::identity());
-        let cm = viridis();
+        let cm = default_colormap();
         let two = cm.sample(1.0);
         let one = cm.sample(0.5);
         let fills: Vec<Rgba> = rec

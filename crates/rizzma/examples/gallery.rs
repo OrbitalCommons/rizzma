@@ -96,7 +96,7 @@ fn main() {
             }
         }
         let ax = fig.add_subplot(1, 1, 1);
-        ax.scatter_mapped(&x, &y, &t, "viridis");
+        ax.scatter_mapped(&x, &y, &t, "bgyw");
         ax.set_title("a tidy little galaxy (color = arm distance)");
         fig.save_png("target/gallery_scatter.png").unwrap();
     }
@@ -282,7 +282,7 @@ fn main() {
             ax.set_xlabel("year");
             ax.set_ylabel("population");
         }
-        fig.colorbar("viridis", 0.0, 6.0);
+        fig.colorbar("bgyw", 0.0, 6.0);
         fig.save_png("target/gallery_legend_colorbar.png").unwrap();
     }
 
@@ -488,7 +488,7 @@ fn main() {
         ax.matshow(&data, nr, nc);
         ax.set_title("the 12×12 times table, as heat");
         // Dedicated colorbar column labeled with the real value range.
-        fig.colorbar_at((0.86, 0.13, 0.035, 0.78), "viridis", 1.0, 144.0);
+        fig.colorbar_at((0.86, 0.13, 0.035, 0.78), "bgyw", 1.0, 144.0);
         fig.save_png("target/gallery_matshow.png").unwrap();
     }
 
@@ -1073,28 +1073,66 @@ fn main() {
         .unwrap();
     }
 
-    // 50. colormap showcase — every builtin ramp as a horizontal colorbar.
+    // 50. colormap showcase — every builtin ramp as a horizontal colorbar,
+    // grouped: the Kovesi CET maps (arXiv:1509.03700), the classics, and the
+    // quarantined misleading: maps.
     {
-        let mut fig = gallery_figure(5.0, 3.8);
-        let names = [
-            "viridis", "plasma", "inferno", "magma", "cividis", "coolwarm", "RdBu", "gray",
+        // Rows are either a section header (no bar) or a labeled colorbar.
+        let rows: [(&str, Option<&str>); 31] = [
+            ("the Kovesi CET maps (arXiv:1509.03700)", None),
+            ("bgyw (default)", Some("bgyw")),
+            ("fire", Some("fire")),
+            ("cet_l01", Some("cet_l01")),
+            ("cet_l05", Some("cet_l05")),
+            ("cet_l10", Some("cet_l10")),
+            ("cet_d01", Some("cet_d01")),
+            ("cet_d04", Some("cet_d04")),
+            ("cet_d07", Some("cet_d07")),
+            ("cet_d11", Some("cet_d11")),
+            ("cet_r2", Some("cet_r2")),
+            ("cet_c1", Some("cet_c1")),
+            ("cet_c2", Some("cet_c2")),
+            ("cet_c3", Some("cet_c3")),
+            ("cet_c5", Some("cet_c5")),
+            ("cet_i1", Some("cet_i1")),
+            ("the classics", None),
+            ("viridis", Some("viridis")),
+            ("plasma", Some("plasma")),
+            ("inferno", Some("inferno")),
+            ("magma", Some("magma")),
+            ("cividis", Some("cividis")),
+            ("coolwarm", Some("coolwarm")),
+            ("RdBu", Some("RdBu")),
+            ("gray", Some("gray")),
+            ("quarantined (see the misleading module docs)", None),
+            ("misleading:jet", Some("misleading:jet")),
+            ("misleading:hot", Some("misleading:hot")),
+            ("misleading:hsv", Some("misleading:hsv")),
+            ("misleading:rainbow", Some("misleading:rainbow")),
+            ("", None),
         ];
-        // A full-figure axes provides the name labels; the bars are
-        // figure-level horizontal colorbars beside them.
-        {
-            let ax = fig.add_axes(0.0, 0.0, 1.0, 1.0);
-            ax.set_xlim(0.0, 1.0);
-            ax.set_ylim(0.0, 1.0);
-            ax.set_axis_off();
-            ax.text(0.36, 0.955, "the builtin colormaps");
-            for (i, name) in names.iter().enumerate() {
-                let y = 0.86 - i as f64 * 0.105;
-                ax.text(0.03, y + 0.012, *name);
+        let dy = 1.0 / rows.len() as f64;
+        let row_y = |i: usize| 1.0 - (i + 1) as f64 * dy;
+        let mut fig = gallery_figure(5.0, 8.2);
+        let ramp: Vec<f64> = (0..256).map(f64::from).collect();
+        let ax = fig.add_axes(0.0, 0.0, 1.0, 1.0);
+        ax.set_xlim(0.0, 1.0);
+        ax.set_ylim(0.0, 1.0);
+        ax.set_axis_off();
+        for (i, (label, bar)) in rows.iter().enumerate() {
+            let y = row_y(i);
+            // Indent bar labels under their section headers.
+            let x = if bar.is_some() { 0.06 } else { 0.03 };
+            ax.text(x, y + dy * 0.25, *label);
+            if let Some(name) = bar {
+                // Each swatch is a 1 x 256 ramp image drawn over its row.
+                ax.imshow(&ramp, 1, 256).cmap(*name).set_extent([
+                    0.30,
+                    0.97,
+                    y + dy * 0.12,
+                    y + dy * 0.88,
+                ]);
             }
-        }
-        for (i, name) in names.iter().enumerate() {
-            let y = 0.86 - i as f64 * 0.105;
-            fig.colorbar_at_horizontal((0.22, y, 0.72, 0.05), name, 0.0, 1.0);
         }
         fig.save_png("target/gallery_colormaps.png").unwrap();
     }

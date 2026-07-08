@@ -4,8 +4,43 @@
 //! holds an explicit list of colors and samples them by nearest slot.
 //! [`LinearSegmentedColormap`] builds a 256-entry lookup table from per-channel
 //! segment data using the same algorithm as matplotlib's `_create_lookup_table`.
-//! A small registry ([`colormap`]) exposes the builtin `viridis` and `gray`
-//! maps (and their reversed variants).
+//! A registry ([`colormap`]) exposes the builtin maps (and their reversed
+//! variants).
+//!
+//! # The default colormap and the Kovesi taxonomy
+//!
+//! rizzma's default colormap is [`cet_l09`] (`"bgyw"`), a perceptually uniform
+//! blue-green-yellow-white map from Peter Kovesi's CET collection. The CET maps
+//! are designed so the *lightness* of the colors changes at a constant rate
+//! along the map — the property that determines whether features in data
+//! remain visible — and they are organized into a taxonomy by the shape of
+//! that lightness profile:
+//!
+//! - **Linear** maps ([`cet_l01`], [`cet_l03`] "fire", [`cet_l05`],
+//!   [`cet_l09`], [`cet_l10`]): lightness increases at a constant rate end to
+//!   end. Intended for general-purpose data display; [`cet_l10`] is a
+//!   deliberately low-contrast map for draping over relief shading.
+//! - **Diverging** maps ([`cet_d01`], [`cet_d04`], [`cet_d07`], [`cet_d11`]):
+//!   symmetric about a neutral center, for data with a meaningful reference
+//!   value (e.g. zero). The lightness reversal at the center of a classic
+//!   blue-white-red map creates a small perceptual flat spot, so [`cet_d07`]
+//!   (blue-grey-yellow, *linear*-diverging — no reversal) is often the better
+//!   choice.
+//! - **Rainbow** ([`cet_r2`]): a rainbow with the perceptual contrast
+//!   equalized and cyan excluded, for when a rainbow is required; small flat
+//!   spots at yellow and red remain.
+//! - **Cyclic** maps ([`cet_c1`], [`cet_c2`], [`cet_c3`], [`cet_c5`]): ends
+//!   match with first-order continuity, for orientation or phase data.
+//! - **Isoluminant** ([`cet_i1`]): constant lightness, for coloring relief
+//!   shading without disturbing the shading's own lightness cues.
+//!
+//! The classic vendor maps the collection replaces (`jet`, `hot`, `hsv`,
+//! `rainbow`) are deliberately quarantined in the
+//! [`misleading`](super::misleading) module — see its documentation for why.
+//!
+//! Reference: Peter Kovesi. *Good Colour Maps: How to Design Them.*
+//! [arXiv:1509.03700 \[cs.GR\] 2015](https://arxiv.org/abs/1509.03700).
+//! Map data from <https://colorcet.com/> (CC BY 4.0).
 
 use super::Rgba;
 
@@ -113,6 +148,27 @@ impl LinearSegmentedColormap {
         let green = make(1);
         let blue = make(2);
         Self::new(&red, &green, &blue)
+    }
+
+    /// Construct from an `N x 3` table of 8-bit RGB rows, evenly spaced over
+    /// `[0, 1]`.
+    ///
+    /// This is the form used by the embedded CET map data, which is stored as
+    /// `u8` to keep the binary footprint small; each channel is rescaled to
+    /// `0.0..=1.0`.
+    #[must_use]
+    pub fn from_rgb_u8_table(table: &[[u8; 3]]) -> Self {
+        let rows: Vec<[f64; 3]> = table
+            .iter()
+            .map(|row| {
+                [
+                    f64::from(row[0]) / 255.0,
+                    f64::from(row[1]) / 255.0,
+                    f64::from(row[2]) / 255.0,
+                ]
+            })
+            .collect();
+        Self::from_rgb_table(&rows)
     }
 
     /// Return a reversed copy of this colormap (`t` mapped to `1 - t`).
@@ -500,15 +556,144 @@ pub fn coolwarm() -> LinearSegmentedColormap {
     )
 }
 
+/// The registry name of the default colormap ([`cet_l09`], alias `"bgyw"`).
+///
+/// Artists that colormap data without an explicit map name (imshow,
+/// pcolormesh, contourf, hexbin, …) use this map.
+pub const DEFAULT_COLORMAP: &str = "bgyw";
+
+/// Build the default colormap: [`cet_l09`], Kovesi's perceptually uniform
+/// linear blue-green-yellow-white map.
+#[must_use]
+pub fn default_colormap() -> LinearSegmentedColormap {
+    cet_l09()
+}
+
+/// CET-L01: perceptually uniform linear grey (Kovesi, Fig. 7).
+#[must_use]
+pub fn cet_l01() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_L01)
+}
+
+/// CET-L03: linear black-red-yellow-white "fire" (Kovesi, Fig. 7).
+#[must_use]
+pub fn cet_l03() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_L03)
+}
+
+/// CET-L05: linear black-green-yellow (Kovesi, Fig. 7).
+#[must_use]
+pub fn cet_l05() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_L05)
+}
+
+/// CET-L09: linear blue-green-yellow-white (Kovesi, Fig. 7). The default map.
+#[must_use]
+pub fn cet_l09() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_L09)
+}
+
+/// CET-L10: low-contrast green-brown-white for draping over relief shading
+/// (Kovesi, Fig. 20).
+#[must_use]
+pub fn cet_l10() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_L10)
+}
+
+/// CET-D01: diverging blue-white-red with the central lightness reversal
+/// smoothed (Kovesi, Fig. 9).
+#[must_use]
+pub fn cet_d01() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_D01)
+}
+
+/// CET-D04: diverging blue-black-red (Kovesi, Fig. 8).
+#[must_use]
+pub fn cet_d04() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_D04)
+}
+
+/// CET-D07: linear-diverging blue-grey-yellow (Kovesi, Fig. 10). Diverging
+/// with *no* lightness reversal, so it has no perceptual flat spot at the
+/// reference value.
+#[must_use]
+pub fn cet_d07() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_D07)
+}
+
+/// CET-D11: diverging isoluminant cyan-grey-orange, for use over relief
+/// shading (Kovesi, Fig. 8).
+#[must_use]
+pub fn cet_d11() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_D11)
+}
+
+/// CET-R2: the perceptually equalized rainbow — cyan excluded, contrast
+/// equalized, lightness reversals smoothed (Kovesi, Fig. 11).
+#[must_use]
+pub fn cet_r2() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_R2)
+}
+
+/// CET-C1: cyclic magenta-red-yellow-blue from a zig-zag path (Kovesi,
+/// Fig. 14). Four nameable regions for the compass directions.
+#[must_use]
+pub fn cet_c1() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_C1)
+}
+
+/// CET-C2: cyclic magenta-yellow-green-blue from a diamond path (Kovesi,
+/// Figs. 14 and 16).
+#[must_use]
+pub fn cet_c2() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_C2)
+}
+
+/// CET-C3: cyclic white-red-white-blue (Kovesi, Fig. 15). Phase ambiguity at
+/// 0 and 180 degrees in exchange for a diverging-style reference point.
+#[must_use]
+pub fn cet_c3() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_C3)
+}
+
+/// CET-C5: cyclic grey (Kovesi, Fig. 15).
+#[must_use]
+pub fn cet_c5() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_C5)
+}
+
+/// CET-I1: isoluminant cyan-green-orange at lightness 70 (Kovesi, Fig. 5).
+/// Features are nearly invisible on its own — by design; use it to color
+/// relief shading.
+#[must_use]
+pub fn cet_i1() -> LinearSegmentedColormap {
+    LinearSegmentedColormap::from_rgb_u8_table(&super::cet_data::CET_I1)
+}
+
 /// Look up a builtin colormap by name.
 ///
 /// ![colormaps](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_colormaps.png)
 ///
-/// Recognized names: the perceptually-uniform sequential maps `"viridis"`,
-/// `"magma"`, `"inferno"`, `"plasma"`, `"cividis"`; the diverging maps
-/// `"RdBu"` and `"coolwarm"`; `"gray"`; and every map's reversed variant via
-/// the matplotlib `_r` suffix (`"magma_r"`, `"RdBu_r"`, …). Returns [`None`]
-/// for unknown names.
+/// Recognized names:
+///
+/// - the Kovesi / CET perceptually uniform maps by code (`"cet_l01"`,
+///   `"cet_l03"`, `"cet_l05"`, `"cet_l09"`, `"cet_l10"`, `"cet_d01"`,
+///   `"cet_d04"`, `"cet_d07"`, `"cet_d11"`, `"cet_r2"`, `"cet_c1"`,
+///   `"cet_c2"`, `"cet_c3"`, `"cet_c5"`, `"cet_i1"`) plus the aliases
+///   `"bgyw"` (= `cet_l09`, the default) and `"fire"` (= `cet_l03`); see the
+///   [module docs](self) for the taxonomy,
+/// - the perceptually-uniform sequential maps `"viridis"`, `"magma"`,
+///   `"inferno"`, `"plasma"`, `"cividis"`,
+/// - the diverging maps `"RdBu"` and `"coolwarm"`, and `"gray"`,
+/// - every map's reversed variant via the matplotlib `_r` suffix
+///   (`"magma_r"`, `"cet_d07_r"`, …),
+/// - the deliberately quarantined vendor maps only under a `misleading:`
+///   prefix (`"misleading:jet"`, `"misleading:hot"`, `"misleading:hsv"`,
+///   `"misleading:rainbow"`) — see [`misleading`](super::misleading) for why
+///   the prefix is required.
+///
+/// Returns [`None`] for unknown names (including the bare vendor names
+/// `"jet"`, `"hot"`, `"hsv"`, and `"rainbow"`).
 #[must_use]
 pub fn colormap(name: &str) -> Option<Box<dyn Colormap>> {
     // The `_r` suffix reverses any known map rather than being a separate
@@ -521,6 +706,9 @@ pub fn colormap(name: &str) -> Option<Box<dyn Colormap>> {
 
 /// The forward (non-reversed) builtin colormaps by name.
 fn base_colormap(name: &str) -> Option<LinearSegmentedColormap> {
+    if let Some(vendor) = name.strip_prefix("misleading:") {
+        return super::misleading::colormap(vendor);
+    }
     match name {
         "viridis" => Some(viridis()),
         "gray" => Some(gray()),
@@ -530,6 +718,21 @@ fn base_colormap(name: &str) -> Option<LinearSegmentedColormap> {
         "cividis" => Some(cividis()),
         "RdBu" => Some(rdbu()),
         "coolwarm" => Some(coolwarm()),
+        "cet_l01" => Some(cet_l01()),
+        "cet_l03" | "fire" => Some(cet_l03()),
+        "cet_l05" => Some(cet_l05()),
+        "cet_l09" | "bgyw" => Some(cet_l09()),
+        "cet_l10" => Some(cet_l10()),
+        "cet_d01" => Some(cet_d01()),
+        "cet_d04" => Some(cet_d04()),
+        "cet_d07" => Some(cet_d07()),
+        "cet_d11" => Some(cet_d11()),
+        "cet_r2" => Some(cet_r2()),
+        "cet_c1" => Some(cet_c1()),
+        "cet_c2" => Some(cet_c2()),
+        "cet_c3" => Some(cet_c3()),
+        "cet_c5" => Some(cet_c5()),
+        "cet_i1" => Some(cet_i1()),
         _ => None,
     }
 }
@@ -619,6 +822,74 @@ mod tests {
         }
         // `_r` on an unknown base stays unknown.
         assert!(colormap("nope_r").is_none());
+    }
+
+    #[test]
+    fn registry_resolves_cet_maps_and_reversals() {
+        for name in [
+            "cet_l01", "cet_l03", "cet_l05", "cet_l09", "cet_l10", "cet_d01", "cet_d04", "cet_d07",
+            "cet_d11", "cet_r2", "cet_c1", "cet_c2", "cet_c3", "cet_c5", "cet_i1", "fire", "bgyw",
+        ] {
+            assert!(colormap(name).is_some(), "{name} must resolve");
+            let reversed = format!("{name}_r");
+            assert!(colormap(&reversed).is_some(), "{reversed} must resolve");
+        }
+    }
+
+    #[test]
+    fn default_colormap_is_registered_under_default_name() {
+        let by_name = colormap(DEFAULT_COLORMAP).expect("default name must resolve");
+        let direct = default_colormap();
+        for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            assert_eq!(by_name.sample(t), direct.sample(t));
+        }
+    }
+
+    #[test]
+    fn default_colormap_endpoints_match_cet_l09_data() {
+        // CET-L09 runs dark blue (5, 0, 172) to near-white (249, 249, 249).
+        let cm = default_colormap();
+        assert_eq!(cm.sample(0.0).to_u8_array(), [5, 0, 172, 255]);
+        assert_eq!(cm.sample(1.0).to_u8_array(), [249, 249, 249, 255]);
+    }
+
+    #[test]
+    fn cyclic_cet_maps_close_their_loops() {
+        // Cyclic maps match their endpoints (first-order continuity), so the
+        // two ends must be within a couple of 8-bit steps per channel.
+        for name in ["cet_c1", "cet_c2", "cet_c3", "cet_c5"] {
+            let cm = colormap(name).unwrap();
+            let a = cm.sample(0.0).to_u8_array();
+            let b = cm.sample(1.0).to_u8_array();
+            for i in 0..3 {
+                assert!(
+                    (i32::from(a[i]) - i32::from(b[i])).abs() <= 4,
+                    "{name} endpoints should match: {a:?} vs {b:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn isoluminant_map_has_low_lightness_range() {
+        // CET-I1 is constant-lightness by design; its rec. 601 luma varies by
+        // only a few percent across the map.
+        let cm = colormap("cet_i1").unwrap();
+        let luma = |t: f64| {
+            let c = cm.sample(t);
+            0.299 * c.r + 0.587 * c.g + 0.114 * c.b
+        };
+        let lumas: Vec<f64> = (0..=20).map(|i| luma(f64::from(i) / 20.0)).collect();
+        let (min, max) = lumas
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
+                (lo.min(v), hi.max(v))
+            });
+        assert!(
+            max - min < 0.12,
+            "isoluminant map should hold its lightness: range {}",
+            max - min
+        );
     }
 
     #[test]

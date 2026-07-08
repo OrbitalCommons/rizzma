@@ -5,11 +5,11 @@
 //! field (corners at integer `x = 0..ncols-1`, `y = 0..nrows-1`), tracing the
 //! level sets of a set of evenly-spaced contour levels. Each contour crossing of
 //! a grid cell is emitted as a short [`Line2D`] segment colored by its level
-//! through a [`LinearNorm`] and the `viridis` colormap, and the grid extent
+//! through a [`LinearNorm`] and the default colormap, and the grid extent
 //! folds into [`data_limits`](super::Axes::data_limits) for autoscaling.
 
 use crate::artist::Line2D;
-use crate::core::color::{LinearNorm, Normalize, colormap};
+use crate::core::color::{Colormap, LinearNorm, Normalize, default_colormap};
 
 use crate::figure::Axes;
 
@@ -173,7 +173,7 @@ impl Axes {
     /// resolved by comparing the cell's mean corner value against the level
     /// (the midpoint convention). Each segment becomes a two-point [`Line2D`]
     /// colored by its level via a [`LinearNorm`] over `[zmin, zmax]` and the
-    /// `viridis` colormap, and the grid extent folds into
+    /// default colormap, and the grid extent folds into
     /// [`data_limits`](Axes::data_limits).
     ///
     /// A grid smaller than `2 x 2`, a flat field (`zmin == zmax`), or
@@ -224,7 +224,7 @@ impl Axes {
         }
 
         let norm = LinearNorm::new(zmin, zmax);
-        let cmap = colormap("viridis").expect("viridis is built in");
+        let cmap = default_colormap();
         let span = zmax - zmin;
 
         for k in 0..n_levels {

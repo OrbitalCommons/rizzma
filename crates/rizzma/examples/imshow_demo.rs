@@ -22,10 +22,10 @@ fn main() {
     }
 
     ax.imshow(&data, nrows, ncols)
-        .cmap("viridis")
+        .cmap("bgyw")
         .set_extent([-6.0, 6.0, -6.0, 6.0]);
 
-    ax.set_title("imshow: sin(r) ripple (viridis)");
+    ax.set_title("imshow: sin(r) ripple (bgyw)");
     ax.set_xlabel("x");
     ax.set_ylabel("y");
 

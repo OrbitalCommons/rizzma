@@ -2,13 +2,13 @@
 //!
 //! Mirrors matplotlib's `Axes.pcolormesh` for the regular-grid case: it builds a
 //! unit `nrows x ncols` grid, colormaps the row-major cell values through a
-//! [`LinearNorm`] and the `viridis` colormap, stores the resulting [`QuadMesh`]
+//! [`LinearNorm`] and the default colormap, stores the resulting [`QuadMesh`]
 //! on the axes, and returns a mutable handle. Meshes draw beneath the other
 //! artists (see [`Axes::draw`](super::Axes::draw)) and their data-space extent
 //! participates in autoscaling.
 
 use crate::artist::QuadMesh;
-use crate::core::color::{LinearNorm, Normalize, colormap};
+use crate::core::color::{Colormap, LinearNorm, Normalize, default_colormap};
 
 use crate::figure::Axes;
 
@@ -34,7 +34,7 @@ impl Axes {
     /// `[col, col + 1] x [r, r + 1]`. The cell values `c` (row-major,
     /// `c[r * ncols + col]`) are normalized through a [`LinearNorm`] with
     /// `vmin`/`vmax` set to the finite data min/max, then mapped through the
-    /// `viridis` colormap to per-cell face colors. To retune the colors, build a
+    /// default colormap to per-cell face colors. To retune the colors, build a
     /// fresh [`QuadMesh`] and overwrite the returned handle.
     ///
     /// The returned handle exposes the [`QuadMesh`] builder setters
@@ -83,7 +83,7 @@ impl Axes {
         // Colormap the cell values through LinearNorm + viridis.
         let (vmin, vmax) = data_min_max(c);
         let norm = LinearNorm::new(vmin, vmax);
-        let cmap = colormap("viridis").expect("viridis is built in");
+        let cmap = default_colormap();
         let facecolors = c.iter().map(|&v| cmap.sample(norm.normalize(v))).collect();
 
         let mesh = QuadMesh::new(nrows, ncols, coordinates, facecolors);
@@ -99,7 +99,8 @@ impl Axes {
     /// coordinates `x = 0..ncols-1`, `y = 0..nrows-1`), yielding
     /// `(nrows - 1) x (ncols - 1)` cells whose colors interpolate smoothly
     /// between the corner values instead of flat per-cell blocks. Values map
-    /// through a [`LinearNorm`] and `viridis`. Gouraud cells draw no edges.
+    /// through a [`LinearNorm`] and the default colormap. Gouraud cells draw no
+    /// edges.
     ///
     /// ![gouraud](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_gouraud.png)
     ///
@@ -145,7 +146,7 @@ impl Axes {
 
         let (vmin, vmax) = data_min_max(c);
         let norm = LinearNorm::new(vmin, vmax);
-        let cmap = colormap("viridis").expect("viridis is built in");
+        let cmap = default_colormap();
         let vertex_colors: Vec<_> = c.iter().map(|&v| cmap.sample(norm.normalize(v))).collect();
 
         // Flat facecolors are required by the constructor but unused in
@@ -161,7 +162,7 @@ impl Axes {
 #[cfg(test)]
 mod tests {
     use crate::core::Bbox;
-    use crate::core::color::{Colormap, viridis};
+    use crate::core::color::{Colormap, default_colormap};
     use crate::figure::Axes;
 
     #[test]
@@ -175,17 +176,17 @@ mod tests {
     }
 
     #[test]
-    fn min_and_max_cells_get_viridis_endpoints() {
+    fn min_and_max_cells_get_default_cmap_endpoints() {
         let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
         // 2x2 with min = 0.0 (cell 0) and max = 3.0 (cell 3).
         ax.pcolormesh(&[0.0, 1.0, 2.0, 3.0], 2, 2);
-        let cm = viridis();
+        let cm = default_colormap();
         let lo = cm.sample(0.0);
         let hi = cm.sample(1.0);
         let mesh = &ax.meshes[0];
         let mut r = ColorRecorder::default();
         crate::artist::Artist::draw(mesh, &mut r, &crate::core::Affine2D::identity());
-        // The first cell holds the minimum -> viridis(0); the last -> viridis(1).
+        // The first cell holds the minimum -> cmap(0); the last -> cmap(1).
         assert_eq!(r.fills.first().copied().flatten(), Some(lo));
         assert_eq!(r.fills.last().copied().flatten(), Some(hi));
     }

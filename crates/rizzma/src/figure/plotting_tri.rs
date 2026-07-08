@@ -7,14 +7,14 @@
 //! [`Line2D`] triangle outlines; [`tripcolor`](Axes::tripcolor) fills each
 //! triangle with a flat [`Patch`] color obtained by averaging the three
 //! vertices' scalar values and mapping that through a [`LinearNorm`] and the
-//! `viridis` colormap. Both fold into autoscaling via
+//! default colormap. Both fold into autoscaling via
 //! [`data_limits`](Axes::data_limits).
 //!
 //! Triangles whose indices fall outside `x`/`y` are skipped (never panic), and
 //! mismatched `x`/`y` lengths or empty input draw nothing.
 
 use crate::artist::{Line2D, Patch};
-use crate::core::color::{LinearNorm, Normalize, colormap};
+use crate::core::color::{Colormap, LinearNorm, Normalize, default_colormap};
 
 use crate::figure::Axes;
 
@@ -89,7 +89,7 @@ impl Axes {
     /// `values` is per-vertex (`values.len()` must equal `x.len()`). For each
     /// triangle the three vertices' values are averaged, normalized through a
     /// [`LinearNorm`] over `[min(values), max(values)]`, and mapped through the
-    /// `viridis` colormap to a single face color. Each triangle is drawn as a
+    /// default colormap to a single face color. Each triangle is drawn as a
     /// filled [`Patch`] whose edge matches its face, so adjacent triangles tile
     /// without visible seams.
     ///
@@ -138,7 +138,7 @@ impl Axes {
             vmax = 1.0;
         }
         let norm = LinearNorm::new(vmin, vmax);
-        let cmap = colormap("viridis").expect("viridis is built in");
+        let cmap = default_colormap();
 
         let mut any = false;
         let (mut xmin, mut xmax) = (f64::INFINITY, f64::NEG_INFINITY);
@@ -206,7 +206,7 @@ impl Axes {
     /// crossing is a straight segment whose endpoints are found by inverse
     /// interpolation along the two crossed edges — the triangle analogue of
     /// marching squares, with no ambiguous cases. Each segment becomes a
-    /// two-point [`Line2D`] colored by its level through `viridis`.
+    /// two-point [`Line2D`] colored by its level through the default colormap.
     ///
     /// Mismatched lengths, an empty mesh, a flat field, or `n_levels == 0`
     /// draw nothing (never panic).
@@ -225,7 +225,7 @@ impl Axes {
             return self;
         }
         let norm = LinearNorm::new(vmin, vmax);
-        let cmap = colormap("viridis").expect("viridis is built in");
+        let cmap = default_colormap();
         let span = vmax - vmin;
         let n = x.len();
 
@@ -284,7 +284,7 @@ impl Axes {
     /// along edges), producing exact polygonal band pieces — smooth marching
     /// bands, unlike the per-cell flat banding of
     /// [`contourf`](Axes::contourf). Each piece is a [`Patch`] colored by the
-    /// band's center value through `viridis`.
+    /// band's center value through the default colormap.
     ///
     /// Mismatched lengths, an empty mesh, a flat field, or `n_bands == 0`
     /// draw nothing (never panic).
@@ -303,7 +303,7 @@ impl Axes {
             return self;
         }
         let norm = LinearNorm::new(vmin, vmax);
-        let cmap = colormap("viridis").expect("viridis is built in");
+        let cmap = default_colormap();
         let span = vmax - vmin;
         let n = x.len();
 
@@ -434,7 +434,7 @@ fn clip_by_value(poly: &[([f64; 2], f64)], bound: f64, keep_above: bool) -> Vec<
 #[cfg(test)]
 mod tests {
     use crate::artist::Artist;
-    use crate::core::color::{Colormap, Rgba, viridis};
+    use crate::core::color::{Colormap, Rgba, default_colormap};
     use crate::core::{Affine2D, Bbox, Path};
 
     use crate::figure::Axes;
@@ -507,14 +507,14 @@ mod tests {
     #[test]
     fn tripcolor_colors_span_the_value_range() {
         // Two well-separated triangles: one entirely at the min value, one at
-        // the max, so their averaged colors are the viridis endpoints.
+        // the max, so their averaged colors are the colormap endpoints.
         let x = [0.0, 1.0, 0.0, 2.0, 3.0, 2.0];
         let y = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0];
         let values = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
         let tris = [[0, 1, 2], [3, 4, 5]];
         let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
         ax.tripcolor(&x, &y, &tris, &values);
-        let cm = viridis();
+        let cm = default_colormap();
         let lo = cm.sample(0.0);
         let hi = cm.sample(1.0);
         assert_eq!(patch_fill(&ax.patches[0]), Some(lo));

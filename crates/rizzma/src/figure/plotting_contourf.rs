@@ -3,7 +3,7 @@
 //! Mirrors matplotlib's `Axes.contourf` for the regular-grid case: it partitions
 //! the value range `[zmin, zmax]` into a set of evenly-spaced bands and fills the
 //! regions between successive contour levels with a color drawn from the
-//! `viridis` colormap. Where [`contour`](super::Axes::contour) traces the level
+//! default colormap. Where [`contour`](super::Axes::contour) traces the level
 //! *lines*, `contourf` fills the *bands* between them.
 //!
 //! The fill uses flat per-cell banding: each `2 x 2` grid cell (corners at
@@ -13,7 +13,7 @@
 //! extent folds into [`data_limits`](super::Axes::data_limits) for autoscaling.
 
 use crate::artist::QuadMesh;
-use crate::core::color::{LinearNorm, Normalize, colormap};
+use crate::core::color::{Colormap, LinearNorm, Normalize, default_colormap};
 
 use crate::figure::Axes;
 
@@ -42,7 +42,7 @@ impl Axes {
     /// value range `[zmin, zmax]` (finite data min/max) is split into eight
     /// evenly-spaced bands. Each `2 x 2` grid cell becomes a filled
     /// quadrilateral colored by the band into which its mean corner value falls,
-    /// sampled from the `viridis` colormap through a [`LinearNorm`] over
+    /// sampled from the default colormap through a [`LinearNorm`] over
     /// `[zmin, zmax]`. Over a smooth field the cells read as concentric colored
     /// contour bands. The filled mesh is stored as a [`QuadMesh`] (drawn beneath
     /// lines and patches) and the grid extent folds into
@@ -87,7 +87,7 @@ impl Axes {
         }
 
         let norm = LinearNorm::new(zmin, zmax);
-        let cmap = colormap("viridis").expect("viridis is built in");
+        let cmap = default_colormap();
         let span = zmax - zmin;
         let n_bands = DEFAULT_N_LEVELS;
 
@@ -106,7 +106,7 @@ impl Axes {
         }
 
         // Color each cell by the band its mean corner value falls into. The band
-        // is represented by its center value, mapped through viridis so adjacent
+        // is represented by its center value, mapped through the colormap so adjacent
         // cells in the same band share exactly one color (flat banding).
         let mut facecolors = Vec::with_capacity(cell_rows * cell_cols);
         for r in 0..cell_rows {
@@ -186,7 +186,7 @@ mod tests {
         let fills = mesh_fills(&ax);
         assert!(!fills.is_empty(), "contourf emits filled cells");
         // The lowest-valued cell and the highest-valued cell land in different
-        // viridis bands, so the min-band color differs from the max-band color.
+        // color bands, so the min-band color differs from the max-band color.
         assert_ne!(
             fills.first().copied(),
             fills.last().copied(),

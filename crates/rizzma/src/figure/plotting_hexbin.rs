@@ -5,12 +5,12 @@
 //! that fall in it. The tiling is produced by matplotlib's two-grid algorithm —
 //! two rectangular grids offset by half a cell, with each point assigned to the
 //! grid whose cell center is nearest under the hexagonal Voronoi metric. The
-//! counts are colormapped through `viridis` exactly as
+//! counts are colormapped through the default colormap exactly as
 //! [`hist2d`](Axes::hist2d) does, and each occupied hexagon is emitted as a
 //! filled [`Patch`].
 
 use crate::artist::Patch;
-use crate::core::color::{LinearNorm, Normalize, Rgba, colormap};
+use crate::core::color::{Colormap, LinearNorm, Normalize, Rgba, default_colormap};
 
 use crate::figure::Axes;
 
@@ -20,7 +20,7 @@ impl Axes {
     /// The points are aggregated into a hexagonal tiling with `gridsize`
     /// hexagons across the x direction (and a proportional number in y). Each
     /// hexagon is colored by the count of points falling in it, via the
-    /// `viridis` colormap normalized over `[0, max_count]`; empty hexagons are
+    /// default colormap normalized over `[0, max_count]`; empty hexagons are
     /// not drawn. The tiling follows matplotlib's two-grid algorithm: two
     /// rectangular grids offset by half a cell are overlaid, and each point is
     /// assigned to the grid whose cell center is nearest (which tessellates the
@@ -116,7 +116,7 @@ impl Axes {
             .cloned()
             .fold(0.0_f64, f64::max);
         let norm = LinearNorm::new(0.0, max_count);
-        let cmap = colormap("viridis").expect("viridis is built in");
+        let cmap = default_colormap();
 
         // Unit hexagon outline (offsets relative to a center): pointy-top, with
         // vertical flat edges of width sx and points at the top/bottom at ±sy/3.
