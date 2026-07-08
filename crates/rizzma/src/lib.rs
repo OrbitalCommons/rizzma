@@ -31,6 +31,22 @@
 //!
 //! Building with `--no-default-features` yields the core, figure, and all backends
 //! without 3D, pyplot, or wasm.
+//!
+//! ## Colormaps
+//!
+//! The default colormap is `bgyw` (CET-L09), a perceptually uniform linear map
+//! from Peter Kovesi's CET collection: its lightness rises at a constant rate,
+//! so equal steps in your data read as equal steps of contrast on screen. The
+//! full set of Kovesi maps featured in the paper ships with the crate,
+//! organized by lightness profile — linear, diverging, rainbow, cyclic, and
+//! isoluminant; see [`core::color::cmap`] for the taxonomy and when to reach
+//! for each class. The classic vendor maps (`jet`, `hot`, `hsv`, `rainbow`)
+//! hide and invent features, so they live behind the
+//! [`core::color::misleading`] module and a `misleading:` name prefix — usable,
+//! but never by accident.
+//!
+//! Reference: Peter Kovesi. *Good Colour Maps: How to Design Them.*
+//! [arXiv:1509.03700 \[cs.GR\] 2015](https://arxiv.org/abs/1509.03700).
 
 pub mod artist;
 pub mod axis;

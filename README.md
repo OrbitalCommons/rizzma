@@ -68,6 +68,21 @@ every push to `main` and published to the `gh-pages` branch (so these images nev
 Regenerate locally with `cargo run -p rizzma --example gallery` (writes
 `target/gallery_*.png`).
 
+## Colormaps
+
+The default colormap is `bgyw` (CET-L09), a perceptually uniform linear map
+from Peter Kovesi's CET collection, and the rest of the maps featured in his
+paper ship alongside it — organized by lightness profile into linear,
+diverging, rainbow, cyclic, and isoluminant classes (see the
+`core::color::cmap` module docs for when to reach for each). The classic
+vendor maps (`jet`, `hot`, `hsv`, `rainbow`) have uneven perceptual contrast
+that hides real features and invents false ones, so they are quarantined
+behind the `core::color::misleading` module and a `misleading:` name prefix —
+available, but never by accident.
+
+> Peter Kovesi. *Good Colour Maps: How to Design Them.*
+> [arXiv:1509.03700 [cs.GR] 2015](https://arxiv.org/abs/1509.03700).
+
 ## Module layout
 
 `rizzma` is a single publishable crate. Each area lives in its own module under

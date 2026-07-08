@@ -11,14 +11,18 @@
 //! [`to_rgba_array`] helper ties a [`Normalize`] and a [`Colormap`] together
 //! into the data-to-color pipeline used by scatter/imshow.
 
+mod cet_data;
 pub mod cmap;
 mod cmap_data;
+pub mod misleading;
 pub mod named;
 pub mod norm;
 
 pub use cmap::{
-    Colormap, LinearSegmentedColormap, ListedColormap, SegmentPoint, VIRIDIS_DATA, cividis,
-    colormap, coolwarm, gray, inferno, magma, plasma, rdbu, viridis,
+    Colormap, DEFAULT_COLORMAP, LinearSegmentedColormap, ListedColormap, SegmentPoint,
+    VIRIDIS_DATA, cet_c1, cet_c2, cet_c3, cet_c5, cet_d01, cet_d04, cet_d07, cet_d11, cet_i1,
+    cet_l01, cet_l03, cet_l05, cet_l09, cet_l10, cet_r2, cividis, colormap, coolwarm,
+    default_colormap, gray, inferno, magma, plasma, rdbu, viridis,
 };
 pub use named::{BASE_COLORS, CSS4_COLORS, DEFAULT_COLOR_CYCLE, TABLEAU_COLORS, to_rgba};
 pub use norm::{BoundaryNorm, LinearNorm, LogNorm, Normalize, PowerNorm};

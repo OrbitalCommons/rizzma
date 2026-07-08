@@ -8,7 +8,9 @@
 //! focused on the line/patch convenience methods.
 
 use crate::artist::{Collection, Line2D, Patch};
-use crate::core::color::{DEFAULT_COLOR_CYCLE, LinearNorm, Rgba, colormap, to_rgba_array, viridis};
+use crate::core::color::{
+    DEFAULT_COLOR_CYCLE, LinearNorm, Rgba, colormap, default_colormap, to_rgba_array,
+};
 
 use crate::figure::Axes;
 
@@ -66,7 +68,7 @@ impl Axes {
     ///
     /// Like [`scatter`](Axes::scatter), but each marker's face color is taken by
     /// normalizing `c` linearly over its own `(vmin, vmax)` and sampling the
-    /// named colormap `cmap_name` (falling back to `viridis` for an unknown
+    /// named colormap `cmap_name` (falling back to the default map for an unknown
     /// name). The property cycle is left untouched. Only the common prefix of
     /// `x`, `y`, and `c` is used. Returns a mutable reference for further
     /// styling.
@@ -81,7 +83,7 @@ impl Axes {
         let offsets: Vec<[f64; 2]> = (0..n).map(|i| [x[i], y[i]]).collect();
         let (vmin, vmax) = finite_min_max(&c[..n]).unwrap_or((0.0, 1.0));
         let norm = LinearNorm::new(vmin, vmax);
-        let cmap = colormap(cmap_name).unwrap_or_else(|| Box::new(viridis()));
+        let cmap = colormap(cmap_name).unwrap_or_else(|| Box::new(default_colormap()));
         let facecolors = to_rgba_array(&c[..n], &norm, &*cmap);
         let coll = Collection::scatter(offsets).with_facecolors(facecolors);
         self.collections.push(coll);

@@ -12,9 +12,9 @@ fn main() {
     let x: Vec<f64> = (0..n).map(|i| (i as f64 * 0.3).cos() * i as f64).collect();
     let y: Vec<f64> = (0..n).map(|i| (i as f64 * 0.3).sin() * i as f64).collect();
     let c: Vec<f64> = (0..n).map(|i| i as f64).collect();
-    ax.scatter_mapped(&x, &y, &c, "viridis");
+    ax.scatter_mapped(&x, &y, &c, "bgyw");
 
-    ax.set_title("scatter (viridis)");
+    ax.set_title("scatter (bgyw)");
     ax.set_xlabel("x");
     ax.set_ylabel("y");
 

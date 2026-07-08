@@ -36,7 +36,7 @@ fn main() {
         (orange, "cos(x)".to_string()),
     ]);
 
-    fig.colorbar("viridis", 0.0, 1.0);
+    fig.colorbar("bgyw", 0.0, 1.0);
 
     let png = "target/legend_colorbar.png";
     let svg = "target/legend_colorbar.svg";

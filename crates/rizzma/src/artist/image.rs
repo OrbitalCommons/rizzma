@@ -6,7 +6,9 @@
 //! image's data-space `extent`. Resampling is nearest-neighbour, hand-rolled so
 //! the crate takes on no new dependencies.
 
-use crate::core::color::{Colormap, LinearNorm, Normalize, colormap};
+use crate::core::color::{
+    Colormap, DEFAULT_COLORMAP, LinearNorm, Normalize, colormap, default_colormap,
+};
 use crate::core::{Affine2D, Bbox};
 use crate::render::{GraphicsContext, Renderer};
 
@@ -16,7 +18,7 @@ use crate::artist::Artist;
 ///
 /// Construct with [`AxesImage::new`] from a row-major `nrows x ncols` data
 /// array. By default the image occupies the data rectangle `(0, ncols, 0,
-/// nrows)`, uses `vmin`/`vmax` equal to the data min/max, the `viridis`
+/// nrows)`, uses `vmin`/`vmax` equal to the data min/max, the default
 /// colormap, and matplotlib's `origin="upper"` convention (data row `0` is
 /// drawn at the *top* of the extent). Adjust via the builder setters before
 /// adding the image to an axes.
@@ -52,7 +54,7 @@ impl AxesImage {
     /// The data is interpreted row-major (`data[r * ncols + c]`). Defaults
     /// mirror matplotlib's `imshow`: extent `(0, ncols, 0, nrows)`,
     /// `origin="upper"`, `vmin`/`vmax` set to the finite data min/max, the
-    /// `viridis` colormap, zorder `0.0`, and visible. When the data is empty or
+    /// default colormap, zorder `0.0`, and visible. When the data is empty or
     /// all-NaN, `vmin`/`vmax` fall back to `(0.0, 1.0)`.
     ///
     /// # Panics
@@ -75,7 +77,7 @@ impl AxesImage {
             extent: [0.0, ncols as f64, 0.0, nrows as f64],
             vmin,
             vmax,
-            cmap_name: "viridis".to_string(),
+            cmap_name: DEFAULT_COLORMAP.to_string(),
             origin_upper: true,
             zorder: 0.0,
             visible: true,
@@ -186,10 +188,10 @@ impl AxesImage {
     }
 }
 
-/// Resolve a colormap by name, falling back to `viridis` for unknown names so a
-/// stray name never produces an all-transparent image.
+/// Resolve a colormap by name, falling back to the default map for unknown
+/// names so a stray name never produces an all-transparent image.
 fn resolve_cmap(name: &str) -> Box<dyn Colormap> {
-    colormap(name).unwrap_or_else(|| colormap("viridis").expect("viridis is built in"))
+    colormap(name).unwrap_or_else(|| Box::new(default_colormap()))
 }
 
 /// Colorize a single scalar `value` through `norm` then `cmap` into straight
@@ -313,7 +315,7 @@ impl Artist for AxesImage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::color::viridis;
+    use crate::core::color::default_colormap;
 
     #[test]
     fn defaults_match_matplotlib() {
@@ -325,21 +327,21 @@ mod tests {
     }
 
     #[test]
-    fn min_cell_is_viridis_zero_and_max_cell_is_viridis_one() {
+    fn min_cell_is_cmap_zero_and_max_cell_is_cmap_one() {
         // 2x2 with min = 0.0 (top-left) and max = 3.0 (bottom-right).
         let img = AxesImage::new(vec![0.0, 1.0, 2.0, 3.0], 2, 2);
-        let cm = viridis();
+        let cm = default_colormap();
         let lo = cm.sample(0.0).to_u8_array();
         let hi = cm.sample(1.0).to_u8_array();
 
-        // Row 0, col 0 holds the minimum -> viridis(0), dark purple.
+        // Row 0, col 0 holds the minimum -> cmap(0), dark blue.
         assert_eq!(img.colorize_cell(0, 0), lo);
-        // Row 1, col 1 holds the maximum -> viridis(1), yellow.
+        // Row 1, col 1 holds the maximum -> cmap(1), near-white.
         assert_eq!(img.colorize_cell(1, 1), hi);
 
-        // Sanity: viridis(0) is dark purple, viridis(1) is yellow.
-        assert!(lo[0] < 80 && lo[2] > 60 && lo[1] < 30);
-        assert!(hi[0] > 200 && hi[1] > 200 && hi[2] < 80);
+        // Sanity: cet_l09(0) is dark blue, cet_l09(1) is near-white.
+        assert!(lo[0] < 80 && lo[2] > 100 && lo[1] < 30);
+        assert!(hi[0] > 200 && hi[1] > 200 && hi[2] > 200);
     }
 
     #[test]
@@ -359,7 +361,7 @@ mod tests {
     #[test]
     fn nonfinite_value_colorizes_transparent() {
         let norm = LinearNorm::new(0.0, 1.0);
-        let cm = viridis();
+        let cm = default_colormap();
         assert_eq!(colorize(f64::NAN, &norm, &cm), [0, 0, 0, 0]);
     }
 

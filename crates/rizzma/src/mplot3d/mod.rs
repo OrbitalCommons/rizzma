@@ -28,7 +28,7 @@
 //!
 //! Build-order home: Phase 11 (its own epic) of `design/04-implementation-plan.md`.
 
-use crate::core::color::viridis;
+use crate::core::color::default_colormap;
 use crate::core::{Affine2D, Colormap, LinearNorm, Normalize, Path, color::Rgba};
 use crate::render::{GraphicsContext, Renderer};
 use crate::skia::SkiaRenderer;
@@ -104,7 +104,7 @@ struct SurfaceQuad {
 /// A flat-shaded surface drawn with [`Axes3D::plot_surface`].
 ///
 /// Each grid cell becomes one [`SurfaceQuad`], colored by its mean height through
-/// a [`viridis`] colormap; quads are depth-sorted with the rest of the scene.
+/// the default colormap; quads are depth-sorted with the rest of the scene.
 #[derive(Debug, Clone)]
 struct Surface3D {
     quads: Vec<SurfaceQuad>,
@@ -385,7 +385,7 @@ impl Axes3D {
     /// `x` has length `nx`, `y` has length `ny`, and `z` has length `nx * ny` in
     /// row-major order: `z[j * nx + i]` is the height at `(x[i], y[j])`. Each grid
     /// cell `(i, j)` becomes a filled quadrilateral from its four corner heights,
-    /// colored by the cell's mean height through a [`viridis`] colormap (flat
+    /// colored by the cell's mean height through the default colormap (flat
     /// shading) with a thin darker edge so the mesh reads. The quads join the
     /// rest of the scene in the painter's-algorithm depth sort.
     ///
@@ -420,7 +420,7 @@ impl Axes3D {
         }
 
         let norm = LinearNorm::new(zmin, zmax);
-        let cmap = viridis();
+        let cmap = default_colormap();
         let at = |i: usize, j: usize| z[j * nx + i];
 
         let mut quads = Vec::with_capacity((nx - 1) * (ny - 1));
@@ -516,7 +516,7 @@ impl Axes3D {
     /// rectangular box (cuboid) whose faces are emitted as filled quads that join
     /// the rest of the scene in the painter's-algorithm depth sort, so nearer
     /// faces correctly occlude farther ones. Each bar is colored by its height
-    /// `z[i]` through a [`viridis`] colormap (top face at the base color, side
+    /// `z[i]` through the default colormap (top face at the base color, side
     /// faces a fixed darker shade) with thin dark edges so the 3D form reads.
     ///
     /// Only the common prefix length is used when the slices differ in length;
@@ -548,7 +548,7 @@ impl Axes3D {
         }
 
         let norm = LinearNorm::new(zmin, zmax);
-        let cmap = viridis();
+        let cmap = default_colormap();
 
         for i in 0..n {
             let base = cmap.sample(norm.normalize(z[i]));
@@ -1160,7 +1160,7 @@ mod tests {
         assert_eq!(quad_count(&ax), (nx - 1) * (ny - 1));
     }
 
-    /// The lowest- and highest-mean-height quads get distinct viridis colors.
+    /// The lowest- and highest-mean-height quads get distinct colormap colors.
     #[test]
     fn surface_min_and_max_quads_differ_in_color() {
         let (x, y, z) = ramp_surface(4, 4);
@@ -1270,7 +1270,7 @@ mod tests {
         assert_eq!((ax.zr.min, ax.zr.max), (0.0, 5.0));
     }
 
-    /// Bars of different height receive different viridis colors.
+    /// Bars of different height receive different colormap colors.
     #[test]
     fn bar3d_colors_by_height() {
         let mut ax = Axes3D::new();
@@ -1294,7 +1294,10 @@ mod tests {
         ax.bar3d(&[0.0], &[0.0], &[3.0], 1.0, 1.0);
         let top = ax.bars[0].faces[1].color;
         let front = ax.bars[0].faces[2].color;
-        assert!(front.r < top.r && front.g < top.g && front.b < top.b);
+        // Zero channels stay zero under the side shade; every channel darkens
+        // or holds, and the face is strictly darker overall.
+        assert!(front.r <= top.r && front.g <= top.g && front.b <= top.b);
+        assert!(front.r + front.g + front.b < top.r + top.g + top.b);
     }
 
     /// Count the line primitives `collect_drawables` emits.
