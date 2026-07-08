@@ -35,9 +35,9 @@ jobs:
           {
             echo '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>rizzma gallery</title>'
             # Responsive grid: images fill their track (100% width), tracks are
-            # ~420px on desktop and collapse to a single full-width column on
+            # ~800px on desktop and collapse to a single full-width column on
             # mobile via auto-fill + minmax.
-            echo '<style>body{font-family:system-ui;background:#1a1b26;color:#c0caf5;max-width:1320px;margin:2rem auto;padding:0 12px}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(420px,100%),1fr));gap:16px}figure{margin:0}img{width:100%;height:auto;display:block;border:1px solid #565f89;border-radius:6px;background:#fff}figcaption{text-align:center;padding:4px 0 0;font-size:0.9rem;opacity:0.85}</style>'
+            echo '<style>body{font-family:system-ui;background:#1a1b26;color:#c0caf5;max-width:1640px;margin:2rem auto;padding:0 12px}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(800px,100%),1fr));gap:16px}figure{margin:0}img{width:100%;height:auto;display:block;border:1px solid #565f89;border-radius:6px;background:#fff}figcaption{text-align:center;padding:4px 0 0;font-size:0.9rem;opacity:0.85}</style>'
             echo '<h1>rizzma gallery</h1>'
             echo '<p>Auto-rendered from <code>crates/rizzma/examples/gallery.rs</code> on every push to <code>main</code>.</p>'
             echo '<main>'

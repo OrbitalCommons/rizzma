@@ -10,6 +10,23 @@ use rizzma::axis::dates::date2num;
 use rizzma::core::color::Rgba;
 use rizzma::figure::{Figure, PolarAxes, SkyAxes, SkyProjection};
 
+/// Render docs/gallery images at publication-friendly resolution. The figure
+/// dimensions stay in inches so layout proportions are unchanged; the DPI is
+/// raised per figure so every generated gallery image is at least this wide.
+const GALLERY_MIN_WIDTH_PX: f64 = 1600.0;
+const GALLERY_SQUARE_PX: u32 = 1600;
+const GALLERY_SQUARE_DPI: f64 = 320.0;
+const GALLERY_SKY_WIDTH_PX: u32 = 1600;
+const GALLERY_SKY_HEIGHT_PX: u32 = 850;
+const GALLERY_SKY_DPI: f64 = 250.0;
+const GALLERY_3D_WIDTH_PX: u32 = 1600;
+const GALLERY_3D_HEIGHT_PX: u32 = 1344;
+const GALLERY_3D_DPI: f64 = 320.0;
+
+fn gallery_figure(width_in: f64, height_in: f64) -> Figure {
+    Figure::new(width_in, height_in).with_dpi((GALLERY_MIN_WIDTH_PX / width_in).ceil())
+}
+
 fn linspace(a: f64, b: f64, n: usize) -> Vec<f64> {
     (0..n)
         .map(|i| a + (b - a) * i as f64 / (n - 1) as f64)
@@ -46,7 +63,7 @@ fn c(i: usize) -> Rgba {
 fn main() {
     // 1. plot (line) — two close frequencies beating against each other.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let x = linspace(0.0, 8.0 * TAU, 900);
         let y: Vec<f64> = x
             .iter()
@@ -62,7 +79,7 @@ fn main() {
 
     // 2. scatter (colormapped) — a two-armed spiral galaxy with star jitter.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let mut noise = rng(0xBADC0FFEE0DDF00D);
         let (mut x, mut y, mut t) = (Vec::new(), Vec::new(), Vec::new());
         for arm in 0..2 {
@@ -86,7 +103,7 @@ fn main() {
 
     // 3. bar — commit activity by hour, featuring the infamous 2am spike.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let x: Vec<f64> = (0..24).map(|h| h as f64).collect();
         let h: Vec<f64> = (0..24)
             .map(|hr| {
@@ -107,7 +124,7 @@ fn main() {
 
     // 4. barh — coffee consumed per release candidate.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let y = [0.0, 1.0, 2.0, 3.0];
         let w = [2.0, 5.0, 9.0, 14.0];
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
@@ -119,7 +136,7 @@ fn main() {
 
     // 5. hist — minutes to find a missing semicolon: short mode, long tail.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let mut next = rng(0x2545F4914F6CDD1D);
         let mut data = Vec::new();
         for _ in 0..380 {
@@ -141,7 +158,7 @@ fn main() {
 
     // 6. fill_between — a year of daily temperature range.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let mut wob = rng(0xC1DA7E5);
         let x = linspace(0.0, 12.0, 200);
         // Seasonal swing peaking mid-year (July ≈ month 6.5).
@@ -166,7 +183,7 @@ fn main() {
 
     // 7. step — the office thermostat wars, hour by hour.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let x: Vec<f64> = (0..12).map(|h| h as f64).collect();
         let y = [
             21.0, 24.0, 20.0, 24.5, 19.5, 25.0, 19.0, 25.5, 18.5, 26.0, 22.0, 22.0,
@@ -181,7 +198,7 @@ fn main() {
 
     // 8. errorbar — measuring g with rising caffeine levels.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let mut jit = rng(0xDECAF);
         let x = linspace(0.0, 9.0, 10);
         let y: Vec<f64> = x
@@ -200,7 +217,7 @@ fn main() {
 
     // 9. reference lines & spans — an operating envelope, and you.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.set_xlim(0.0, 10.0);
         ax.set_ylim(0.0, 10.0);
@@ -219,7 +236,7 @@ fn main() {
 
     // 10. imshow — two-source interference fringes.
     {
-        let mut fig = Figure::new(5.0, 3.8);
+        let mut fig = gallery_figure(5.0, 3.8);
         let (nr, nc) = (80usize, 100usize);
         let mut data = vec![0.0; nr * nc];
         for r in 0..nr {
@@ -243,7 +260,7 @@ fn main() {
 
     // 11. legend + colorbar — predator–prey cycles, a quarter out of phase.
     {
-        let mut fig = Figure::new(6.0, 4.0);
+        let mut fig = gallery_figure(6.0, 4.0);
         let x = linspace(0.0, 24.0, 400);
         let hares: Vec<f64> = x
             .iter()
@@ -271,7 +288,7 @@ fn main() {
 
     // 12. stem — a struck bell ringing down.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let x = linspace(0.0, 3.0 * TAU, 40);
         let y: Vec<f64> = x
             .iter()
@@ -287,7 +304,7 @@ fn main() {
 
     // 13. stairs — the elevation profile of a commute with exactly one hill.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let values = [
             12.0, 14.0, 15.0, 22.0, 48.0, 74.0, 60.0, 28.0, 16.0, 13.0, 12.0, 11.0,
         ];
@@ -302,7 +319,7 @@ fn main() {
 
     // 14. pcolormesh — standing waves in a square drumhead.
     {
-        let mut fig = Figure::new(5.0, 3.8);
+        let mut fig = gallery_figure(5.0, 3.8);
         let (nr, nc) = (28usize, 28usize);
         let mut cdata = vec![0.0; nr * nc];
         for r in 0..nr {
@@ -321,7 +338,7 @@ fn main() {
 
     // 15. stackplot — where the workday actually goes.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let x = linspace(0.0, 10.0, 60); // sprint days
         let deep_work: Vec<f64> = x.iter().map(|d| (3.4 - 0.22 * d).max(0.7)).collect();
         let meetings: Vec<f64> = x
@@ -344,7 +361,7 @@ fn main() {
 
     // 16. broken_barh — a CI timeline with one suspicious gap.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         // Lane 1: build stages back-to-back.
         ax.broken_barh(&[(0.0, 3.0), (3.2, 2.0), (5.4, 1.4)], (10.0, 4.0));
@@ -357,7 +374,7 @@ fn main() {
 
     // 17. boxplot — time-to-first-review across four repos.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let well_run = [1.0, 1.5, 2.0, 2.0, 2.5, 3.0];
         let normal = [1.0, 3.0, 5.0, 7.0, 9.0, 11.0];
         let backlogged = [2.0, 2.5, 3.0, 3.5, 4.0, 9.0];
@@ -371,7 +388,7 @@ fn main() {
 
     // 18. mathtext title — sinc, labeled in math.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let x = linspace(-6.0 * PI, 6.0 * PI, 481);
         let y: Vec<f64> = x
             .iter()
@@ -385,7 +402,7 @@ fn main() {
 
     // 19. contour — a mountain saddle between two peaks.
     {
-        let mut fig = Figure::new(5.0, 3.8);
+        let mut fig = gallery_figure(5.0, 3.8);
         let (nr, nc) = (40usize, 40usize);
         let mut z = vec![0.0; nr * nc];
         for r in 0..nr {
@@ -406,7 +423,7 @@ fn main() {
 
     // 20. eventplot — one bar of drum & bass as a spike raster.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         // Hi-hat on every 16th, snare on 2 and 4, kick syncopated.
         let hihat: Vec<f64> = (0..16).map(|i| i as f64 * 0.25).collect();
         let snare = vec![1.0, 3.0];
@@ -420,7 +437,7 @@ fn main() {
 
     // 21. fill_betweenx — a lazy meandering river, width = flow.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let y = linspace(0.0, 10.0, 200);
         let center: Vec<f64> = y
             .iter()
@@ -442,7 +459,7 @@ fn main() {
 
     // 22. ecdf — how long TODO(urgent) comments actually live.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         // Days until fixed: a few same-day, lumps at "next sprint" and "next
         // quarter", and the immortals.
         let data = [
@@ -459,7 +476,7 @@ fn main() {
 
     // 23. matshow — the times table, as heat.
     {
-        let mut fig = Figure::new(5.0, 3.8);
+        let mut fig = gallery_figure(5.0, 3.8);
         let (nr, nc) = (12usize, 12usize);
         let mut data = vec![0.0; nr * nc];
         for r in 0..nr {
@@ -477,7 +494,7 @@ fn main() {
 
     // 24. spy — who reviews whose PRs (everyone pings the maintainer).
     {
-        let mut fig = Figure::new(5.0, 3.8);
+        let mut fig = gallery_figure(5.0, 3.8);
         let (nr, nc) = (16usize, 16usize);
         let mut data = vec![0.0; nr * nc];
         for r in 0..nr {
@@ -498,7 +515,7 @@ fn main() {
 
     // 25. hist2d — espresso intake vs. typing speed, suspiciously correlated.
     {
-        let mut fig = Figure::new(5.0, 3.8);
+        let mut fig = gallery_figure(5.0, 3.8);
         let mut next = rng(0x9E3779B97F4A7C15);
         let mut x = Vec::new();
         let mut y = Vec::new();
@@ -519,7 +536,7 @@ fn main() {
 
     // 26. pie — the classic.
     {
-        let mut fig = Figure::new(4.0, 4.0);
+        let mut fig = gallery_figure(4.0, 4.0);
         let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
         ax.pie(&[75.0, 25.0]);
         ax.set_title("fraction of this chart that resembles Pac-Man");
@@ -528,7 +545,7 @@ fn main() {
 
     // 27. violinplot — a field guide to distributions.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let tight: Vec<f64> = (0..60)
             .map(|k| 5.0 + 0.6 * (k as f64 * 0.7).sin())
             .collect();
@@ -555,7 +572,7 @@ fn main() {
 
     // 28. hexbin — GPS pings around the two lunch spots.
     {
-        let mut fig = Figure::new(5.0, 3.8);
+        let mut fig = gallery_figure(5.0, 3.8);
         let mut next = rng(0x243F6A8885A308D3);
         let mut x = Vec::new();
         let mut y = Vec::new();
@@ -582,7 +599,7 @@ fn main() {
 
     // 29. grouped_bar — estimated vs. actual vs. shipped, four sprints.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let estimated = [8.0, 8.0, 8.0, 8.0]; // estimates are remarkably stable
         let actual = [11.0, 9.5, 13.0, 10.5];
         let shipped = [5.0, 6.5, 4.0, 7.0];
@@ -600,7 +617,7 @@ fn main() {
 
     // 30. loglog — Zipf's law: frequency falls as 1/rank.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let x = linspace(1.0, 1000.0, 240);
         let y: Vec<f64> = x.iter().map(|r| 1.0e6 / r).collect();
         let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
@@ -615,7 +632,7 @@ fn main() {
 
     // 31. quiver — wind field spiraling into a low.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let coords = linspace(-3.0, 3.0, 9);
         let (mut x, mut y, mut u, mut v) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         for &gy in &coords {
@@ -634,7 +651,7 @@ fn main() {
 
     // 32. streamplot — the same cyclone, ridden by streamlines.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let coords = linspace(-3.0, 3.0, 25);
         let nx = coords.len();
         let ny = coords.len();
@@ -688,7 +705,7 @@ fn main() {
 
     // 33. triplot (wireframe of the jittered triangulated grid)
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let ax = fig.add_axes(0.15, 0.15, 0.80, 0.74);
         ax.triplot(&vx, &vy, &triangles);
         ax.set_title("finite-element mesh (budget edition)");
@@ -697,7 +714,7 @@ fn main() {
 
     // 34. tripcolor (heat spreading from a point on the same mesh)
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let values: Vec<f64> = vx
             .iter()
             .zip(&vy)
@@ -711,7 +728,7 @@ fn main() {
 
     // 35. symlog (cubic spanning negative, zero, and positive tails)
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let x = linspace(-100.0, 100.0, 161);
         let y: Vec<f64> = x.iter().map(|v| v * v * v).collect();
         let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
@@ -728,7 +745,7 @@ fn main() {
 
     // 36. logit (sigmoid with probability-tail ticks)
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let x = linspace(-7.0, 7.0, 161);
         let y: Vec<f64> = x.iter().map(|v| 1.0 / (1.0 + (-v).exp())).collect();
         let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
@@ -742,7 +759,7 @@ fn main() {
 
     // 37. asinh (linear near zero with logarithmic tails)
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let x = linspace(-100.0, 100.0, 201);
         let y: Vec<f64> = x.iter().map(|v| v * v * v).collect();
         let ax = fig.add_axes(0.17, 0.16, 0.76, 0.72);
@@ -758,7 +775,7 @@ fn main() {
 
     // 38. date axis — coffee ramps into the May release, then the crash.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let x = [
             date_num(2026, 1, 1),
             date_num(2026, 2, 1),
@@ -784,8 +801,13 @@ fn main() {
         let r: Vec<f64> = theta.iter().map(|t| (3.0 * t).cos().abs()).collect();
         let mut ax = PolarAxes::new();
         ax.plot(&theta, &r);
-        ax.save_png("target/gallery_polar.png", 500, 500, 100.0)
-            .unwrap();
+        ax.save_png(
+            "target/gallery_polar.png",
+            GALLERY_SQUARE_PX,
+            GALLERY_SQUARE_PX,
+            GALLERY_SQUARE_DPI,
+        )
+        .unwrap();
     }
 
     // 40. polar scatter (sunflower phyllotaxis: golden-angle seed spiral)
@@ -798,8 +820,13 @@ fn main() {
             .collect();
         let mut ax = PolarAxes::new();
         ax.scatter(&theta, &r);
-        ax.save_png("target/gallery_polar_scatter.png", 500, 500, 100.0)
-            .unwrap();
+        ax.save_png(
+            "target/gallery_polar_scatter.png",
+            GALLERY_SQUARE_PX,
+            GALLERY_SQUARE_PX,
+            GALLERY_SQUARE_DPI,
+        )
+        .unwrap();
     }
 
     // 41. polar fill (filled 8-petal rose r = |cos(4θ)|)
@@ -808,13 +835,18 @@ fn main() {
         let r: Vec<f64> = theta.iter().map(|t| (4.0 * t).cos().abs()).collect();
         let mut ax = PolarAxes::new();
         ax.fill(&theta, &r);
-        ax.save_png("target/gallery_polar_fill.png", 500, 500, 100.0)
-            .unwrap();
+        ax.save_png(
+            "target/gallery_polar_fill.png",
+            GALLERY_SQUARE_PX,
+            GALLERY_SQUARE_PX,
+            GALLERY_SQUARE_DPI,
+        )
+        .unwrap();
     }
 
     // 42. contourf (an island chain, filled by elevation band)
     {
-        let mut fig = Figure::new(5.0, 3.8);
+        let mut fig = gallery_figure(5.0, 3.8);
         let (nr, nc) = (60usize, 60usize);
         let mut z = vec![0.0; nr * nc];
         for r in 0..nr {
@@ -836,7 +868,7 @@ fn main() {
     // 43. patches — shape overlays in data coordinates: an aperture ring on a
     // star, a dashed region-of-interest box, and a measurement arc.
     {
-        let mut fig = Figure::new(5.0, 3.8);
+        let mut fig = gallery_figure(5.0, 3.8);
         let (nr, nc) = (60usize, 80usize);
         let mut data = vec![0.0; nr * nc];
         for r in 0..nr {
@@ -881,7 +913,7 @@ fn main() {
 
     // 44. annotate — resonance curve with the peak called out.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let x = linspace(0.0, 10.0, 400);
         let y: Vec<f64> = x
             .iter()
@@ -903,7 +935,7 @@ fn main() {
     // 45. tricontour / tricontourf — a wavefront-error map over the same
     // unstructured mesh: filled bands with isolines on top.
     {
-        let mut fig = Figure::new(5.0, 3.8);
+        let mut fig = gallery_figure(5.0, 3.8);
         // A tilted gaussian bump sampled at the jittered mesh vertices.
         let values: Vec<f64> = vx
             .iter()
@@ -921,7 +953,7 @@ fn main() {
 
     // 46. pcolormesh gouraud — a chirp spectrogram, smoothly shaded.
     {
-        let mut fig = Figure::new(5.0, 3.8);
+        let mut fig = gallery_figure(5.0, 3.8);
         let (nr, nc) = (48usize, 64usize);
         let mut z = vec![0.0; nr * nc];
         for r in 0..nr {
@@ -967,15 +999,20 @@ fn main() {
             clat.push(-0.60 + (noise() - 0.5) * 0.08);
         }
         ax.scatter(&clon, &clat);
-        ax.save_png("target/gallery_sky.png", 640, 340, 100.0)
-            .unwrap();
+        ax.save_png(
+            "target/gallery_sky.png",
+            GALLERY_SKY_WIDTH_PX,
+            GALLERY_SKY_HEIGHT_PX,
+            GALLERY_SKY_DPI,
+        )
+        .unwrap();
     }
 
     // 48. twinx + secondary x — focus mechanism sweep: position (mm, left)
     // and measured tilt (µrad, right) over one time base, with a top axis in
     // seconds.
     {
-        let mut fig = Figure::new(5.0, 3.5);
+        let mut fig = gallery_figure(5.0, 3.5);
         let t = linspace(0.0, 10.0, 200); // minutes
         let position: Vec<f64> = t.iter().map(|&m| 2.5 + 2.0 * (m * 0.6).sin()).collect();
         let tilt: Vec<f64> = t
@@ -1027,13 +1064,18 @@ fn main() {
         ax.text3d(0.0, 1.25, 0.0, "+Y");
         ax.text3d(0.0, 0.0, 1.3, "+Z");
         ax.text3d(0.75, -0.55, 1.55, "boresight");
-        ax.save_png("target/gallery_quiver3d.png", 500, 420, 100.0)
-            .unwrap();
+        ax.save_png(
+            "target/gallery_quiver3d.png",
+            GALLERY_3D_WIDTH_PX,
+            GALLERY_3D_HEIGHT_PX,
+            GALLERY_3D_DPI,
+        )
+        .unwrap();
     }
 
     // 50. colormap showcase — every builtin ramp as a horizontal colorbar.
     {
-        let mut fig = Figure::new(5.0, 3.8);
+        let mut fig = gallery_figure(5.0, 3.8);
         let names = [
             "viridis", "plasma", "inferno", "magma", "cividis", "coolwarm", "RdBu", "gray",
         ];
@@ -1069,8 +1111,13 @@ fn main() {
         }
         let mut ax = SkyAxes::new(SkyProjection::Aitoff);
         ax.scatter(&lon, &lat);
-        ax.save_png("target/gallery_sky_aitoff.png", 640, 340, 100.0)
-            .unwrap();
+        ax.save_png(
+            "target/gallery_sky_aitoff.png",
+            GALLERY_SKY_WIDTH_PX,
+            GALLERY_SKY_HEIGHT_PX,
+            GALLERY_SKY_DPI,
+        )
+        .unwrap();
     }
 
     println!("wrote target/gallery_*.png");
