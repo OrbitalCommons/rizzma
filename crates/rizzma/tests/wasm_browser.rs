@@ -172,3 +172,51 @@ fn drag_pan_and_double_click_reset_through_the_dom() {
         );
     }
 }
+
+#[wasm_bindgen_test]
+fn live_data_updates_repaint_and_preserve_the_view() {
+    let session = bound_session("live-target");
+    let home = limits(&session);
+
+    let canvas: HtmlCanvasElement = web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .get_element_by_id("live-target")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    let context: CanvasRenderingContext2d = canvas
+        .get_context("2d")
+        .unwrap()
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    let (w, h) = (canvas.width(), canvas.height());
+    let before = context
+        .get_image_data(0.0, 0.0, f64::from(w), f64::from(h))
+        .unwrap()
+        .data();
+
+    // Replace the line with a very different shape and paint synchronously.
+    session
+        .set_line_data(0, 0, &[0.0, 5.0, 10.0], &[9.0, 0.5, 9.0])
+        .unwrap();
+    session.render().unwrap();
+
+    let after = context
+        .get_image_data(0.0, 0.0, f64::from(w), f64::from(h))
+        .unwrap()
+        .data();
+    assert_ne!(
+        before.to_vec(),
+        after.to_vec(),
+        "new data must repaint different pixels"
+    );
+
+    // The explicit limits (the framed view) survive the data swap.
+    assert_eq!(limits(&session), home);
+
+    // Bad indices surface as errors, not panics.
+    assert!(session.set_line_data(0, 9, &[0.0], &[0.0]).is_err());
+}
