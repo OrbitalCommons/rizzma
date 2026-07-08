@@ -63,6 +63,17 @@ const ANNOTATION_HEAD_LEN: f64 = 8.0;
 /// Arrowhead half-width across the shaft, in pixels.
 const ANNOTATION_HEAD_HALF_WIDTH: f64 = 3.5;
 
+/// A secondary (top) x axis: an affine unit conversion of the primary x.
+#[derive(Debug, Clone)]
+struct SecondaryXAxis {
+    /// Conversion slope: `secondary = scale * x + offset`.
+    scale: f64,
+    /// Conversion intercept.
+    offset: f64,
+    /// Optional axis label above the tick labels.
+    label: Option<String>,
+}
+
 /// A text annotation in data coordinates, optionally with a leader arrow.
 #[derive(Debug, Clone)]
 struct Annotation {
@@ -246,6 +257,16 @@ pub struct Axes {
     xaxis: Axis,
     /// The left (y) axis.
     yaxis: Axis,
+    /// When `true` the x axis (spine, ticks, labels) is not drawn — set on
+    /// twin axes, whose x decoration belongs to the primary.
+    xaxis_hidden: bool,
+    /// Index of the axes whose effective x-limits this axes mirrors
+    /// ([`Figure::twinx`](crate::figure::Figure::twinx)); resolved by the
+    /// figure, which threads the shared limits into drawing and pixel mapping.
+    pub(crate) xlim_link: Option<usize>,
+    /// Optional secondary (top) x axis showing an affine unit conversion of
+    /// the primary x limits.
+    secondary_x: Option<SecondaryXAxis>,
     /// Optional title drawn above the axes.
     title: Option<String>,
     /// Text annotations (with optional leader arrows) in data coordinates.
@@ -381,6 +402,9 @@ impl Axes {
             extra_data_bbox: None,
             xaxis: Axis::new(AxisSide::Bottom),
             yaxis: Axis::new(AxisSide::Left),
+            xaxis_hidden: false,
+            xlim_link: None,
+            secondary_x: None,
             title: None,
             annotations: Vec::new(),
             frame: true,
@@ -549,6 +573,47 @@ impl Axes {
             text_at: Some(xytext),
             color: Rgba::BLACK,
             size: DEFAULT_ANNOTATION_SIZE,
+        });
+        self
+    }
+
+    /// Reconfigure this axes as a twin sharing another axes' x mapping
+    /// (transparent background, no frame, hidden x axis, y axis on the right).
+    /// Called by [`Figure::twinx`](crate::figure::Figure::twinx).
+    pub(crate) fn configure_as_twinx(&mut self, source: usize) {
+        self.facecolor = Rgba::TRANSPARENT;
+        self.frame = false;
+        self.xaxis_hidden = true;
+        self.yaxis = Axis::new(AxisSide::Right);
+        self.xlim_link = Some(source);
+    }
+
+    /// Add a secondary (top) x axis showing the affine unit conversion
+    /// `secondary = scale * x + offset` of this axes' x limits — matplotlib's
+    /// `secondary_xaxis(functions=(forward, inverse))` for the affine case
+    /// that covers unit conversions (mm ↔ inches, seconds ↔ samples, …).
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    ///
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_axes(0.12, 0.12, 0.76, 0.70);
+    /// ax.plot(&[0.0, 1.0, 2.0], &[0.0, 1.0, 0.0]);
+    /// ax.set_xlabel("inches");
+    /// // Top axis in millimeters.
+    /// ax.secondary_xaxis_linear(25.4, 0.0, Some("mm"));
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn secondary_xaxis_linear(
+        &mut self,
+        scale: f64,
+        offset: f64,
+        label: Option<&str>,
+    ) -> &mut Self {
+        self.secondary_x = Some(SecondaryXAxis {
+            scale,
+            offset,
+            label: label.map(str::to_string),
         });
         self
     }
@@ -1170,13 +1235,26 @@ impl Axes {
         fig_w_px: f64,
         fig_h_px: f64,
     ) -> (Bbox, Affine2D) {
+        self.pixel_rect_and_trans_data_with(fig_w_px, fig_h_px, None)
+    }
+
+    /// [`pixel_rect_and_trans_data`](Axes::pixel_rect_and_trans_data) with the
+    /// x-limits optionally replaced by `xlim_override` — how a twin axes
+    /// ([`Figure::twinx`](crate::figure::Figure::twinx)) shares its source's
+    /// x mapping while keeping its own y.
+    pub(crate) fn pixel_rect_and_trans_data_with(
+        &self,
+        fig_w_px: f64,
+        fig_h_px: f64,
+        xlim_override: Option<(f64, f64)>,
+    ) -> (Bbox, Affine2D) {
         let mut axes_px = Bbox::from_extents(
             self.position.xmin() * fig_w_px,
             self.position.ymin() * fig_h_px,
             self.position.xmax() * fig_w_px,
             self.position.ymax() * fig_h_px,
         );
-        let (xlim, ylim) = self.scale_limited_effective_limits();
+        let (xlim, ylim) = self.limits_with_override(xlim_override);
         let mapper = self.data_to_scaled();
         let (scaled_xlim, scaled_ylim) = mapper.map_limits(xlim, ylim);
         if self.aspect_equal {
@@ -1184,6 +1262,19 @@ impl Axes {
         }
         let td = self.trans_data(&axes_px, scaled_xlim, scaled_ylim);
         (axes_px, td)
+    }
+
+    /// The scale-limited effective `(xlim, ylim)` with the x-limits optionally
+    /// replaced (and re-guarded through the x scale's domain).
+    fn limits_with_override(&self, xlim_override: Option<(f64, f64)>) -> ((f64, f64), (f64, f64)) {
+        let (xlim, ylim) = self.scale_limited_effective_limits();
+        match xlim_override {
+            Some(over) => {
+                let (x, y) = self.clamp_limits_to_scale(over, ylim);
+                (x, y)
+            }
+            None => (xlim, ylim),
+        }
     }
 
     /// Draw the axes (background, artists, frame, axis spines, and title) into
@@ -1199,10 +1290,23 @@ impl Axes {
         fig_h_px: f64,
         font: &FontSource,
     ) {
+        self.draw_with(renderer, fig_w_px, fig_h_px, font, None);
+    }
+
+    /// [`draw`](Axes::draw) with the x-limits optionally overridden — the
+    /// figure passes a twin axes its source's effective x-limits here.
+    pub(crate) fn draw_with(
+        &self,
+        renderer: &mut dyn Renderer,
+        fig_w_px: f64,
+        fig_h_px: f64,
+        font: &FontSource,
+        xlim_override: Option<(f64, f64)>,
+    ) {
         // 1. Resolve the pixel rectangle and the data transform via the shared
         // forward path (also used by `Figure`'s coordinate inversion).
-        let (axes_px, td) = self.pixel_rect_and_trans_data(fig_w_px, fig_h_px);
-        let (xlim, ylim) = self.scale_limited_effective_limits();
+        let (axes_px, td) = self.pixel_rect_and_trans_data_with(fig_w_px, fig_h_px, xlim_override);
+        let (xlim, ylim) = self.limits_with_override(xlim_override);
         let mapper = self.data_to_scaled();
 
         // 2. Fill the axes background.
@@ -1294,8 +1398,23 @@ impl Axes {
 
         // 6. Draw the axes spines (suppressed when the axis is turned off).
         if self.axis_visible {
-            self.xaxis.draw(renderer, &axes_px, xlim, font);
+            if !self.xaxis_hidden {
+                self.xaxis.draw(renderer, &axes_px, xlim, font);
+            }
             self.yaxis.draw(renderer, &axes_px, ylim, font);
+            // 6'. The secondary (top) x axis: the same pixel span labeled in
+            // converted units.
+            if let Some(sec) = &self.secondary_x {
+                let mut top = Axis::new(AxisSide::Top);
+                if let Some(label) = &sec.label {
+                    top = top.with_label(label.clone());
+                }
+                let converted = (
+                    sec.scale * xlim.0 + sec.offset,
+                    sec.scale * xlim.1 + sec.offset,
+                );
+                top.draw(renderer, &axes_px, converted, font);
+            }
         }
 
         // 6a. Draw the legend box inside the upper-right of the axes.
@@ -1320,7 +1439,14 @@ impl Axes {
             // Place the baseline `pad` above the top spine, exactly as the
             // previous single-string path did; the rich paths are in a
             // baseline-relative y-up frame.
-            let y = axes_px.ymax() + DEFAULT_TITLE_PAD;
+            // A secondary top axis occupies the strip above the spine (ticks,
+            // tick labels, axis label); lift the title clear of it.
+            let secondary_clearance = if self.secondary_x.is_some() {
+                36.0
+            } else {
+                0.0
+            };
+            let y = axes_px.ymax() + DEFAULT_TITLE_PAD + secondary_clearance;
             let shift = Affine2D::from_translation(x, y);
             for path in &rich.paths {
                 renderer.draw_path(

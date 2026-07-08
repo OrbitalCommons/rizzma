@@ -122,6 +122,55 @@ impl Figure {
         self.axes.last_mut().expect("just pushed axes")
     }
 
+    /// Add a **twin** of axes `source` sharing its x mapping with an
+    /// independent right-hand y axis (matplotlib's `twinx()`), returning the
+    /// new axes' index.
+    ///
+    /// The twin sits at the same position with a transparent background, no
+    /// frame, and no x decoration of its own; its x-limits mirror the
+    /// source's *effective* limits at draw time (so later `set_xlim` or
+    /// autoscale changes on the source track automatically). Plot right-unit
+    /// series on the twin and style its y axis as usual.
+    ///
+    /// Interaction (pan/zoom) drives each axes' own stored limits; on a twin
+    /// the shared x always re-resolves from the source.
+    ///
+    /// ![twinx](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_twinx.png)
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    ///
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_axes(0.12, 0.12, 0.76, 0.76);
+    /// ax.plot(&[0.0, 1.0, 2.0], &[0.0, 5.0, 3.0]);
+    /// ax.set_ylabel("mm");
+    /// let twin = fig.twinx(0);
+    /// fig.axes_mut()[twin].plot(&[0.0, 1.0, 2.0], &[0.0, 250.0, 150.0]);
+    /// fig.axes_mut()[twin].set_ylabel("µrad");
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `source` is out of range.
+    pub fn twinx(&mut self, source: usize) -> usize {
+        assert!(source < self.axes.len(), "twinx: axes index out of range");
+        let mut twin = Axes::new(self.axes[source].position());
+        twin.configure_as_twinx(source);
+        self.axes.push(twin);
+        self.axes.len() - 1
+    }
+
+    /// The shared x-limits a twin axes mirrors, or `None` for ordinary axes
+    /// (or a dangling/self link).
+    pub(crate) fn xlim_override_for(&self, idx: usize) -> Option<(f64, f64)> {
+        let src = self.axes.get(idx)?.xlim_link?;
+        if src == idx {
+            return None;
+        }
+        Some(self.axes.get(src)?.effective_limits().0)
+    }
+
     /// A shared reference to this figure's axes.
     #[must_use]
     pub fn axes(&self) -> &[Axes] {
@@ -158,8 +207,8 @@ impl Figure {
             Some(self.facecolor),
         );
 
-        for ax in &self.axes {
-            ax.draw(renderer, w, h, &self.font);
+        for (i, ax) in self.axes.iter().enumerate() {
+            ax.draw_with(renderer, w, h, &self.font, self.xlim_override_for(i));
         }
 
         // Draw figure-level colorbars on top of the axes.
@@ -278,7 +327,11 @@ impl Figure {
     pub fn data_to_pixel(&self, axes_index: usize, data_x: f64, data_y: f64) -> Option<(f64, f64)> {
         let ax = self.axes.get(axes_index)?;
         let (fig_w_px, fig_h_px) = self.size_px();
-        let (_axes_px, td) = ax.pixel_rect_and_trans_data(fig_w_px, fig_h_px);
+        let (_axes_px, td) = ax.pixel_rect_and_trans_data_with(
+            fig_w_px,
+            fig_h_px,
+            self.xlim_override_for(axes_index),
+        );
         let [scaled_x, scaled_y] = ax.data_to_scaled().map_point(data_x, data_y);
         let (px, display_y) = td.transform_point((scaled_x, scaled_y));
         // Y-flip: matplotlib's display space is y-up (origin bottom-left), but
@@ -309,7 +362,11 @@ impl Figure {
     pub fn pixel_to_data(&self, axes_index: usize, px: f64, py: f64) -> Option<(f64, f64)> {
         let ax = self.axes.get(axes_index)?;
         let (fig_w_px, fig_h_px) = self.size_px();
-        let (axes_px, td) = ax.pixel_rect_and_trans_data(fig_w_px, fig_h_px);
+        let (axes_px, td) = ax.pixel_rect_and_trans_data_with(
+            fig_w_px,
+            fig_h_px,
+            self.xlim_override_for(axes_index),
+        );
         // Undo the backend Y-flip to recover the y-up display point that
         // `trans_data` operates in.
         let display_y = fig_h_px - py;
