@@ -38,6 +38,7 @@
   <body>
     <canvas id="plot"></canvas>
     <p id="readout">&mdash;</p>
+    <button id="live">start live updates</button>
     <p class="caption">
       Built from JS data via <code>WasmFigure</code>, rendered HiDPI-crisp by
       <code>rizzma</code> (tiny-skia &rarr; ImageData), interactive via
@@ -75,6 +76,30 @@
       session.on_hover((axes, x, y) => {
         readout.textContent =
           axes === null ? "—" : `x=${x.toFixed(3)}, y=${y.toFixed(3)}`;
+      });
+
+      // Live updates: animate the damped oscillation's phase through
+      // session.set_line_data — repaints are rAF-coalesced in Rust, and a
+      // panned/zoomed view is preserved across updates.
+      const liveBtn = document.getElementById("live");
+      let timer = null;
+      let phase = 0;
+      liveBtn.addEventListener("click", () => {
+        if (timer !== null) {
+          clearInterval(timer);
+          timer = null;
+          liveBtn.textContent = "start live updates";
+          return;
+        }
+        timer = setInterval(() => {
+          phase += 0.12;
+          const moving = new Float64Array(n);
+          for (let i = 0; i < n; i++) {
+            moving[i] = envelope[i] * Math.cos(2 * xs[i] + phase);
+          }
+          session.set_line_data(ax, 0, xs, moving);
+        }, 100);
+        liveBtn.textContent = "stop live updates";
       });
     </script>
   </body>

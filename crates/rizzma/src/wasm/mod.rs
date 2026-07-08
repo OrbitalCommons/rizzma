@@ -271,6 +271,23 @@ impl WasmFigure {
         self.plot_impl(axes, x, y).map_err(js_err)
     }
 
+    /// Replace the data of line `line` on axes `axes` in place (live
+    /// updates), keeping its style. Autoscaled limits re-derive; explicit
+    /// limits are untouched.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` or `line` is out of range.
+    pub fn set_line_data(
+        &mut self,
+        axes: usize,
+        line: usize,
+        x: &[f64],
+        y: &[f64],
+    ) -> Result<(), JsValue> {
+        self.set_line_data_impl(axes, line, x, y).map_err(js_err)
+    }
+
     /// Plot a styled line: `style` is a plain object with optional keys
     /// `color` (matplotlib color spec string), `lw` (points), and `ls`
     /// (`'-'`, `'--'`, `':'`, `'-.'` or long names). Unknown keys are errors.
@@ -490,6 +507,16 @@ impl WasmFigure {
         })
     }
 
+    fn set_line_data_impl(
+        &mut self,
+        axes: usize,
+        line: usize,
+        x: &[f64],
+        y: &[f64],
+    ) -> Result<(), String> {
+        self.with_axes(axes, |ax| ax.set_line_data(line, x, y))?
+    }
+
     fn scatter_impl(&mut self, axes: usize, x: &[f64], y: &[f64]) -> Result<(), String> {
         self.with_axes(axes, |ax| {
             ax.scatter(x, y);
@@ -664,6 +691,37 @@ mod canvas {
             let axes = fig.axes_at(px, py)?;
             let (x, y) = fig.pixel_to_data(axes, px, py)?;
             Some(Box::new([axes as f64, x, y]))
+        }
+
+        /// Replace the data of line `line` on axes `axes` in place (live
+        /// updates) and schedule a rAF-coalesced repaint: a burst of updates
+        /// between frames paints once.
+        ///
+        /// Autoscaled limits re-derive from the new data; explicit limits —
+        /// including a view the user has panned/zoomed — are untouched.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if `axes` or `line` is out of range.
+        pub fn set_line_data(
+            &self,
+            axes: usize,
+            line: usize,
+            x: &[f64],
+            y: &[f64],
+        ) -> Result<(), JsValue> {
+            {
+                let mut st = self.state.borrow_mut();
+                let fig = st.interactor.figure_mut();
+                let ax = fig
+                    .axes_mut()
+                    .get_mut(axes)
+                    .ok_or_else(|| JsValue::from_str(&format!("axes index {axes} out of range")))?;
+                ax.set_line_data(line, x, y)
+                    .map_err(|e| JsValue::from_str(&e))?;
+            }
+            schedule_redraw(&self.state);
+            Ok(())
         }
 
         /// Register a hover callback, called as `cb(axes, x, y)` while the
@@ -1094,6 +1152,36 @@ mod tests {
         let (rgba, w, h) = figure_to_rgba(&wf.fig);
         assert_eq!(rgba.len(), (w as usize) * (h as usize) * 4);
         assert!(rgba.chunks_exact(4).any(|px| px != [255, 255, 255, 255]));
+    }
+
+    #[test]
+    fn set_line_data_updates_autoscale_but_preserves_explicit_limits() {
+        let mut wf = WasmFigure::new(4.0, 3.0);
+        wf.add_axes(0.1, 0.1, 0.8, 0.8);
+        wf.plot_impl(0, &[0.0, 1.0], &[0.0, 1.0]).unwrap();
+
+        // Untouched view: autoscale re-derives from the new data.
+        wf.set_line_data_impl(0, 0, &[0.0, 10.0], &[0.0, 100.0])
+            .unwrap();
+        let auto = wf.limits_impl(0).unwrap();
+        assert!(
+            auto[1] >= 10.0 && auto[3] >= 100.0,
+            "autoscale follows: {auto:?}"
+        );
+
+        // Framed view: explicit limits survive a data update.
+        wf.with_axes(0, |ax| {
+            ax.set_xlim(2.0, 4.0);
+            ax.set_ylim(0.0, 50.0);
+        })
+        .unwrap();
+        wf.set_line_data_impl(0, 0, &[0.0, 1000.0], &[0.0, 9999.0])
+            .unwrap();
+        assert_eq!(wf.limits_impl(0).unwrap(), [2.0, 4.0, 0.0, 50.0]);
+
+        // Bad indices error cleanly.
+        assert!(wf.set_line_data_impl(0, 5, &[0.0], &[0.0]).is_err());
+        assert!(wf.set_line_data_impl(3, 0, &[0.0], &[0.0]).is_err());
     }
 
     #[test]

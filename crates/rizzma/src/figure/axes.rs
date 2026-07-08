@@ -483,6 +483,34 @@ impl Axes {
         self.lines.last_mut().expect("just pushed a line")
     }
 
+    /// The number of lines plotted on this axes (indexable by
+    /// [`set_line_data`](Axes::set_line_data)).
+    #[must_use]
+    pub fn line_count(&self) -> usize {
+        self.lines.len()
+    }
+
+    /// Replace the data of line `line` in place (for live/streaming updates),
+    /// keeping its style.
+    ///
+    /// Autoscaled limits re-derive from the new data on the next draw;
+    /// explicit [`set_xlim`](Axes::set_xlim)/[`set_ylim`](Axes::set_ylim)
+    /// (including limits stored by interaction) are untouched, so updating
+    /// data never yanks a view the user has framed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error naming the valid range when `line` is out of range.
+    pub fn set_line_data(&mut self, line: usize, x: &[f64], y: &[f64]) -> Result<(), String> {
+        let count = self.lines.len();
+        let entry = self
+            .lines
+            .get_mut(line)
+            .ok_or_else(|| format!("line index {line} out of range (axes has {count} lines)"))?;
+        entry.set_data(x, y);
+        Ok(())
+    }
+
     /// Add a [`Patch`], returning a mutable reference to it.
     pub fn add_patch(&mut self, patch: Patch) -> &mut Patch {
         self.patches.push(patch);

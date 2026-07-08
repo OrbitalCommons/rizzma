@@ -64,6 +64,15 @@ impl Line2D {
         self.color
     }
 
+    /// Replace the line's data in place (for live/streaming updates), keeping
+    /// every style property. The `x` and `y` slices are paired index-wise at
+    /// draw time exactly as at construction.
+    pub fn set_data(&mut self, x: &[f64], y: &[f64]) -> &mut Self {
+        self.xdata = x.to_vec();
+        self.ydata = y.to_vec();
+        self
+    }
+
     /// Set the stroke color, returning `self` for chaining.
     #[must_use]
     pub fn with_color(mut self, color: Rgba) -> Self {
