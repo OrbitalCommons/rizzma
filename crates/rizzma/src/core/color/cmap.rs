@@ -502,6 +502,8 @@ pub fn coolwarm() -> LinearSegmentedColormap {
 
 /// Look up a builtin colormap by name.
 ///
+/// ![colormaps](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_colormaps.png)
+///
 /// Recognized names: the perceptually-uniform sequential maps `"viridis"`,
 /// `"magma"`, `"inferno"`, `"plasma"`, `"cividis"`; the diverging maps
 /// `"RdBu"` and `"coolwarm"`; `"gray"`; and every map's reversed variant via
