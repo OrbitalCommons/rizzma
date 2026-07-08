@@ -56,6 +56,8 @@ impl Axes {
         if n == 0 {
             return self;
         }
+        // Bars rise from zero: pin the baseline like bar/hist do.
+        self.sticky_y.push(0.0);
 
         let bar_width = GROUP_WIDTH / m as f64;
         let offset0 = (m as f64 - 1.0) / 2.0;
@@ -81,6 +83,17 @@ mod tests {
 
     fn approx(a: f64, b: f64) {
         assert!((a - b).abs() < 1e-9, "expected {b}, got {a}");
+    }
+
+    #[test]
+    fn grouped_bar_sits_on_the_zero_baseline() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        let a = [8.0, 8.0];
+        let b = [11.0, 9.5];
+        ax.grouped_bar(&[&a, &b]);
+        let (_, ylim) = ax.effective_limits();
+        approx(ylim.0, 0.0); // baseline pinned, no float below zero
+        assert!(ylim.1 > 11.0); // top keeps its margin
     }
 
     #[test]
