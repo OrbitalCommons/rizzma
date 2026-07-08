@@ -50,7 +50,7 @@ pub mod pyplot;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
-pub use figure::{Axes, Figure, GridSpec, PolarAxes, SubplotSpec};
+pub use figure::{Axes, Figure, GridSpec, PolarAxes, SkyAxes, SkyProjection, SubplotSpec};
 
 /// The version of this crate, from `CARGO_PKG_VERSION`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -8,7 +8,7 @@ use chrono::NaiveDate;
 use rizzma::artist::Patch;
 use rizzma::axis::dates::date2num;
 use rizzma::core::color::Rgba;
-use rizzma::figure::{Figure, PolarAxes};
+use rizzma::figure::{Figure, PolarAxes, SkyAxes, SkyProjection};
 
 fn linspace(a: f64, b: f64, n: usize) -> Vec<f64> {
     (0..n)
@@ -940,6 +940,35 @@ fn main() {
         ax.set_xlabel("time");
         ax.set_ylabel("frequency");
         fig.save_png("target/gallery_gouraud.png").unwrap();
+    }
+
+    // 47. sky projection — a mollweide all-sky map: a band of sources along
+    // an inclined great circle (a toy galactic plane) plus two clusters.
+    {
+        let mut noise = rng(0x5EEDED5EEDED);
+        let (mut lon, mut lat) = (Vec::new(), Vec::new());
+        // The band: points scattered around a great circle inclined 60°.
+        for i in 0..240 {
+            let t = i as f64 / 239.0 * TAU;
+            let band_lat = (60f64.to_radians().sin() * t.sin()).asin();
+            lon.push(t - PI + (noise() - 0.5) * 0.15);
+            lat.push(band_lat + (noise() - 0.5) * 0.12);
+        }
+        let mut ax = SkyAxes::new(SkyProjection::Mollweide);
+        ax.scatter(&lon, &lat);
+        // Two compact clusters (toy Magellanic clouds).
+        let (mut clon, mut clat) = (Vec::new(), Vec::new());
+        for _ in 0..40 {
+            clon.push(-1.4 + (noise() - 0.5) * 0.18);
+            clat.push(-0.72 + (noise() - 0.5) * 0.10);
+        }
+        for _ in 0..25 {
+            clon.push(-1.1 + (noise() - 0.5) * 0.12);
+            clat.push(-0.60 + (noise() - 0.5) * 0.08);
+        }
+        ax.scatter(&clon, &clat);
+        ax.save_png("target/gallery_sky.png", 640, 340, 100.0)
+            .unwrap();
     }
 
     println!("wrote target/gallery_*.png");
