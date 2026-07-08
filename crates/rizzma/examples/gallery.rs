@@ -971,5 +971,29 @@ fn main() {
             .unwrap();
     }
 
+    // 48. twinx + secondary x — focus mechanism sweep: position (mm, left)
+    // and measured tilt (µrad, right) over one time base, with a top axis in
+    // seconds.
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let t = linspace(0.0, 10.0, 200); // minutes
+        let position: Vec<f64> = t.iter().map(|&m| 2.5 + 2.0 * (m * 0.6).sin()).collect();
+        let tilt: Vec<f64> = t
+            .iter()
+            .map(|&m| 40.0 * (m * 0.6).cos() + 6.0 * (m * 2.1).sin())
+            .collect();
+        let ax = fig.add_axes(0.13, 0.14, 0.72, 0.56);
+        ax.plot(&t, &position);
+        ax.set_xlabel("time (min)");
+        ax.set_ylabel("position (mm)");
+        ax.set_title("twinx: mm left, µrad right, seconds on top");
+        ax.secondary_xaxis_linear(60.0, 0.0, Some("time (s)"));
+        let twin = fig.twinx(0);
+        let tw = &mut fig.axes_mut()[twin];
+        tw.plot_with_color(&t, &tilt, c(1));
+        tw.set_ylabel("tilt (µrad)");
+        fig.save_png("target/gallery_twinx.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
