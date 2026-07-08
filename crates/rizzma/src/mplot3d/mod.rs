@@ -179,6 +179,8 @@ pub struct Axes3D {
     bars: Vec<Bar3D>,
     quivers: Vec<Quiver3D>,
     texts: Vec<Text3D>,
+    /// Optional title drawn centered at the top of the canvas.
+    title: Option<String>,
     /// Color cycle index for the next auto-colored artist.
     cycle: usize,
 }
@@ -211,6 +213,12 @@ const MARGIN_FRAC: f64 = 0.12;
 /// Font size of [`Axes3D::text3d`] billboard labels, in pixels.
 const TEXT3D_SIZE: f64 = 10.0;
 
+/// Font size of the title, in pixels (matches 2D axes titles).
+const TITLE_SIZE: f64 = 12.0;
+
+/// Gap between the canvas top and the title, in pixels.
+const TITLE_PAD: f64 = 6.0;
+
 impl Axes3D {
     /// Create an empty axes with the default view (`elev = 30°`, `azim = -60°`).
     #[must_use]
@@ -228,8 +236,15 @@ impl Axes3D {
             bars: Vec::new(),
             quivers: Vec::new(),
             texts: Vec::new(),
+            title: None,
             cycle: 0,
         }
+    }
+
+    /// Set a title drawn centered at the top of the canvas.
+    pub fn set_title(&mut self, title: impl Into<String>) -> &mut Self {
+        self.title = Some(title.into());
+        self
     }
 
     /// Set the elevation and azimuth (degrees), returning `self` for chaining.
@@ -790,8 +805,10 @@ impl Axes3D {
     pub fn draw(&self, renderer: &mut dyn Renderer) {
         let (width, height) = renderer.canvas_size();
         let dpi = renderer.points_to_pixels(72.0) / 72.0;
-        // Glyph source for billboard labels, built only when labels exist.
-        let font = (!self.texts.is_empty()).then(crate::text::FontSource::dejavu_sans);
+        // Glyph source for billboard labels and the title, built only when
+        // either exists.
+        let font = (!self.texts.is_empty() || self.title.is_some())
+            .then(crate::text::FontSource::dejavu_sans);
         for item in self.collect_drawables(width, height) {
             match item.kind {
                 DrawKind::Line {
@@ -863,6 +880,22 @@ impl Axes3D {
                     }
                 }
             }
+        }
+
+        // Title, centered in the top margin band (y-up: the top is y = height).
+        if let (Some(title), Some(font)) = (&self.title, &font) {
+            let s = renderer.decoration_scale();
+            let size = TITLE_SIZE * s;
+            let extent = font.measure(title, size);
+            let x = 0.5 * (width - extent.width);
+            let y = height - TITLE_PAD * s - extent.ascent;
+            let path = font.text_to_path(title, size, [x, y]);
+            renderer.draw_path(
+                &GraphicsContext::new(),
+                &path,
+                &Affine2D::identity(),
+                Some(Rgba::BLACK),
+            );
         }
     }
 
@@ -1464,5 +1497,25 @@ mod tests {
             }
         }
         assert!(near > 10, "expected glyph ink near the anchor, got {near}");
+    }
+
+    /// A title draws glyph ink into the otherwise-blank top margin band.
+    #[test]
+    fn title_renders_ink_in_the_top_band() {
+        let mut ax = Axes3D::new();
+        ax.scatter3d(&[0.0, 1.0], &[0.0, 1.0], &[0.0, 1.0]);
+        ax.set_title("axes3d");
+        let r = ax.render_png(200, 200, 100.0);
+        let px = r.pixmap();
+        let mut ink = 0;
+        for y in 0..18u32 {
+            for x in 0..px.width() {
+                let d = px.pixel(x, y).unwrap().demultiply();
+                if (d.red(), d.green(), d.blue()) != (255, 255, 255) {
+                    ink += 1;
+                }
+            }
+        }
+        assert!(ink > 20, "expected title ink in the top band, got {ink} px");
     }
 }

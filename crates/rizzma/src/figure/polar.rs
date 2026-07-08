@@ -79,6 +79,12 @@ const MARGIN_FRAC: f64 = 0.16;
 /// Number of segments used to approximate each grid ring (and the perimeter).
 const RING_SEGMENTS: usize = 180;
 
+/// Font size of the title, in pixels (matches [`Axes`](super::Axes) titles).
+const TITLE_SIZE: f64 = 12.0;
+
+/// Gap between the canvas top and the title, in pixels.
+const TITLE_PAD: f64 = 6.0;
+
 /// A self-contained polar axes that draws `(theta, r)` curves over a polar grid.
 ///
 /// Construct with [`PolarAxes::new`], add curves with [`PolarAxes::plot`]
@@ -94,6 +100,8 @@ pub struct PolarAxes {
     data_rmax: f64,
     /// Explicit radial maximum, overriding the data-derived value when set.
     rmax_override: Option<f64>,
+    /// Optional title drawn centered above the plot circle.
+    title: Option<String>,
     /// Color cycle index for the next auto-colored curve.
     cycle: usize,
 }
@@ -108,8 +116,15 @@ impl PolarAxes {
             fills: Vec::new(),
             data_rmax: 0.0,
             rmax_override: None,
+            title: None,
             cycle: 0,
         }
+    }
+
+    /// Set a title drawn centered above the plot circle.
+    pub fn set_title(&mut self, title: impl Into<String>) -> &mut Self {
+        self.title = Some(title.into());
+        self
     }
 
     /// Pin the radial maximum (the value of `r` reaching the outer ring),
@@ -427,6 +442,14 @@ impl PolarAxes {
             let ly = cy + 0.04 * radius;
             Self::draw_label(renderer, font, &format_tick(tick), lx, ly, radial_size);
         }
+
+        // 9. Title, centered in the top margin band.
+        if let Some(title) = &self.title {
+            let size = TITLE_SIZE * s;
+            let extent = font.measure(title, size);
+            let anchor_y = height - TITLE_PAD * s - 0.5 * (extent.ascent + extent.descent);
+            Self::draw_label(renderer, font, title, 0.5 * width, anchor_y, size);
+        }
     }
 
     /// Render the polar axes to a fresh white-backed [`SkiaRenderer`].
@@ -643,5 +666,25 @@ mod tests {
         ax.plot(&theta, &r);
         let rend = ax.render_png(256, 256, 72.0);
         assert_eq!(rend.pixmap().width(), 256);
+    }
+
+    /// A title draws glyph ink into the otherwise-blank top margin band.
+    #[test]
+    fn title_renders_ink_in_the_top_band() {
+        let mut ax = PolarAxes::new();
+        ax.plot(&[0.0, FRAC_PI_2], &[1.0, 1.0]);
+        ax.set_title("polar");
+        let rend = ax.render_png(256, 256, 100.0);
+        let px = rend.pixmap();
+        let mut ink = 0;
+        for y in 0..18u32 {
+            for x in 0..px.width() {
+                let d = px.pixel(x, y).unwrap().demultiply();
+                if (d.red(), d.green(), d.blue()) != (255, 255, 255) {
+                    ink += 1;
+                }
+            }
+        }
+        assert!(ink > 20, "expected title ink in the top band, got {ink} px");
     }
 }

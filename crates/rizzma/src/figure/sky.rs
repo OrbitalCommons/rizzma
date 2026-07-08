@@ -85,6 +85,12 @@ const PARALLEL_STEP_DEG: i32 = 30;
 /// Font size of the graticule labels, in pixels.
 const LABEL_SIZE: f64 = 9.0;
 
+/// Font size of the title, in pixels (matches [`Axes`](super::Axes) titles).
+const TITLE_SIZE: f64 = 12.0;
+
+/// Gap between the canvas top and the title, in pixels.
+const TITLE_PAD: f64 = 6.0;
+
 /// Newton-iteration tolerance for the mollweide auxiliary angle.
 const MOLLWEIDE_TOL: f64 = 1e-12;
 
@@ -99,6 +105,8 @@ pub struct SkyAxes {
     projection: SkyProjection,
     lines: Vec<SkyLine>,
     scatters: Vec<SkyScatter>,
+    /// Optional title drawn centered above the map.
+    title: Option<String>,
     /// Color cycle index for the next auto-colored artist.
     cycle: usize,
 }
@@ -175,6 +183,7 @@ impl SkyAxes {
             projection,
             lines: Vec::new(),
             scatters: Vec::new(),
+            title: None,
             cycle: 0,
         }
     }
@@ -183,6 +192,12 @@ impl SkyAxes {
     #[must_use]
     pub fn projection(&self) -> SkyProjection {
         self.projection
+    }
+
+    /// Set a title drawn centered above the map.
+    pub fn set_title(&mut self, title: impl Into<String>) -> &mut Self {
+        self.title = Some(title.into());
+        self
     }
 
     /// The next color from the default cycle, advancing the cursor.
@@ -394,6 +409,14 @@ impl SkyAxes {
                 );
             }
         }
+
+        // 5. Title, centered in the top margin band.
+        if let Some(title) = &self.title {
+            let size = TITLE_SIZE * s;
+            let extent = font.measure(title, size);
+            let anchor_y = height - TITLE_PAD * s - 0.5 * (extent.ascent + extent.descent);
+            Self::draw_label(renderer, font, title, 0.5 * width, anchor_y, size);
+        }
     }
 
     /// Render this sky axes to a fresh raster canvas of `width_px` x
@@ -542,5 +565,27 @@ mod tests {
         ax.scatter(&[f64::NAN], &[0.0]);
         let r = ax.render_png(200, 100, 100.0);
         assert_eq!(r.pixmap().width(), 200);
+    }
+
+    #[test]
+    fn title_renders_ink_in_the_top_band() {
+        let mut ax = SkyAxes::new(SkyProjection::Mollweide);
+        ax.scatter(&[0.5], &[0.4]);
+        ax.set_title("mollweide");
+        let r = ax.render_png(400, 200, 100.0);
+
+        // The map is inset by MARGIN_FRAC, so the top pixel rows are blank
+        // without a title; with one, glyph ink appears there.
+        let px = r.pixmap();
+        let mut ink = 0;
+        for y in 0..18u32 {
+            for x in 0..px.width() {
+                let d = px.pixel(x, y).unwrap().demultiply();
+                if (d.red(), d.green(), d.blue()) != (255, 255, 255) {
+                    ink += 1;
+                }
+            }
+        }
+        assert!(ink > 20, "expected title ink in the top band, got {ink} px");
     }
 }
