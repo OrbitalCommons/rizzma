@@ -127,6 +127,110 @@ fn wheel_zoom_shrinks_limits_through_the_dom() {
 }
 
 #[wasm_bindgen_test]
+fn track_cursor_records_a_rust_side_trail() {
+    make_canvas("trail-target");
+    let mut fig = WasmFigure::new(3.0, 2.0);
+    let ax = fig.add_axes(0.15, 0.15, 0.7, 0.7);
+    // An empty line to receive the trail; explicit limits so nothing rescales.
+    fig.plot(ax, &[], &[]).unwrap();
+    fig.set_xlim(ax, 0.0, 10.0).unwrap();
+    fig.set_ylim(ax, 0.0, 10.0).unwrap();
+    let session = fig.bind("trail-target").unwrap();
+    session.track_cursor(ax, 0, 100).unwrap();
+    // Bad indices are rejected.
+    assert!(session.track_cursor(9, 0, 100).is_err());
+
+    let canvas: HtmlCanvasElement = web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .get_element_by_id("trail-target")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    // Sweep the pointer horizontally through the middle of the axes; each
+    // move lands in the trail line from the Rust side, no JS in the loop.
+    for i in 0..20 {
+        let x = 60.0 + f64::from(i) * 9.0;
+        dispatch_pointer(&canvas, "pointermove", x, 100.0);
+    }
+    // Repaint immediately; trail repaints are rAF-coalesced.
+    session.render().unwrap();
+
+    let (w, h) = (canvas.width(), canvas.height());
+    let context: CanvasRenderingContext2d = canvas
+        .get_context("2d")
+        .unwrap()
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    // The swept band across the canvas middle must now carry colored line
+    // ink (the trail); it started as an empty line.
+    let band_y = f64::from(h) * 0.45;
+    let data = context
+        .get_image_data(0.0, band_y, f64::from(w), f64::from(h) * 0.10)
+        .unwrap()
+        .data();
+    let colored = data.chunks_exact(4).any(|px| {
+        let (max, min) = (px[0].max(px[1]).max(px[2]), px[0].min(px[1]).min(px[2]));
+        px[3] > 200 && max - min > 40
+    });
+    assert!(colored, "the cursor sweep must draw a trail line");
+}
+
+#[wasm_bindgen_test]
+fn zoomed_artists_stay_clipped_to_the_frame() {
+    let session = bound_session("clip-target");
+    let canvas: HtmlCanvasElement = web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .get_element_by_id("clip-target")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+
+    // Three wheel detents in at the canvas center: the line's data now
+    // extends far beyond the limits on every side.
+    for _ in 0..3 {
+        let init = WheelEventInit::new();
+        init.set_client_x(150);
+        init.set_client_y(100);
+        init.set_delta_y(-120.0);
+        init.set_delta_mode(WheelEvent::DOM_DELTA_PIXEL);
+        init.set_cancelable(true);
+        init.set_bubbles(true);
+        let ev = WheelEvent::new_with_event_init_dict("wheel", &init).unwrap();
+        canvas.dispatch_event(&ev).unwrap();
+    }
+    // Repaint immediately; the wheel repaints are rAF-coalesced.
+    session.render().unwrap();
+
+    let (w, h) = (canvas.width(), canvas.height());
+    let context: CanvasRenderingContext2d = canvas
+        .get_context("2d")
+        .unwrap()
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    // The band above the axes frame (frame top sits 15% down the canvas):
+    // only white background there — the zoomed line must not spill into it.
+    let band_h = f64::from(h) * 0.10;
+    let data = context
+        .get_image_data(0.0, 0.0, f64::from(w), band_h)
+        .unwrap()
+        .data();
+    let colored = data.chunks_exact(4).any(|px| {
+        let (max, min) = (px[0].max(px[1]).max(px[2]), px[0].min(px[1]).min(px[2]));
+        px[3] > 200 && max - min > 40
+    });
+    assert!(
+        !colored,
+        "zoomed line ink must not escape above the axes frame"
+    );
+}
+
+#[wasm_bindgen_test]
 fn drag_pan_and_double_click_reset_through_the_dom() {
     let session = bound_session("pan-target");
     let home = limits(&session);

@@ -24,7 +24,7 @@ use crate::axis::ticker::{
 };
 use crate::core::color::{DEFAULT_COLOR_CYCLE, Rgba};
 use crate::core::{Affine2D, Bbox, Path};
-use crate::render::{GraphicsContext, Renderer};
+use crate::render::{ClippedRenderer, GraphicsContext, Renderer};
 use crate::text::FontSource;
 
 use crate::figure::richtext::layout_rich_text;
@@ -1461,78 +1461,88 @@ impl Axes {
         let fill_gc = GraphicsContext::new();
         renderer.draw_path(&fill_gc, &rect, &Affine2D::identity(), Some(self.facecolor));
 
-        // 3a. Draw colormapped images first (lowest zorder), beneath every
-        // other artist, mapping their data-space extent through the data
-        // transform.
-        if mapper.is_linear() {
-            for image in &self.images {
-                if image.visible() {
-                    image.draw(renderer, &td);
+        // 3–4. Everything that represents *data* draws through a clipping
+        // wrapper confined to the axes frame (matplotlib's `clip_on=True`
+        // default), so a zoomed or explicitly limited view cannot spill
+        // artists across the rest of the figure. Decorations (frame, axis,
+        // title, legend, annotations) draw unclipped below.
+        {
+            let clipped = &mut ClippedRenderer::new(renderer, axes_px);
+
+            // 3a. Draw colormapped images first (lowest zorder), beneath every
+            // other artist, mapping their data-space extent through the data
+            // transform.
+            if mapper.is_linear() {
+                for image in &self.images {
+                    if image.visible() {
+                        image.draw(clipped, &td);
+                    }
                 }
             }
-        }
 
-        // 3a'. Draw colormapped quad meshes (pcolormesh) beneath the other
-        // artists, mapping their data-space corners through the data transform.
-        if mapper.is_linear() {
-            for mesh in &self.meshes {
-                if mesh.visible() {
-                    mesh.draw(renderer, &td);
+            // 3a'. Draw colormapped quad meshes (pcolormesh) beneath the other
+            // artists, mapping their data-space corners through the data
+            // transform.
+            if mapper.is_linear() {
+                for mesh in &self.meshes {
+                    if mesh.visible() {
+                        mesh.draw(clipped, &td);
+                    }
                 }
             }
-        }
 
-        // 3b. Draw full-span shaded bands (axhspan/axvspan) beneath the artists,
-        // resolving their open extent against the effective limits.
-        for span in &self.span_rects {
-            let rect = match span.orientation {
-                SpanOrientation::Horizontal => {
-                    rect_path(&Bbox::from_extents(xlim.0, span.lo, xlim.1, span.hi))
-                }
-                SpanOrientation::Vertical => {
-                    rect_path(&Bbox::from_extents(span.lo, ylim.0, span.hi, ylim.1))
-                }
-            };
-            renderer.draw_path(
-                &GraphicsContext::new(),
-                &mapper.map_path(&rect),
-                &td,
-                Some(span.facecolor),
-            );
-        }
+            // 3b. Draw full-span shaded bands (axhspan/axvspan) beneath the
+            // artists, resolving their open extent against the effective
+            // limits.
+            for span in &self.span_rects {
+                let rect = match span.orientation {
+                    SpanOrientation::Horizontal => {
+                        rect_path(&Bbox::from_extents(xlim.0, span.lo, xlim.1, span.hi))
+                    }
+                    SpanOrientation::Vertical => {
+                        rect_path(&Bbox::from_extents(span.lo, ylim.0, span.hi, ylim.1))
+                    }
+                };
+                clipped.draw_path(
+                    &GraphicsContext::new(),
+                    &mapper.map_path(&rect),
+                    &td,
+                    Some(span.facecolor),
+                );
+            }
 
-        // 4. Draw artists in ascending zorder.
-        // TODO: clip artists to `axes_px` once clip plumbing lands.
-        let mut artists: Vec<DrawableArtist<'_>> =
-            Vec::with_capacity(self.lines.len() + self.patches.len() + self.collections.len());
-        artists.extend(self.lines.iter().map(DrawableArtist::Line));
-        artists.extend(self.patches.iter().map(DrawableArtist::Patch));
-        artists.extend(self.collections.iter().map(DrawableArtist::Collection));
-        let mut order: Vec<usize> = (0..artists.len())
-            .filter(|&i| artists[i].visible())
-            .collect();
-        order.sort_by(|&a, &b| {
-            artists[a]
-                .zorder()
-                .partial_cmp(&artists[b].zorder())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        for i in order {
-            artists[i].draw_scaled(renderer, &td, &mapper);
-        }
+            // 4. Draw artists in ascending zorder.
+            let mut artists: Vec<DrawableArtist<'_>> =
+                Vec::with_capacity(self.lines.len() + self.patches.len() + self.collections.len());
+            artists.extend(self.lines.iter().map(DrawableArtist::Line));
+            artists.extend(self.patches.iter().map(DrawableArtist::Patch));
+            artists.extend(self.collections.iter().map(DrawableArtist::Collection));
+            let mut order: Vec<usize> = (0..artists.len())
+                .filter(|&i| artists[i].visible())
+                .collect();
+            order.sort_by(|&a, &b| {
+                artists[a]
+                    .zorder()
+                    .partial_cmp(&artists[b].zorder())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            for i in order {
+                artists[i].draw_scaled(clipped, &td, &mapper);
+            }
 
-        // 4a. Draw full-span reference lines (axhline/axvline) above the
-        // artists, spanning the resolved limits of the opposite axis.
-        for span in &self.span_lines {
-            let points = match span.orientation {
-                SpanOrientation::Horizontal => [[xlim.0, span.value], [xlim.1, span.value]],
-                SpanOrientation::Vertical => [[span.value, ylim.0], [span.value, ylim.1]],
-            };
-            let path = Path::from_polyline(&points);
-            let gc = GraphicsContext::new()
-                .with_stroke(span.color)
-                .with_line_width(span.linewidth);
-            renderer.draw_path(&gc, &mapper.map_path(&path), &td, None);
+            // 4a. Draw full-span reference lines (axhline/axvline) above the
+            // artists, spanning the resolved limits of the opposite axis.
+            for span in &self.span_lines {
+                let points = match span.orientation {
+                    SpanOrientation::Horizontal => [[xlim.0, span.value], [xlim.1, span.value]],
+                    SpanOrientation::Vertical => [[span.value, ylim.0], [span.value, ylim.1]],
+                };
+                let path = Path::from_polyline(&points);
+                let gc = GraphicsContext::new()
+                    .with_stroke(span.color)
+                    .with_line_width(span.linewidth);
+                clipped.draw_path(&gc, &mapper.map_path(&path), &td, None);
+            }
         }
 
         // 5. Stroke the frame (suppressed when the axis is turned off).

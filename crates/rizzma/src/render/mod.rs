@@ -241,6 +241,124 @@ pub trait Renderer {
     fn canvas_size(&self) -> (f64, f64);
 }
 
+/// A pass-through [`Renderer`] that confines every draw call to a fixed
+/// device-space rectangle.
+///
+/// [`Axes`](crate::figure::Axes) wraps its renderer in one of these while
+/// drawing artists, so lines, patches, collections, meshes, and images are
+/// clipped to the axes frame (matplotlib's `clip_on=True` default) without
+/// threading clip state through each artist: every [`GraphicsContext`] passing
+/// through gains `clip_rect` (intersected with any clip the caller already
+/// set), and the backends' existing `clip_rect` handling does the cutting.
+/// Draw calls whose existing clip is disjoint from the rectangle are dropped
+/// entirely — a degenerate clip must draw nothing, not everything.
+pub(crate) struct ClippedRenderer<'a> {
+    /// The wrapped backend.
+    inner: &'a mut dyn Renderer,
+    /// The clip rectangle in device coordinates (y-up).
+    rect: Bbox,
+}
+
+impl<'a> ClippedRenderer<'a> {
+    /// Wrap `inner`, clipping all draws to `rect` (device coordinates, y-up).
+    pub(crate) fn new(inner: &'a mut dyn Renderer, rect: Bbox) -> Self {
+        Self { inner, rect }
+    }
+
+    /// `gc` with its clip rectangle intersected with the wrapper's, or `None`
+    /// when the two are disjoint (or touch with zero area) and the draw
+    /// should be skipped — a backend given a degenerate clip rectangle could
+    /// not represent it and would fall back to drawing unclipped.
+    fn clipped(&self, gc: &GraphicsContext) -> Option<GraphicsContext> {
+        let clip = match gc.clip_rect {
+            Some(existing) => existing.intersection(&self.rect)?,
+            None => self.rect,
+        };
+        if clip.width() <= 0.0 || clip.height() <= 0.0 {
+            return None;
+        }
+        Some(GraphicsContext {
+            clip_rect: Some(clip),
+            ..gc.clone()
+        })
+    }
+}
+
+impl Renderer for ClippedRenderer<'_> {
+    fn draw_path(
+        &mut self,
+        gc: &GraphicsContext,
+        path: &Path,
+        transform: &Affine2D,
+        fill: Option<Rgba>,
+    ) {
+        if let Some(gc) = self.clipped(gc) {
+            self.inner.draw_path(&gc, path, transform, fill);
+        }
+    }
+
+    fn draw_markers(
+        &mut self,
+        gc: &GraphicsContext,
+        marker_path: &Path,
+        marker_transform: &Affine2D,
+        path: &Path,
+        transform: &Affine2D,
+        fill: Option<Rgba>,
+    ) {
+        if let Some(gc) = self.clipped(gc) {
+            self.inner
+                .draw_markers(&gc, marker_path, marker_transform, path, transform, fill);
+        }
+    }
+
+    fn draw_image(
+        &mut self,
+        gc: &GraphicsContext,
+        x: f64,
+        y: f64,
+        rgba: &[u8],
+        width: usize,
+        height: usize,
+    ) {
+        if let Some(gc) = self.clipped(gc) {
+            self.inner.draw_image(&gc, x, y, rgba, width, height);
+        }
+    }
+
+    fn draw_text(
+        &mut self,
+        gc: &GraphicsContext,
+        x: f64,
+        y: f64,
+        text: &str,
+        font_size_px: f64,
+        angle_deg: f64,
+        color: Rgba,
+    ) {
+        if let Some(gc) = self.clipped(gc) {
+            self.inner
+                .draw_text(&gc, x, y, text, font_size_px, angle_deg, color);
+        }
+    }
+
+    fn flipy(&self) -> bool {
+        self.inner.flipy()
+    }
+
+    fn points_to_pixels(&self, points: f64) -> f64 {
+        self.inner.points_to_pixels(points)
+    }
+
+    fn decoration_scale(&self) -> f64 {
+        self.inner.decoration_scale()
+    }
+
+    fn canvas_size(&self) -> (f64, f64) {
+        self.inner.canvas_size()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

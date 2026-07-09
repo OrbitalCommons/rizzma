@@ -628,6 +628,22 @@ mod canvas {
         /// Host hover callback: called `(axes, x, y)` over data, `(null)` on
         /// leave.
         hover_cb: Option<js_sys::Function>,
+        /// A cursor trail being recorded into a line (see
+        /// [`WasmSession::track_cursor`]).
+        trail: Option<Trail>,
+    }
+
+    /// A rolling record of recent cursor positions, mirrored into a line
+    /// artist entirely on the Rust side of the boundary.
+    struct Trail {
+        /// The axes whose hovers feed the trail.
+        axes: usize,
+        /// The line (by insertion order within `axes`) receiving the trail.
+        line: usize,
+        /// Maximum number of retained points; older ones fall off the tail.
+        capacity: usize,
+        /// The retained cursor positions in data coordinates, oldest first.
+        points: std::collections::VecDeque<(f64, f64)>,
     }
 
     /// An interactive figure bound to a canvas.
@@ -730,6 +746,48 @@ mod canvas {
             self.state.borrow_mut().hover_cb = Some(cb);
         }
 
+        /// Record the cursor's data-space position into line `line` of axes
+        /// `axes` as a rolling trail of up to `capacity` points — updated
+        /// entirely in Rust as pointer events arrive, with no JS in the loop.
+        ///
+        /// Each repaint is rAF-coalesced like any other update, and pan/zoom
+        /// keep working while the trail records (the trail pauses during a
+        /// drag, when the cursor is panning rather than hovering).
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if `axes` or `line` is out of range, or
+        /// `capacity` is zero.
+        pub fn track_cursor(
+            &self,
+            axes: usize,
+            line: usize,
+            capacity: usize,
+        ) -> Result<(), JsValue> {
+            if capacity == 0 {
+                return Err(JsValue::from_str("track_cursor: capacity must be > 0"));
+            }
+            let mut st = self.state.borrow_mut();
+            let fig = st.interactor.figure();
+            let ax = fig
+                .axes()
+                .get(axes)
+                .ok_or_else(|| JsValue::from_str(&format!("axes index {axes} out of range")))?;
+            if line >= ax.line_count() {
+                return Err(JsValue::from_str(&format!(
+                    "line index {line} out of range (axes has {} lines)",
+                    ax.line_count()
+                )));
+            }
+            st.trail = Some(Trail {
+                axes,
+                line,
+                capacity,
+                points: std::collections::VecDeque::with_capacity(capacity),
+            });
+            Ok(())
+        }
+
         /// Build the session: size the canvas for HiDPI, paint the first
         /// frame, and attach the DOM listeners.
         fn attach(fig: crate::figure::Figure, canvas_id: &str) -> Result<WasmSession, JsValue> {
@@ -742,6 +800,7 @@ mod canvas {
                 scale: device_scale(),
                 raf_pending: false,
                 hover_cb: None,
+                trail: None,
             }));
             render_now(&state)?;
 
@@ -902,6 +961,9 @@ mod canvas {
         match outcome {
             Outcome::NeedsRedraw => schedule_redraw(state),
             Outcome::Hover { axes, x, y } => {
+                if record_trail_point(state, axes, x, y) {
+                    schedule_redraw(state);
+                }
                 let cb = state.borrow().hover_cb.clone();
                 if let Some(cb) = cb {
                     let _ = cb.call3(
@@ -921,6 +983,33 @@ mod canvas {
                 }
             }
         }
+    }
+
+    /// Append a hovered data point to the session's cursor trail (if one is
+    /// tracking `axes`), mirroring the retained points into the trail's line.
+    /// Returns whether the figure changed and needs a repaint.
+    fn record_trail_point(state: &Rc<RefCell<SessionState>>, axes: usize, x: f64, y: f64) -> bool {
+        let mut st = state.borrow_mut();
+        // Split the borrow so the trail and the figure can be held together.
+        let st = &mut *st;
+        let Some(trail) = st.trail.as_mut() else {
+            return false;
+        };
+        if trail.axes != axes {
+            return false;
+        }
+        trail.points.push_back((x, y));
+        while trail.points.len() > trail.capacity {
+            trail.points.pop_front();
+        }
+        let xs: Vec<f64> = trail.points.iter().map(|p| p.0).collect();
+        let ys: Vec<f64> = trail.points.iter().map(|p| p.1).collect();
+        st.interactor
+            .figure_mut()
+            .axes_mut()
+            .get_mut(trail.axes)
+            .and_then(|ax| ax.set_line_data(trail.line, &xs, &ys).ok())
+            .is_some()
     }
 
     /// Queue a repaint on the next animation frame, coalescing bursts: any
