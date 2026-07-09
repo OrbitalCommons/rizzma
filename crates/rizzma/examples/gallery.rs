@@ -1192,5 +1192,33 @@ fn main() {
         fig.save_png("target/gallery_oscilloscope.png").unwrap();
     }
 
+    // 53. plot_surface — the sombrero sinc(r), the scene the docs.rs live
+    // matrix spins (its static fallback image).
+    {
+        use rizzma::mplot3d::Axes3D;
+        let n = 40usize;
+        let gx: Vec<f64> = (0..n)
+            .map(|i| -8.0 + 16.0 * i as f64 / (n - 1) as f64)
+            .collect();
+        let gy = gx.clone();
+        let mut gz = Vec::with_capacity(n * n);
+        for &yv in &gy {
+            for &xv in &gx {
+                let r = xv.hypot(yv);
+                gz.push(if r < 1e-9 { 1.0 } else { r.sin() / r });
+            }
+        }
+        let mut ax = Axes3D::new();
+        ax.plot_surface(&gx, &gy, &gz);
+        ax.set_title("plot_surface: sombrero sinc(r)");
+        ax.save_png(
+            "target/gallery_surface3d.png",
+            GALLERY_3D_WIDTH_PX,
+            GALLERY_3D_HEIGHT_PX,
+            GALLERY_3D_DPI,
+        )
+        .unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
