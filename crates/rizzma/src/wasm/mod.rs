@@ -923,11 +923,47 @@ mod canvas {
         }
     }
 
+    /// Map an event's `offsetX`/`offsetY` (CSS pixels within the canvas) to
+    /// **logical figure pixels**, correcting for any CSS scaling of the
+    /// canvas.
+    ///
+    /// Host stylesheets routinely cap embedded content — rustdoc, for one,
+    /// applies `max-width: 100%` to docblock children — so the canvas may
+    /// display smaller than its pinned logical size. The logical size is
+    /// recovered from the backing store (`logical × devicePixelRatio`, kept
+    /// current by every repaint) and each axis is rescaled independently
+    /// through the live bounding rect.
+    fn logical_event_pos(ev: &web_sys::Event, offset_x: f64, offset_y: f64) -> (f64, f64) {
+        let Some(canvas) = ev
+            .current_target()
+            .and_then(|t| t.dyn_into::<HtmlCanvasElement>().ok())
+        else {
+            return (offset_x, offset_y);
+        };
+        let rect = canvas.get_bounding_client_rect();
+        let dpr = device_scale();
+        let (logical_w, logical_h) = (
+            f64::from(canvas.width()) / dpr,
+            f64::from(canvas.height()) / dpr,
+        );
+        let sx = if rect.width() > 0.0 {
+            logical_w / rect.width()
+        } else {
+            1.0
+        };
+        let sy = if rect.height() > 0.0 {
+            logical_h / rect.height()
+        } else {
+            1.0
+        };
+        (offset_x * sx, offset_y * sy)
+    }
+
     /// Attach the pointer listeners (`down`/`move`/`up`/`leave`, `dblclick`).
     ///
-    /// Positions use `offsetX`/`offsetY`, which are CSS pixels relative to the
-    /// canvas — identical to logical figure pixels because the canvas CSS size
-    /// is pinned to the figure's logical size.
+    /// Positions come from `offsetX`/`offsetY` mapped through
+    /// [`logical_event_pos`], so they are logical figure pixels regardless of
+    /// how host CSS sizes the canvas.
     fn add_pointer_listeners(
         state: &Rc<RefCell<SessionState>>,
         listeners: &mut Vec<(&'static str, Closure<dyn FnMut(web_sys::Event)>)>,
@@ -943,18 +979,13 @@ mod canvas {
             {
                 let _ = canvas.set_pointer_capture(pe.pointer_id());
             }
-            Some(Event::MouseDown {
-                x: f64::from(pe.offset_x()),
-                y: f64::from(pe.offset_y()),
-                button,
-            })
+            let (x, y) = logical_event_pos(ev, f64::from(pe.offset_x()), f64::from(pe.offset_y()));
+            Some(Event::MouseDown { x, y, button })
         })?;
         add_listener(state, listeners, "pointermove", |ev| {
             let pe: &PointerEvent = ev.dyn_ref()?;
-            Some(Event::MouseMove {
-                x: f64::from(pe.offset_x()),
-                y: f64::from(pe.offset_y()),
-            })
+            let (x, y) = logical_event_pos(ev, f64::from(pe.offset_x()), f64::from(pe.offset_y()));
+            Some(Event::MouseMove { x, y })
         })?;
         add_listener(state, listeners, "pointerup", |ev| {
             let pe: &PointerEvent = ev.dyn_ref()?;
@@ -967,11 +998,8 @@ mod canvas {
             {
                 let _ = canvas.release_pointer_capture(pe.pointer_id());
             }
-            Some(Event::MouseUp {
-                x: f64::from(pe.offset_x()),
-                y: f64::from(pe.offset_y()),
-                button,
-            })
+            let (x, y) = logical_event_pos(ev, f64::from(pe.offset_x()), f64::from(pe.offset_y()));
+            Some(Event::MouseUp { x, y, button })
         })?;
         add_listener(state, listeners, "pointerleave", |_| Some(Event::Leave))?;
         // Touch/pen interruptions and capture loss must cancel an in-progress
@@ -983,10 +1011,8 @@ mod canvas {
         })?;
         add_listener(state, listeners, "dblclick", |ev| {
             let me: &web_sys::MouseEvent = ev.dyn_ref()?;
-            Some(Event::DoubleClick {
-                x: f64::from(me.offset_x()),
-                y: f64::from(me.offset_y()),
-            })
+            let (x, y) = logical_event_pos(ev, f64::from(me.offset_x()), f64::from(me.offset_y()));
+            Some(Event::DoubleClick { x, y })
         })
     }
 
@@ -1002,9 +1028,10 @@ mod canvas {
                 return;
             };
             ev.prevent_default();
+            let (x, y) = logical_event_pos(&ev, f64::from(we.offset_x()), f64::from(we.offset_y()));
             let event = Event::Wheel {
-                x: f64::from(we.offset_x()),
-                y: f64::from(we.offset_y()),
+                x,
+                y,
                 dy: wheel_lines(we),
             };
             dispatch(&st, event);
@@ -1151,12 +1178,19 @@ mod canvas {
             .unwrap_or(1.0)
     }
 
-    /// Pin the canvas' CSS size to the figure's logical pixel size, so the
-    /// HiDPI backing store is presented at 1 logical px = 1 CSS px.
+    /// Size the canvas at the figure's logical pixel size (1 logical px =
+    /// 1 CSS px), while staying friendly to host stylesheets: `max-width`
+    /// lets narrow containers (rustdoc caps docblock children at 100%)
+    /// shrink the canvas, `aspect-ratio` + `height: auto` keep the shrink
+    /// proportional. Pointer events stay correct at any displayed size —
+    /// they are mapped through the live bounding rect (see
+    /// `logical_event_pos`).
     fn set_css_size(canvas: &HtmlCanvasElement, logical: (f64, f64)) -> Result<(), JsValue> {
         let style = canvas.style();
         style.set_property("width", &format!("{}px", logical.0))?;
-        style.set_property("height", &format!("{}px", logical.1))
+        style.set_property("max-width", "100%")?;
+        style.set_property("height", "auto")?;
+        style.set_property("aspect-ratio", &format!("{} / {}", logical.0, logical.1))
     }
 
     /// Size the canvas backing store to `(width, height)` device pixels and

@@ -99,7 +99,6 @@
       const canvas = document.createElement("canvas");
       canvas.id = "rizzma-live-" + Math.random().toString(36).slice(2);
       canvas.style.touchAction = "none";
-      canvas.style.maxWidth = "100%";
       canvas.style.display = "block";
       el.prepend(canvas);
       sessions.push(build(mod, canvas));

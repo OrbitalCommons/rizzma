@@ -231,6 +231,49 @@ fn zoomed_artists_stay_clipped_to_the_frame() {
 }
 
 #[wasm_bindgen_test]
+fn css_scaled_canvas_keeps_pointer_math_correct() {
+    let session = bound_session("cssscale-target");
+    let canvas: HtmlCanvasElement = web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .get_element_by_id("cssscale-target")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    // Host CSS shrinks the canvas to half its logical 300x200 size —
+    // rustdoc's `max-width: 100%` does exactly this in narrow docblocks.
+    canvas.style().set_property("width", "150px").unwrap();
+    canvas.style().set_property("height", "100px").unwrap();
+
+    // Wheel at the *displayed* center (75, 50), which is the logical center
+    // (150, 100) and the data center (5, 5).
+    let init = WheelEventInit::new();
+    init.set_client_x(75);
+    init.set_client_y(50);
+    init.set_delta_y(-120.0);
+    init.set_delta_mode(WheelEvent::DOM_DELTA_PIXEL);
+    init.set_cancelable(true);
+    init.set_bubbles(true);
+    let ev = WheelEvent::new_with_event_init_dict("wheel", &init).unwrap();
+    canvas.dispatch_event(&ev).unwrap();
+
+    // The zoom must anchor at the data center: limits shrink symmetrically
+    // around (5, 5). Without bounding-rect mapping the event lands at
+    // logical (75, 50) instead and the midpoint drifts far off center.
+    let after = limits(&session);
+    assert!(
+        (after[1] - after[0]) < 10.0,
+        "zoom must engage on a CSS-scaled canvas: {after:?}"
+    );
+    let (mid_x, mid_y) = ((after[0] + after[1]) / 2.0, (after[2] + after[3]) / 2.0);
+    assert!(
+        (mid_x - 5.0).abs() < 0.25 && (mid_y - 5.0).abs() < 0.25,
+        "zoom must anchor at the data under the displayed cursor: {after:?}"
+    );
+}
+
+#[wasm_bindgen_test]
 fn sharex_zoom_links_subplots_through_the_dom() {
     make_canvas("sharex-target");
     let mut fig = WasmFigure::new(3.0, 2.0);
