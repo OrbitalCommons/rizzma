@@ -1,10 +1,11 @@
-# rizzma wasm browser demo
+# rizzma wasm browser demo site
 
-A minimal page that builds a `WasmFigure.sample()`, renders it into a `<canvas>`
-via the wasm canvas backend (`rizzma`'s `wasm` module) — tiny-skia rasterizes the
-figure to straight RGBA, which is blitted onto the canvas as `ImageData` — and
-wires a `mousemove` listener that calls `WasmFigure.data_at(px, py)` to show the
-data coordinates under the cursor live (`x=…, y=…`, or `—` when off the axes).
+An interactive demo site: four figures built from JS data via `WasmFigure`,
+rendered into `<canvas>` elements by the wasm canvas backend (tiny-skia
+rasterizes to straight RGBA, blitted as `ImageData`, HiDPI-crisp), each bound
+to a `WasmSession` for wheel-zoom at the cursor, drag pan, double-click reset,
+and hover readouts. The demos cover styled lines with a legend and live
+`set_line_data` updates, scatter, log-log axes, and a subplot grid.
 
 ## Build
 
@@ -33,13 +34,16 @@ wasm-bindgen \
 ## Serve
 
 A static file server is enough (ES modules and `.wasm` require HTTP, not
-`file://`):
+`file://`). The workspace ships one — dependency-free, correct
+`application/wasm` MIME type included:
 
 ```sh
-python3 -m http.server -d crates/rizzma/www 8000
+cargo xtask serve-www            # http://localhost:8000/
+cargo xtask serve-www --port 8777
 ```
 
-Then open <http://localhost:8000/>.
+Any other static server (e.g. `python3 -m http.server -d crates/rizzma/www`)
+works too.
 
 ## Notes
 

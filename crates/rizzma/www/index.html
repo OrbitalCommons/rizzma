@@ -3,53 +3,156 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>rizzma interactive demo</title>
+    <title>rizzma — interactive wasm demos</title>
     <style>
+      :root {
+        --bg: #1a1b26;
+        --fg: #c0caf5;
+        --muted: #9aa5ce;
+        --accent: #7aa2f7;
+      }
       body {
-        background: #1a1b26;
-        color: #c0caf5;
+        background: var(--bg);
+        color: var(--fg);
         font-family: system-ui, sans-serif;
         margin: 0;
-        min-height: 100vh;
+        padding: 2rem 1rem 3rem;
         display: flex;
         flex-direction: column;
         align-items: center;
+        gap: 1.5rem;
+      }
+      header {
+        max-width: 62rem;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 0.4rem;
+        font-size: 1.6rem;
+      }
+      h1 em {
+        color: var(--accent);
+        font-style: italic;
+      }
+      .tagline {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+      .hint {
+        margin: 0.6rem 0 0;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      .grid {
+        display: flex;
+        flex-wrap: wrap;
         justify-content: center;
-        gap: 1rem;
+        gap: 1.5rem;
+        /* Canvas CSS size is pinned to the figure's logical pixels (pointer
+           math depends on it), so cards never shrink their canvases; the
+           page scrolls instead on very narrow screens. */
+      }
+      .card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
       }
       canvas {
         background: #fff;
+        border-radius: 4px;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
         touch-action: none; /* pointer events drive pan; no browser gestures */
       }
-      .caption {
-        font-size: 0.9rem;
-        opacity: 0.8;
+      .readout {
+        font-family: ui-monospace, monospace;
+        font-size: 0.85rem;
+        color: var(--muted);
+        min-height: 1.2em;
+      }
+      button {
+        background: transparent;
+        border: 1px solid var(--accent);
+        border-radius: 4px;
+        color: var(--accent);
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.85rem;
+        padding: 0.25rem 0.8rem;
+      }
+      button:hover {
+        background: rgba(122, 162, 247, 0.15);
+      }
+      footer {
+        color: var(--muted);
+        font-size: 0.85rem;
         max-width: 42rem;
         text-align: center;
       }
-      #readout {
-        font-family: ui-monospace, monospace;
-        font-size: 1rem;
-        min-height: 1.2em;
+      footer a {
+        color: var(--accent);
       }
     </style>
   </head>
   <body>
-    <canvas id="plot"></canvas>
-    <p id="readout">&mdash;</p>
-    <button id="live">start live updates</button>
-    <p class="caption">
-      Built from JS data via <code>WasmFigure</code>, rendered HiDPI-crisp by
-      <code>rizzma</code> (tiny-skia &rarr; ImageData), interactive via
-      <code>WasmSession</code>: scroll to zoom at the cursor, drag to pan,
-      double-click to reset, hover for coordinates.
-    </p>
+    <header>
+      <h1>rizzma <em>interactive wasm demos</em></h1>
+      <p class="tagline">
+        Scientific communication reflects on the scientist, and your figures
+        should carry the same <em>rizzma</em> as your ideas.
+      </p>
+      <p class="hint">
+        Every plot is live: scroll to zoom at the cursor &middot; drag to pan
+        &middot; double-click to reset &middot; hover for data coordinates.
+      </p>
+    </header>
+
+    <div class="grid">
+      <div class="card">
+        <canvas id="plot-damped"></canvas>
+        <p class="readout" id="readout-damped">&mdash;</p>
+        <button id="live">start live updates</button>
+      </div>
+      <div class="card">
+        <canvas id="plot-galaxy"></canvas>
+        <p class="readout" id="readout-galaxy">&mdash;</p>
+      </div>
+      <div class="card">
+        <canvas id="plot-zipf"></canvas>
+        <p class="readout" id="readout-zipf">&mdash;</p>
+      </div>
+      <div class="card">
+        <canvas id="plot-subplots"></canvas>
+        <p class="readout" id="readout-subplots">&mdash;</p>
+      </div>
+    </div>
+
+    <footer>
+      Figures are built from JS data via <code>WasmFigure</code>, rasterized by
+      the same Rust core that renders PNG/SVG/PDF (tiny-skia &rarr;
+      <code>ImageData</code>, HiDPI-crisp), and driven by
+      <code>WasmSession</code> pointer events with rAF-coalesced repaints.
+      Source: <a href="https://github.com/OrbitalCommons/rizzma">rizzma on
+      GitHub</a> &middot; <a
+      href="https://orbitalcommons.github.io/rizzma/">static gallery</a>.
+    </footer>
+
     <script type="module">
       import init, { WasmFigure } from "./pkg/rizzma.js";
       await init();
 
-      // Build the plot from JS data — no baked-in sample.
+      /** Wire the shared hover readout for a bound session. */
+      function hookReadout(session, id) {
+        const el = document.getElementById(id);
+        session.on_hover((axes, x, y) => {
+          el.textContent =
+            axes === null ? "—" : `x=${x.toFixed(3)}, y=${y.toFixed(3)}`;
+        });
+        return session;
+      }
+
+      // 1. Damped oscillation with live phase animation.
       const n = 400;
       const xs = new Float64Array(n);
       const damped = new Float64Array(n);
@@ -60,27 +163,16 @@
         envelope[i] = Math.exp(-x / 4);
         damped[i] = envelope[i] * Math.cos(2 * x);
       }
+      const fig1 = new WasmFigure(4.8, 3.4);
+      const ax1 = fig1.add_subplot(1, 1, 1);
+      fig1.plot(ax1, xs, damped);
+      fig1.plot_styled(ax1, xs, envelope, { color: "tab:orange", ls: "--", lw: 1.0 });
+      fig1.set_title(ax1, "plot: damped oscillation (live)");
+      fig1.set_xlabel(ax1, "t");
+      fig1.set_ylabel(ax1, "amplitude");
+      fig1.legend(ax1, ["exp(-t/4)·cos(2t)", "envelope"]);
+      const session1 = hookReadout(fig1.bind("plot-damped"), "readout-damped");
 
-      const fig = new WasmFigure(6.4, 4.8);
-      const ax = fig.add_axes(0.12, 0.12, 0.83, 0.78);
-      fig.plot(ax, xs, damped);
-      fig.plot_styled(ax, xs, envelope, { color: "tab:orange", ls: "--", lw: 1.0 });
-      fig.set_title(ax, "damped oscillation");
-      fig.set_xlabel(ax, "t");
-      fig.set_ylabel(ax, "amplitude");
-      fig.legend(ax, ["exp(-t/4)·cos(2t)", "envelope"]);
-
-      // Bind consumes the figure and wires up zoom/pan/reset/hover.
-      const session = fig.bind("plot");
-      const readout = document.getElementById("readout");
-      session.on_hover((axes, x, y) => {
-        readout.textContent =
-          axes === null ? "—" : `x=${x.toFixed(3)}, y=${y.toFixed(3)}`;
-      });
-
-      // Live updates: animate the damped oscillation's phase through
-      // session.set_line_data — repaints are rAF-coalesced in Rust, and a
-      // panned/zoomed view is preserved across updates.
       const liveBtn = document.getElementById("live");
       let timer = null;
       let phase = 0;
@@ -97,10 +189,78 @@
           for (let i = 0; i < n; i++) {
             moving[i] = envelope[i] * Math.cos(2 * xs[i] + phase);
           }
-          session.set_line_data(ax, 0, xs, moving);
+          session1.set_line_data(ax1, 0, xs, moving);
         }, 100);
         liveBtn.textContent = "stop live updates";
       });
+
+      // 2. Scatter: a two-armed spiral galaxy with jitter.
+      const stars = 900;
+      const gx = new Float64Array(stars);
+      const gy = new Float64Array(stars);
+      let seed = 0x5eed;
+      const rand = () => {
+        // xorshift — deterministic so reloads look identical.
+        seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+        return ((seed >>> 0) % 10000) / 10000;
+      };
+      for (let i = 0; i < stars; i++) {
+        const arm = i % 2 === 0 ? 0 : Math.PI;
+        const t = 0.4 + 3.4 * (i / stars);
+        const r = 0.22 * t;
+        gx[i] = r * Math.cos(2.1 * t + arm) + (rand() - 0.5) * 0.09;
+        gy[i] = r * Math.sin(2.1 * t + arm) + (rand() - 0.5) * 0.09;
+      }
+      const fig2 = new WasmFigure(4.8, 3.4);
+      const ax2 = fig2.add_subplot(1, 1, 1);
+      fig2.scatter(ax2, gx, gy);
+      fig2.set_title(ax2, "scatter: a tidy little galaxy");
+      fig2.set_xlabel(ax2, "kpc");
+      fig2.set_ylabel(ax2, "kpc");
+      hookReadout(fig2.bind("plot-galaxy"), "readout-galaxy");
+
+      // 3. Log-log axes: Zipf's law.
+      const ranks = 240;
+      const zx = new Float64Array(ranks);
+      const zy = new Float64Array(ranks);
+      for (let i = 0; i < ranks; i++) {
+        const r = 1 + (999 * i) / (ranks - 1);
+        zx[i] = r;
+        zy[i] = 1.0e6 / r;
+      }
+      const fig3 = new WasmFigure(4.8, 3.4);
+      const ax3 = fig3.add_subplot(1, 1, 1);
+      fig3.plot(ax3, zx, zy);
+      fig3.set_xscale_log(ax3, 10);
+      fig3.set_yscale_log(ax3, 10);
+      fig3.set_xlim(ax3, 1, 1000);
+      fig3.set_ylim(ax3, 1.0e3, 1.0e6);
+      fig3.set_title(ax3, "loglog: Zipf's law");
+      fig3.set_xlabel(ax3, "word rank");
+      fig3.set_ylabel(ax3, "frequency");
+      hookReadout(fig3.bind("plot-zipf"), "readout-zipf");
+
+      // 4. Subplots: a chirp and its instantaneous frequency, stacked.
+      const m = 500;
+      const tt = new Float64Array(m);
+      const chirp = new Float64Array(m);
+      const freq = new Float64Array(m);
+      for (let i = 0; i < m; i++) {
+        const t = (10 * i) / (m - 1);
+        tt[i] = t;
+        chirp[i] = Math.sin(t * (1 + 0.4 * t));
+        freq[i] = (1 + 0.8 * t) / (2 * Math.PI);
+      }
+      const fig4 = new WasmFigure(4.8, 3.4);
+      const axTop = fig4.add_subplot(2, 1, 1);
+      const axBot = fig4.add_subplot(2, 1, 2);
+      fig4.plot(axTop, tt, chirp);
+      fig4.set_title(axTop, "subplots: a chirp…");
+      fig4.plot_styled(axBot, tt, freq, { color: "tab:green" });
+      fig4.set_title(axBot, "…and its frequency");
+      fig4.set_xlabel(axBot, "t (s)");
+      fig4.set_ylabel(axBot, "Hz");
+      hookReadout(fig4.bind("plot-subplots"), "readout-subplots");
     </script>
   </body>
 </html>

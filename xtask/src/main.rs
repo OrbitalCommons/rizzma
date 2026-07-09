@@ -117,7 +117,9 @@ fn print_usage() {
          produced by the gallery example (run it first). --strict also fails on\n        \
          generated-but-unreferenced images.\n    \
          wasm-size <artifact.wasm> [--max-bytes <N>]\n        \
-         Report a wasm artifact size and optionally fail when it exceeds N bytes."
+         Report a wasm artifact size and optionally fail when it exceeds N bytes.\n    \
+         serve-www [--port <u16>] [--dir <path>]\n        \
+         Serve the interactive wasm demo site (default crates/rizzma/www) over HTTP."
     );
 }
 
@@ -494,6 +496,170 @@ fn run_wasm_size(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// The content type for a served file, by extension.
+///
+/// `application/wasm` matters: without it browsers refuse
+/// `WebAssembly.instantiateStreaming`, and the ES-module demo fails to load.
+fn content_type(path: &Path) -> &'static str {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("wasm") => "application/wasm",
+        Some("json") | Some("map") => "application/json",
+        Some("png") => "image/png",
+        Some("svg") => "image/svg+xml",
+        Some("ico") => "image/x-icon",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Resolve a request path to a file under `root`, or `None` when the path
+/// escapes the root or does not exist.
+///
+/// `/` maps to `index.html`; every path component must be a plain name (no
+/// `..`, no absolute segments), so the server can only expose the demo dir.
+fn resolve_request_path(root: &Path, request_path: &str) -> Option<PathBuf> {
+    let path = request_path.split(['?', '#']).next().unwrap_or("");
+    let relative = path.trim_start_matches('/');
+    let relative = if relative.is_empty() {
+        "index.html"
+    } else {
+        relative
+    };
+    let mut resolved = root.to_path_buf();
+    for component in relative.split('/') {
+        if component.is_empty() || component == ".." || component == "." || component.contains('\\')
+        {
+            return None;
+        }
+        resolved.push(component);
+    }
+    resolved.is_file().then_some(resolved)
+}
+
+/// Serve one HTTP connection: parse the request line, resolve the path, and
+/// write the file (or a 404) back.
+fn serve_connection(mut stream: std::net::TcpStream, root: &Path) {
+    use std::io::{BufRead, BufReader, Read, Write};
+
+    let mut reader = BufReader::new(&mut stream);
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line).is_err() {
+        return;
+    }
+    // Drain the request headers so the client sees a clean connection close.
+    let mut line = String::new();
+    while reader.read_line(&mut line).is_ok() && line != "\r\n" && !line.is_empty() {
+        line.clear();
+    }
+
+    let mut parts = request_line.split_whitespace();
+    let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or("/"));
+    let response = if method != "GET" {
+        (
+            405,
+            "text/plain; charset=utf-8",
+            b"method not allowed".to_vec(),
+        )
+    } else {
+        match resolve_request_path(root, path) {
+            Some(file) => match std::fs::File::open(&file) {
+                Ok(mut f) => {
+                    let mut body = Vec::new();
+                    match f.read_to_end(&mut body) {
+                        Ok(_) => (200, content_type(&file), body),
+                        Err(_) => (500, "text/plain; charset=utf-8", b"read error".to_vec()),
+                    }
+                }
+                Err(_) => (404, "text/plain; charset=utf-8", b"not found".to_vec()),
+            },
+            None => (404, "text/plain; charset=utf-8", b"not found".to_vec()),
+        }
+    };
+
+    let (status, mime, body) = response;
+    let reason = match status {
+        200 => "OK",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        _ => "Internal Server Error",
+    };
+    let header = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(header.as_bytes());
+    let _ = stream.write_all(&body);
+}
+
+/// Run the `serve-www` subcommand: a tiny static file server for the wasm
+/// demo site (`crates/rizzma/www` by default). Dependency-free by design —
+/// browsers need real HTTP (not `file://`) for ES modules and `.wasm`.
+fn run_serve_www(args: &[String]) -> ExitCode {
+    let mut port: u16 = 8000;
+    let mut dir = PathBuf::from("crates/rizzma/www");
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--port" => {
+                i += 1;
+                match args.get(i).and_then(|v| v.parse().ok()) {
+                    Some(p) => port = p,
+                    None => {
+                        eprintln!("error: --port requires a number");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            "--dir" => {
+                i += 1;
+                match args.get(i) {
+                    Some(v) => dir = PathBuf::from(v),
+                    None => {
+                        eprintln!("error: --dir requires a path");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            "-h" | "--help" => {
+                eprintln!("USAGE:\n    cargo xtask serve-www [--port <u16>] [--dir <path>]");
+                return ExitCode::SUCCESS;
+            }
+            other => {
+                eprintln!("error: unknown argument: {other}");
+                return ExitCode::from(2);
+            }
+        }
+        i += 1;
+    }
+
+    if !dir.join("index.html").is_file() {
+        eprintln!("error: {} has no index.html", dir.display());
+        eprintln!("build the wasm bundle first:");
+        eprintln!(
+            "    wasm-pack build --target web --out-dir crates/rizzma/www/pkg crates/rizzma --features wasm"
+        );
+        return ExitCode::FAILURE;
+    }
+
+    let listener = match std::net::TcpListener::bind(("0.0.0.0", port)) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("error: failed to bind port {port}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!("serving {} at http://localhost:{port}/", dir.display());
+
+    for stream in listener.incoming() {
+        let Ok(stream) = stream else { continue };
+        let root = dir.clone();
+        std::thread::spawn(move || serve_connection(stream, &root));
+    }
+    ExitCode::SUCCESS
+}
+
 /// CLI dispatch.
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -501,6 +667,7 @@ fn main() -> ExitCode {
         Some("image-diff") => run_image_diff(&args[1..]),
         Some("check-gallery-links") => run_check_gallery_links(&args[1..]),
         Some("wasm-size") => run_wasm_size(&args[1..]),
+        Some("serve-www") => run_serve_www(&args[1..]),
         Some("-h") | Some("--help") | None => {
             print_usage();
             ExitCode::SUCCESS
