@@ -7,6 +7,79 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.2.0] - 2026-07-08
+
+### Added
+- **Ten capability upgrades** from the matplotlib-parity triage: the classic
+  colormaps (`magma`, `inferno`, `plasma`, `cividis`, `RdBu`, `coolwarm`,
+  all with `_r`), `Patch::circle`/`rectangle`/`arc` constructors,
+  `Axes::text` and `Axes::annotate` with leader arrows, `tricontour` /
+  `tricontourf` over triangulations, gouraud-shaded `pcolormesh`,
+  `colorbar_at` placement with horizontal orientation, `SkyAxes` with
+  aitoff and mollweide projections, `twinx` twins plus a secondary linear
+  x axis, 3D quiver arrows and billboard text labels, and live line-data
+  updates for wasm sessions (`set_line_data`).
+- **Kovesi CET colormaps** (arXiv:1509.03700): 15 perceptually uniform maps
+  embedded as compact 8-bit tables — linear (`cet_l01`, `cet_l03` "fire",
+  `cet_l05`, `cet_l09`, `cet_l10`), diverging (`cet_d01`, `cet_d04`,
+  `cet_d07`, `cet_d11`), the equalized rainbow `cet_r2`, cyclic
+  `cet_c1`/`cet_c2`/`cet_c3`/`cet_c5`, and isoluminant `cet_i1`, each with
+  `_r` variants. **The default colormap is now `bgyw` (CET-L09)** for every
+  artist that previously hardcoded viridis. The classic vendor maps (`jet`,
+  `hot`, `hsv`, `rainbow`) ship quarantined in `core::color::misleading` and
+  only resolve with an explicit `misleading:` registry prefix; module docs
+  explain the perceptual failure modes with the paper citation.
+- **`sharex` linked axes** (`Figure::sharex`, `WasmFigure.sharex`): a
+  follower mirrors its leader's x-limits at draw time, interactive pan/zoom
+  on either axes keeps the group's x in lockstep (y stays per-axes), and
+  double-click home restores the whole group. Stacked pairs hide the upper
+  axes' x tick labels (matplotlib's `label_outer`).
+- **Oscilloscope axes style** (`Axes::oscilloscope`): a chart built for
+  arbitrary — including sparkline-strip — sizes. Everything draws inside the
+  frame: near-black CRT face, fixed 10×4-division phosphor graticule,
+  phosphor trace cycle (green/amber/cyan/magenta), dim bezel, and in-frame
+  corner readouts (y-max, y-min, x-span) that track the live limits. Scope
+  axes autoscale flush in x.
+- **Interactive wasm demo site** (`crates/rizzma/www`): six live canvases —
+  styled lines with `set_line_data` animation, scatter, log-log, `sharex`
+  subplots, a Rust-side cursor trail, and streaming oscilloscope strips —
+  served by the new dependency-free `cargo xtask serve-www`.
+- **`WasmSession::track_cursor`**: record hovered data positions into a line
+  artist as a rolling trail, entirely on the Rust side of the boundary.
+- Titles for the self-contained axes: `SkyAxes`, `PolarAxes`, and `Axes3D`
+  gain `set_title`, drawn centered and DPI-scaled like 2D axes titles.
+- `Figure::set_facecolor` (and the `WasmFigure` export) for in-place canvas
+  background changes; `Axes::set_x_tick_labels_visible` /
+  `Axis::set_tick_labels_visible` for label-outer control.
+- Sticky autoscale edges: bars, histograms, stems, stairs, stackplots, and
+  grouped bars sit exactly on their zero baseline; images and meshes stay
+  flush with their live extents; line charts are flush in x.
+- Gallery: images render at ≥1600 px for HiDPI docs, every demo's title
+  leads with the feature it demonstrates, and the colormap showcase is
+  grouped into CET / classics / quarantined sections.
+
+### Changed
+- **Tight layout**: `add_subplot` frames are derived from measured
+  decoration extents (matplotlib's tight layout) instead of fixed margins —
+  including end-tick-label overhang, column-aligned frame widths for
+  stacked subplots, and matplotlib-equivalent padding (full pad at figure
+  edges, one shared pad between neighbors). Explicit `add_axes` rects stay
+  literal.
+- Text, tick, marker, and arrow geometry scales with renderer DPI, so
+  high-DPI renders are true scale-ups rather than tiny text on big canvases.
+
+### Fixed
+- **Artists now clip to the axes frame** on every backend (raster mask with
+  caching, SVG `clipPath`, PDF clip operator): zooming or setting limits
+  tighter than the data no longer spills lines, patches, meshes, or images
+  across the figure.
+- Dropping a `WasmSession` (explicitly or via GC) detaches its DOM
+  listeners, so events on the canvas no longer throw
+  "closure invoked recursively or after being dropped".
+- Degenerate axis ranges are judged relative to magnitude, log/logit limits
+  survive extreme interaction, and the wasm browser CI pins wasm-pack
+  0.15.0.
+
 ## [1.1.2] - 2026-07-07
 
 ### Changed
