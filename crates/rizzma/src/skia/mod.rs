@@ -19,7 +19,7 @@ use std::fmt;
 
 pub use crate::core::{Affine2D, Path, color::Rgba};
 
-use crate::core::PathSegment;
+use crate::core::{Bbox, PathSegment};
 use crate::render::{CapStyle, GraphicsContext, JoinStyle, Renderer};
 use tiny_skia::{
     Color, FillRule, IntSize, LineCap, LineJoin, Mask, Paint, PathBuilder, Pixmap, PixmapPaint,
@@ -53,6 +53,12 @@ pub struct SkiaRenderer {
     pixmap: Pixmap,
     /// Dots per inch, used to convert points to pixels.
     dpi: f64,
+    /// The most recently built clip [`Mask`], keyed by its source rectangle.
+    ///
+    /// Every artist inside one axes shares the same clip rectangle, and the
+    /// default marker fan-out issues one `draw_path` per point, so rebuilding
+    /// a full-canvas mask per call would dominate interactive scatter frames.
+    clip_cache: Option<(Bbox, Mask)>,
 }
 
 impl SkiaRenderer {
@@ -66,7 +72,11 @@ impl SkiaRenderer {
     pub fn new(width_px: u32, height_px: u32, dpi: f64) -> Self {
         let pixmap = Pixmap::new(width_px, height_px)
             .expect("SkiaRenderer: pixmap dimensions must be non-zero");
-        Self { pixmap, dpi }
+        Self {
+            pixmap,
+            dpi,
+            clip_cache: None,
+        }
     }
 
     /// The DPI this renderer scales points to pixels with.
@@ -155,26 +165,44 @@ impl SkiaRenderer {
         pb.finish()
     }
 
-    /// Build a rectangular clip [`Mask`] from `gc.clip_rect` (in matplotlib
-    /// device coordinates), Y-flipped into pixmap space.
+    /// Build a rectangular clip [`Mask`] from `bbox` (in matplotlib device
+    /// coordinates), Y-flipped into pixmap space.
     ///
-    /// Returns `None` when there is no clip rectangle or it is degenerate.
-    fn clip_mask(&self, gc: &GraphicsContext) -> Option<Mask> {
+    /// Returns `None` when the rectangle is degenerate.
+    fn build_clip_mask(width: u32, height: u32, bbox: &Bbox) -> Option<Mask> {
         // TODO: clip_path — honor gc.clip_path for arbitrary-path clipping.
-        let bbox = gc.clip_rect?;
-        let height = f64::from(self.pixmap.height());
+        let pix_h = f64::from(height);
         // Y-flip the rectangle corners; the band's min/max in y swap.
         let left = bbox.xmin();
         let right = bbox.xmax();
-        let top = height - bbox.ymax();
-        let bottom = height - bbox.ymin();
+        let top = pix_h - bbox.ymax();
+        let bottom = pix_h - bbox.ymin();
         let rect = Rect::from_ltrb(left as f32, top as f32, right as f32, bottom as f32)?;
-        let mut mask = Mask::new(self.pixmap.width(), self.pixmap.height())?;
+        let mut mask = Mask::new(width, height)?;
         let mut pb = PathBuilder::new();
         pb.push_rect(rect);
         let rect_path = pb.finish()?;
         mask.fill_path(&rect_path, FillRule::Winding, true, Transform::identity());
         Some(mask)
+    }
+
+    /// Ensure [`SkiaRenderer::clip_cache`] holds the mask for `gc.clip_rect`.
+    ///
+    /// Every artist inside one axes draws with the same clip rectangle (and
+    /// the marker fan-out repeats it per point), so the mask is built once
+    /// and reused until a different rectangle arrives. After this call the
+    /// mask is read directly from the `clip_cache` field so the borrow stays
+    /// disjoint from `pixmap`.
+    fn ensure_clip_mask(&mut self, gc: &GraphicsContext) {
+        let Some(bbox) = gc.clip_rect else {
+            self.clip_cache = None;
+            return;
+        };
+        if matches!(&self.clip_cache, Some((cached, _)) if *cached == bbox) {
+            return;
+        }
+        self.clip_cache = Self::build_clip_mask(self.pixmap.width(), self.pixmap.height(), &bbox)
+            .map(|mask| (bbox, mask));
     }
 }
 
@@ -242,8 +270,8 @@ impl Renderer for SkiaRenderer {
         let Some(sk_path) = Self::build_device_path(path, &device) else {
             return;
         };
-        let mask = self.clip_mask(gc);
-        let mask_ref = mask.as_ref();
+        self.ensure_clip_mask(gc);
+        let mask_ref = self.clip_cache.as_ref().map(|(_, mask)| mask);
         let anti_alias = gc.antialiased;
 
         if let Some(face) = fill {
@@ -360,14 +388,14 @@ impl Renderer for SkiaRenderer {
             ..PixmapPaint::default()
         };
 
-        let mask = self.clip_mask(gc);
+        self.ensure_clip_mask(gc);
         self.pixmap.draw_pixmap(
             dest_x,
             dest_y,
             src.as_ref(),
             &paint,
             Transform::identity(),
-            mask.as_ref(),
+            self.clip_cache.as_ref().map(|(_, mask)| mask),
         );
     }
 

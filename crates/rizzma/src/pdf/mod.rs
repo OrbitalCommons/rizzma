@@ -337,8 +337,20 @@ impl Renderer for PdfRenderer {
         };
         let _ = writeln!(block, "{paint}");
 
-        // Wrap each draw in q/Q so graphics state does not leak between paths.
+        // Wrap each draw in q/Q so graphics state does not leak between paths
+        // — which also scopes the clip installed below to this draw.
         self.content.push_str("q\n");
+        if let Some(clip) = gc.clip_rect {
+            // PDF user space is y-up like the clip rectangle: no flip needed.
+            let _ = writeln!(
+                self.content,
+                "{} {} {} {} re W n",
+                fmt_f(clip.xmin()),
+                fmt_f(clip.ymin()),
+                fmt_f(clip.width()),
+                fmt_f(clip.height())
+            );
+        }
         self.content.push_str(&block);
         self.content.push_str("Q\n");
     }
