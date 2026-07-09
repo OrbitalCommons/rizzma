@@ -76,6 +76,10 @@ pub struct Axis {
     axis_label_pad: f64,
     /// Whether to draw grid lines spanning the axes at each tick.
     grid: bool,
+    /// Whether tick labels (and the axis label) are drawn and reserved in
+    /// layout. Hidden by `sharex` on the inner axes of a stacked pair
+    /// (matplotlib's `label_outer`); tick marks and the spine stay visible.
+    tick_labels_visible: bool,
 }
 
 impl Axis {
@@ -99,7 +103,15 @@ impl Axis {
             tick_label_pad: 3.5,
             axis_label_pad: 4.0,
             grid: false,
+            tick_labels_visible: true,
         }
+    }
+
+    /// Show or hide the tick labels and axis label (tick marks and the spine
+    /// always draw). Hidden labels also stop reserving layout room.
+    pub fn set_tick_labels_visible(&mut self, visible: bool) -> &mut Self {
+        self.tick_labels_visible = visible;
+        self
     }
 
     /// Which edge this axis is drawn along.
@@ -295,8 +307,10 @@ impl Axis {
         let s = renderer.decoration_scale();
         self.draw_spine(renderer, axes_bbox, &stroke_gc);
         self.draw_ticks(renderer, axes_bbox, &ticks, (vmin, vmax), &stroke_gc, s);
-        self.draw_tick_labels(renderer, axes_bbox, &ticks, (vmin, vmax), font, s);
-        self.draw_axis_label(renderer, axes_bbox, &ticks, font, s);
+        if self.tick_labels_visible {
+            self.draw_tick_labels(renderer, axes_bbox, &ticks, (vmin, vmax), font, s);
+            self.draw_axis_label(renderer, axes_bbox, &ticks, font, s);
+        }
     }
 
     /// The outward extent, in pixels, this axis' decoration (ticks, tick
@@ -304,6 +318,10 @@ impl Axis {
     /// `lim` at decoration scale `s`. Drives tight layout: the frame is inset
     /// from its envelope by exactly this much per side (plus a pad).
     pub(crate) fn decoration_extent(&self, lim: (f64, f64), font: &FontSource, s: f64) -> f64 {
+        if !self.tick_labels_visible {
+            // Only the outward tick marks occupy space.
+            return self.tick_length * s;
+        }
         let (vmin, vmax) = lim;
         let (lo_v, hi_v) = if vmin <= vmax {
             (vmin, vmax)
@@ -347,6 +365,9 @@ impl Axis {
         font: &FontSource,
         s: f64,
     ) -> (f64, f64) {
+        if !self.tick_labels_visible {
+            return (0.0, 0.0);
+        }
         let (vmin, vmax) = lim;
         let (lo_v, hi_v) = if vmin <= vmax {
             (vmin, vmax)
