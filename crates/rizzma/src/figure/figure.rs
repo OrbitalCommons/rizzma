@@ -89,6 +89,13 @@ impl Figure {
         self
     }
 
+    /// Set the canvas background color in place (the post-construction
+    /// counterpart of [`with_facecolor`](Figure::with_facecolor)).
+    pub fn set_facecolor(&mut self, facecolor: Rgba) -> &mut Self {
+        self.facecolor = facecolor;
+        self
+    }
+
     /// The figure size in pixels as `(width, height)` (`size_in * dpi`).
     #[must_use]
     pub fn size_px(&self) -> (f64, f64) {

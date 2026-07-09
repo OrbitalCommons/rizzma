@@ -262,6 +262,35 @@ impl WasmFigure {
         self.add_subplot_impl(nrows, ncols, index).map_err(js_err)
     }
 
+    /// Set the figure's canvas background color from a matplotlib-style
+    /// color spec (name, hex, `tab:*`, `C0`…) — e.g. a dark face behind
+    /// full-bleed oscilloscope strips.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the color spec is not recognized.
+    pub fn set_facecolor(&mut self, color: &str) -> Result<(), JsValue> {
+        let rgba = crate::core::color::to_rgba(color, None)
+            .ok_or_else(|| js_err(format!("unrecognized color spec '{color}'")))?;
+        self.fig.set_facecolor(rgba);
+        Ok(())
+    }
+
+    /// Switch axes `axes` to oscilloscope styling: CRT background, fixed
+    /// phosphor graticule, phosphor trace cycle, and in-frame corner
+    /// readouts — built to stay legible at any size, down to sparkline
+    /// strips. Call before plotting so traces pick up the phosphor cycle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range.
+    pub fn oscilloscope(&mut self, axes: usize) -> Result<(), JsValue> {
+        self.with_axes(axes, |ax| {
+            ax.oscilloscope();
+        })
+        .map_err(js_err)
+    }
+
     /// Link `follower`'s x-limits to `leader`'s (matplotlib's `sharex`):
     /// pan/zoom on either axes keeps the pair's x in lockstep while each y
     /// stays independent.
