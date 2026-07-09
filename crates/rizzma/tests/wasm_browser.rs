@@ -231,6 +231,58 @@ fn zoomed_artists_stay_clipped_to_the_frame() {
 }
 
 #[wasm_bindgen_test]
+fn sharex_zoom_links_subplots_through_the_dom() {
+    make_canvas("sharex-target");
+    let mut fig = WasmFigure::new(3.0, 2.0);
+    let top = fig.add_subplot(2, 1, 1).unwrap();
+    let bottom = fig.add_subplot(2, 1, 2).unwrap();
+    fig.plot(top, &[0.0, 5.0, 10.0], &[0.0, 5.0, 10.0]).unwrap();
+    fig.plot(bottom, &[0.0, 5.0, 10.0], &[0.0, 1.0, 4.0])
+        .unwrap();
+    fig.set_xlim(top, 0.0, 10.0).unwrap();
+    fig.set_ylim(top, 0.0, 10.0).unwrap();
+    fig.set_xlim(bottom, 0.0, 10.0).unwrap();
+    fig.set_ylim(bottom, 0.0, 4.0).unwrap();
+    fig.sharex(bottom, top).unwrap();
+    let session = fig.bind("sharex-target").unwrap();
+
+    let canvas: HtmlCanvasElement = web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .get_element_by_id("sharex-target")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    // Wheel in over the BOTTOM subplot (lower half of the 300x200 canvas).
+    let init = WheelEventInit::new();
+    init.set_client_x(150);
+    init.set_client_y(150);
+    init.set_delta_y(-120.0);
+    init.set_delta_mode(WheelEvent::DOM_DELTA_PIXEL);
+    init.set_cancelable(true);
+    init.set_bubbles(true);
+    let ev = WheelEvent::new_with_event_init_dict("wheel", &init).unwrap();
+    canvas.dispatch_event(&ev).unwrap();
+
+    // The shared x zoomed on BOTH subplots, and they agree exactly.
+    let top_lim = session.limits(top).unwrap();
+    let bottom_lim = session.limits(bottom).unwrap();
+    assert!(
+        (top_lim[1] - top_lim[0]) < 10.0,
+        "zooming the follower must shrink the shared x: {top_lim:?}"
+    );
+    assert_eq!(
+        (top_lim[0], top_lim[1]),
+        (bottom_lim[0], bottom_lim[1]),
+        "linked subplots must report identical x limits"
+    );
+    // The top subplot's y is untouched; only the hovered one zoomed in y.
+    assert_eq!((top_lim[2], top_lim[3]), (0.0, 10.0));
+    assert!(bottom_lim[3] - bottom_lim[2] < 4.0);
+}
+
+#[wasm_bindgen_test]
 fn dropped_session_detaches_listeners_cleanly() {
     let session = bound_session("drop-target");
     let canvas: HtmlCanvasElement = web_sys::window()

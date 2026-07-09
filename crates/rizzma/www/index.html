@@ -265,11 +265,13 @@
       const axTop = fig4.add_subplot(2, 1, 1);
       const axBot = fig4.add_subplot(2, 1, 2);
       fig4.plot(axTop, tt, chirp);
-      fig4.set_title(axTop, "subplots: a chirp…");
+      fig4.set_title(axTop, "subplots (sharex): a chirp…");
       fig4.plot_styled(axBot, tt, freq, { color: "tab:green" });
       fig4.set_title(axBot, "…and its frequency");
       fig4.set_xlabel(axBot, "t (s)");
       fig4.set_ylabel(axBot, "Hz");
+      // Zooming or panning either subplot moves both x ranges together.
+      fig4.sharex(axBot, axTop);
       hookReadout(fig4.bind("plot-subplots"), "readout-subplots");
 
       // 5. Cursor trail, recorded on the Rust side: session.track_cursor

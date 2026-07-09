@@ -1411,7 +1411,10 @@ impl Axes {
 
     /// The scale-limited effective `(xlim, ylim)` with the x-limits optionally
     /// replaced (and re-guarded through the x scale's domain).
-    fn limits_with_override(&self, xlim_override: Option<(f64, f64)>) -> ((f64, f64), (f64, f64)) {
+    pub(crate) fn limits_with_override(
+        &self,
+        xlim_override: Option<(f64, f64)>,
+    ) -> ((f64, f64), (f64, f64)) {
         let (xlim, ylim) = self.scale_limited_effective_limits();
         match xlim_override {
             Some(over) => {

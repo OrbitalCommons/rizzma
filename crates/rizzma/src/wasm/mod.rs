@@ -262,6 +262,33 @@ impl WasmFigure {
         self.add_subplot_impl(nrows, ncols, index).map_err(js_err)
     }
 
+    /// Link `follower`'s x-limits to `leader`'s (matplotlib's `sharex`):
+    /// pan/zoom on either axes keeps the pair's x in lockstep while each y
+    /// stays independent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either index is out of range, the two are equal,
+    /// or `leader` itself already follows another axes.
+    pub fn sharex(&mut self, follower: usize, leader: usize) -> Result<(), JsValue> {
+        let n = self.fig.axes().len();
+        if follower >= n || leader >= n {
+            return Err(js_err(format!(
+                "sharex: axes index out of range (figure has {n} axes)"
+            )));
+        }
+        if follower == leader {
+            return Err(js_err("sharex: an axes cannot follow itself".into()));
+        }
+        if self.fig.xlim_override_for(leader).is_some() {
+            return Err(js_err(
+                "sharex: the leader must not itself follow another axes".into(),
+            ));
+        }
+        self.fig.sharex(follower, leader);
+        Ok(())
+    }
+
     /// Plot `y` against `x` as a line on axes `axes`, using the color cycle.
     ///
     /// # Errors
@@ -529,7 +556,9 @@ impl WasmFigure {
             self.fig.axes().get(axes).ok_or_else(|| {
                 format!("axes index {axes} out of range (figure has {count} axes)")
             })?;
-        let ((xlo, xhi), (ylo, yhi)) = ax.effective_limits();
+        // Linked x-limits (twins, sharex) resolve through their leader, so
+        // callers read the values the axes actually draws with.
+        let ((xlo, xhi), (ylo, yhi)) = ax.limits_with_override(self.fig.xlim_override_for(axes));
         Ok([xlo, xhi, ylo, yhi])
     }
 
@@ -713,7 +742,9 @@ mod canvas {
                     fig.axes().len()
                 ))
             })?;
-            let ((xlo, xhi), (ylo, yhi)) = ax.effective_limits();
+            // Linked x-limits (twins, sharex) resolve through their leader,
+            // so callers read the values the axes actually draws with.
+            let ((xlo, xhi), (ylo, yhi)) = ax.limits_with_override(fig.xlim_override_for(axes));
             Ok(Box::new([xlo, xhi, ylo, yhi]))
         }
 

@@ -175,6 +175,31 @@ impl Figure {
         self.axes.len() - 1
     }
 
+    /// Link `follower`'s x-limits to `leader`'s (matplotlib's `sharex`).
+    ///
+    /// The follower keeps its own y axis and decorations but mirrors the
+    /// leader's *effective* x-limits at draw time, so `set_xlim`, autoscale
+    /// changes, and interactive pan/zoom on the leader move both. Interaction
+    /// on the follower writes its x changes through to the leader (see
+    /// [`Interactor`](crate::figure::Interactor)), so zooming either axes
+    /// keeps the group's x in lockstep while each y stays independent.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either index is out of range, the two are equal, or `leader`
+    /// itself already follows another axes (chains are not resolved — link
+    /// every follower directly to one leader).
+    pub fn sharex(&mut self, follower: usize, leader: usize) {
+        assert!(follower < self.axes.len(), "sharex: follower out of range");
+        assert!(leader < self.axes.len(), "sharex: leader out of range");
+        assert!(follower != leader, "sharex: an axes cannot follow itself");
+        assert!(
+            self.axes[leader].xlim_link.is_none(),
+            "sharex: the leader must not itself follow another axes"
+        );
+        self.axes[follower].xlim_link = Some(leader);
+    }
+
     /// The shared x-limits a twin axes mirrors, or `None` for ordinary axes
     /// (or a dangling/self link).
     pub(crate) fn xlim_override_for(&self, idx: usize) -> Option<(f64, f64)> {
