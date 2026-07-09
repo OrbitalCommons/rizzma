@@ -13,6 +13,7 @@ Run from the **repo root**.
 With [`wasm-pack`](https://rustwasm.github.io/wasm-pack/) (recommended):
 
 ```sh
+cargo install wasm-pack --version 0.15.0 --locked
 wasm-pack build --target web --out-dir crates/rizzma/www/pkg crates/rizzma --features wasm
 ```
 
