@@ -93,6 +93,8 @@ jobs:
   wasm-test:
     name: wasm browser tests
     runs-on: ubuntu-latest
+    env:
+      WASM_PACK_VERSION: 0.15.0
     steps:
       - uses: actions/checkout@v4
 
@@ -110,9 +112,15 @@ jobs:
 
       - name: Install wasm-pack
         run: |
-          curl -sL -o /tmp/wasm-pack.tgz https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64|amd64) target="x86_64-unknown-linux-musl" ;;
+            aarch64|arm64) target="aarch64-unknown-linux-musl" ;;
+            *) echo "unsupported wasm-pack host architecture: $arch" >&2; exit 1 ;;
+          esac
+          curl -sL -o /tmp/wasm-pack.tgz "https://github.com/rustwasm/wasm-pack/releases/download/v${WASM_PACK_VERSION}/wasm-pack-v${WASM_PACK_VERSION}-${target}.tar.gz"
           tar xzf /tmp/wasm-pack.tgz -C /tmp
-          sudo mv /tmp/wasm-pack-v0.13.1-x86_64-unknown-linux-musl/wasm-pack /usr/local/bin/
+          sudo mv "/tmp/wasm-pack-v${WASM_PACK_VERSION}-${target}/wasm-pack" /usr/local/bin/
           wasm-pack --version
 
       - name: Run headless Chrome tests
