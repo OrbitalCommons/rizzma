@@ -63,6 +63,49 @@ const ANNOTATION_HEAD_LEN: f64 = 8.0;
 /// Arrowhead half-width across the shaft, in pixels.
 const ANNOTATION_HEAD_HALF_WIDTH: f64 = 3.5;
 
+/// Oscilloscope background: a near-black CRT face.
+const SCOPE_BG: Rgba = Rgba::new(0.035, 0.05, 0.04, 1.0);
+/// Oscilloscope graticule lines (dim phosphor).
+const SCOPE_GRID: Rgba = Rgba::new(0.0, 0.9, 0.35, 0.16);
+/// Oscilloscope center crosshair lines (brighter than the graticule).
+const SCOPE_GRID_CENTER: Rgba = Rgba::new(0.0, 0.9, 0.35, 0.32);
+/// Oscilloscope bezel (the border stroked over the trace).
+const SCOPE_BEZEL: Rgba = Rgba::new(0.0, 0.9, 0.35, 0.55);
+/// Oscilloscope readout text color.
+const SCOPE_TEXT: Rgba = Rgba::new(0.25, 1.0, 0.45, 0.92);
+/// Oscilloscope graticule divisions along x.
+const SCOPE_X_DIVS: usize = 10;
+/// Oscilloscope graticule divisions along y.
+const SCOPE_Y_DIVS: usize = 4;
+/// Oscilloscope corner-readout font size, in pixels at 100 DPI.
+const SCOPE_TEXT_SIZE: f64 = 8.0;
+/// Gap between the bezel and the corner readouts, in pixels at 100 DPI.
+const SCOPE_TEXT_PAD: f64 = 3.0;
+/// The phosphor trace cycle used instead of tab10 in scope mode.
+const SCOPE_CYCLE: [Rgba; 4] = [
+    Rgba::new(0.22, 1.0, 0.08, 1.0), // phosphor green
+    Rgba::new(1.0, 0.69, 0.0, 1.0),  // amber
+    Rgba::new(0.0, 0.9, 1.0, 1.0),   // cyan
+    Rgba::new(1.0, 0.36, 0.88, 1.0), // magenta
+];
+
+/// Compact adaptive formatting for oscilloscope corner readouts: plain
+/// decimals in a comfortable range, scientific notation outside it, so the
+/// readouts stay a handful of glyphs at any magnitude.
+fn format_scope_value(v: f64) -> String {
+    if !v.is_finite() {
+        return format!("{v}");
+    }
+    let a = v.abs();
+    if a != 0.0 && !(0.01..10_000.0).contains(&a) {
+        format!("{v:.1e}")
+    } else if a >= 100.0 {
+        format!("{v:.0}")
+    } else {
+        format!("{v:.2}")
+    }
+}
+
 /// A secondary (top) x axis: an affine unit conversion of the primary x.
 #[derive(Debug, Clone)]
 struct SecondaryXAxis {
@@ -292,6 +335,10 @@ pub struct Axes {
     /// are drawn. When `false`, only the background, artists, and title appear.
     /// See [`Axes::set_axis_off`].
     pub(crate) axis_visible: bool,
+    /// Oscilloscope styling (see [`Axes::oscilloscope`]): CRT background,
+    /// fixed-division graticule, phosphor trace cycle, and in-frame corner
+    /// readouts instead of axis decorations.
+    scope: bool,
     /// Index into the property color cycle, advanced as cycled colors are
     /// consumed (e.g. by [`Axes::bar`]).
     pub(crate) prop_cycle_index: usize,
@@ -424,11 +471,34 @@ impl Axes {
             frame: true,
             aspect_equal: false,
             axis_visible: true,
+            scope: false,
             prop_cycle_index: 0,
             span_lines: Vec::new(),
             span_rects: Vec::new(),
             legend: Vec::new(),
         }
+    }
+
+    /// Switch this axes to **oscilloscope** styling: a chart built to stay
+    /// legible at any size, down to sparkline-height strips.
+    ///
+    /// Everything draws *inside* the frame, so the axes reserves no layout
+    /// room for decorations: a near-black CRT background, a fixed
+    /// 10×4-division phosphor graticule (with a brighter center crosshair)
+    /// instead of data-driven ticks, traces cycling through phosphor colors
+    /// (green, amber, cyan, magenta), a dim bezel stroke, and small corner
+    /// readouts — y-max top-right, y-min bottom-right, x-span bottom-left —
+    /// that track the *effective* limits, so they follow live pan/zoom.
+    ///
+    /// Call before plotting so the traces pick up the phosphor cycle.
+    /// Interaction, [`set_line_data`](Axes::set_line_data) streaming, and
+    /// [`sharex`](crate::figure::Figure::sharex) all work as usual.
+    pub fn oscilloscope(&mut self) -> &mut Self {
+        self.scope = true;
+        self.facecolor = SCOPE_BG;
+        self.axis_visible = false;
+        self.frame = false;
+        self
     }
 
     /// Fallback color (`tab10` C0 blue) used when a cycle hex fails to parse,
@@ -442,6 +512,9 @@ impl Axes {
     /// `cycle_color(0)` is C0 (`#1f77b4`).
     #[must_use]
     pub fn cycle_color(&self, index: usize) -> Rgba {
+        if self.scope {
+            return SCOPE_CYCLE[index % SCOPE_CYCLE.len()];
+        }
         let hex = DEFAULT_COLOR_CYCLE[index % DEFAULT_COLOR_CYCLE.len()];
         Rgba::from_hex(hex).unwrap_or(Self::FALLBACK_CYCLE_COLOR)
     }
@@ -1194,9 +1267,12 @@ impl Axes {
     pub fn effective_limits(&self) -> ((f64, f64), (f64, f64)) {
         let data = self.data_limits();
         let (sticky_x, sticky_y) = self.gathered_sticky_edges();
+        // A scope sweeps edge-to-edge: no x margin, so the trace meets the
+        // bezel exactly (y keeps its headroom for the corner readouts).
+        let x_margin = if self.scope { 0.0 } else { self.margins };
         let xlim = self.xlim.unwrap_or_else(|| {
             data.map_or((0.0, 1.0), |b| {
-                expand_range_sticky(b.xmin(), b.xmax(), self.margins, &sticky_x)
+                expand_range_sticky(b.xmin(), b.xmax(), x_margin, &sticky_x)
             })
         });
         let ylim = self.ylim.unwrap_or_else(|| {
@@ -1472,6 +1548,13 @@ impl Axes {
         let fill_gc = GraphicsContext::new();
         renderer.draw_path(&fill_gc, &rect, &Affine2D::identity(), Some(self.facecolor));
 
+        // 2a. Oscilloscope graticule: a fixed-division grid drawn beneath the
+        // data (a real scope's screen etching), so its density never depends
+        // on the axes size or the data.
+        if self.scope {
+            self.draw_scope_graticule(renderer, &axes_px);
+        }
+
         // 3–4. Everything that represents *data* draws through a clipping
         // wrapper confined to the axes frame (matplotlib's `clip_on=True`
         // default), so a zoomed or explicitly limited view cannot spill
@@ -1623,10 +1706,95 @@ impl Axes {
                 );
             }
         }
+
+        // 8. Oscilloscope bezel and corner readouts, above everything: the
+        // trace stays inside the bezel and the readouts follow the live
+        // effective limits (they update as the view pans and zooms).
+        if self.scope {
+            self.draw_scope_overlay(renderer, &axes_px, xlim, ylim, font);
+        }
     }
 }
 
 impl Axes {
+    /// Stroke the fixed-division oscilloscope graticule inside `axes_px`,
+    /// with the two center lines brighter (the scope's crosshair).
+    fn draw_scope_graticule(&self, renderer: &mut dyn Renderer, axes_px: &Bbox) {
+        let mut stroke = |points: [[f64; 2]; 2], color: Rgba| {
+            let gc = GraphicsContext::new()
+                .with_stroke(color)
+                .with_line_width(1.0);
+            renderer.draw_path(
+                &gc,
+                &Path::from_polyline(&points),
+                &Affine2D::identity(),
+                None,
+            );
+        };
+        for i in 1..SCOPE_X_DIVS {
+            let x = axes_px.xmin() + axes_px.width() * i as f64 / SCOPE_X_DIVS as f64;
+            let color = if 2 * i == SCOPE_X_DIVS {
+                SCOPE_GRID_CENTER
+            } else {
+                SCOPE_GRID
+            };
+            stroke([[x, axes_px.ymin()], [x, axes_px.ymax()]], color);
+        }
+        for j in 1..SCOPE_Y_DIVS {
+            let y = axes_px.ymin() + axes_px.height() * j as f64 / SCOPE_Y_DIVS as f64;
+            let color = if 2 * j == SCOPE_Y_DIVS {
+                SCOPE_GRID_CENTER
+            } else {
+                SCOPE_GRID
+            };
+            stroke([[axes_px.xmin(), y], [axes_px.xmax(), y]], color);
+        }
+    }
+
+    /// Draw the oscilloscope bezel and the in-frame corner readouts: y-max
+    /// top-right, y-min bottom-right, and the x span bottom-left.
+    fn draw_scope_overlay(
+        &self,
+        renderer: &mut dyn Renderer,
+        axes_px: &Bbox,
+        xlim: (f64, f64),
+        ylim: (f64, f64),
+        font: &FontSource,
+    ) {
+        let bezel_gc = GraphicsContext::new()
+            .with_stroke(SCOPE_BEZEL)
+            .with_line_width(1.0);
+        renderer.draw_path(&bezel_gc, &rect_path(axes_px), &Affine2D::identity(), None);
+
+        let s = renderer.decoration_scale();
+        let size = SCOPE_TEXT_SIZE * s;
+        let pad = SCOPE_TEXT_PAD * s;
+        let mut draw = |text: &str, x: f64, baseline_y: f64| {
+            let rich = layout_rich_text(font, text, size);
+            let shift = Affine2D::from_translation(x, baseline_y);
+            for path in &rich.paths {
+                renderer.draw_path(
+                    &GraphicsContext::new(),
+                    &path.transformed(&shift),
+                    &Affine2D::identity(),
+                    Some(SCOPE_TEXT),
+                );
+            }
+        };
+        let right_align = |text: &str| {
+            let rich = layout_rich_text(font, text, size);
+            axes_px.xmax() - pad - rich.width
+        };
+
+        let top = format_scope_value(ylim.1);
+        let bottom = format_scope_value(ylim.0);
+        let span = format!("\u{394}{}", format_scope_value(xlim.1 - xlim.0));
+        let ascent = layout_rich_text(font, &top, size).ascent;
+        draw(&top, right_align(&top), axes_px.ymax() - pad - ascent);
+        draw(&bottom, right_align(&bottom), axes_px.ymin() + pad);
+        draw(&span, axes_px.xmin() + pad, axes_px.ymin() + pad);
+    }
+
     /// Draw one [`Annotation`]: the text at its anchor, plus a leader arrow
     /// from the text toward the annotated point when `text_at` is set.
     ///
@@ -2344,6 +2512,35 @@ mod tests {
         let (xlim, ylim) = axes.effective_limits();
         assert_eq!(xlim, (0.0, 1.0));
         assert_eq!(ylim, (0.0, 1.0));
+    }
+
+    #[test]
+    fn oscilloscope_switches_to_the_phosphor_cycle() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        let tab_c0 = axes.cycle_color(0);
+        axes.oscilloscope();
+        let scope_c0 = axes.cycle_color(0);
+        assert_ne!(tab_c0, scope_c0, "scope mode swaps the trace cycle");
+        // Phosphor green first: strongly green-dominant.
+        assert!(scope_c0.g > 0.9 && scope_c0.g > scope_c0.r && scope_c0.g > scope_c0.b);
+        // Four distinct phosphor channels before wrapping.
+        let colors: Vec<_> = (0..4).map(|i| axes.cycle_color(i)).collect();
+        for i in 0..4 {
+            for j in (i + 1)..4 {
+                assert_ne!(colors[i], colors[j]);
+            }
+        }
+        assert_eq!(axes.cycle_color(4), colors[0], "cycle wraps at four");
+    }
+
+    #[test]
+    fn scope_value_formatting_stays_compact() {
+        assert_eq!(format_scope_value(0.49), "0.49");
+        assert_eq!(format_scope_value(-0.51), "-0.51");
+        assert_eq!(format_scope_value(123.4), "123");
+        assert_eq!(format_scope_value(0.0), "0.00");
+        assert_eq!(format_scope_value(12345.0), "1.2e4");
+        assert_eq!(format_scope_value(0.0004), "4.0e-4");
     }
 
     #[test]
