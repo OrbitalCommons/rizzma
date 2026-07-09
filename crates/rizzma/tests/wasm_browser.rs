@@ -231,6 +231,61 @@ fn zoomed_artists_stay_clipped_to_the_frame() {
 }
 
 #[wasm_bindgen_test]
+fn dropped_session_detaches_listeners_cleanly() {
+    let session = bound_session("drop-target");
+    let canvas: HtmlCanvasElement = web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .get_element_by_id("drop-target")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+
+    // Count uncaught errors surfaced to the window: a dropped wasm-bindgen
+    // closure left attached as a DOM listener throws "closure invoked ...
+    // after being dropped" on every event.
+    let errors = std::rc::Rc::new(std::cell::Cell::new(0u32));
+    let counter = {
+        let errors = errors.clone();
+        wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::Event)>::new(
+            move |ev: web_sys::Event| {
+                ev.prevent_default();
+                errors.set(errors.get() + 1);
+            },
+        )
+    };
+    let window = web_sys::window().unwrap();
+    window
+        .add_event_listener_with_callback("error", counter.as_ref().unchecked_ref())
+        .unwrap();
+
+    // Drop the session: its Drop impl must unregister every canvas listener.
+    drop(session);
+
+    // Events that used to hit the dead closures now dispatch to nothing.
+    dispatch_pointer(&canvas, "pointermove", 150.0, 100.0);
+    dispatch_pointer(&canvas, "pointerdown", 150.0, 100.0);
+    dispatch_pointer(&canvas, "pointerup", 150.0, 100.0);
+    let init = WheelEventInit::new();
+    init.set_client_x(150);
+    init.set_client_y(100);
+    init.set_delta_y(-120.0);
+    init.set_bubbles(true);
+    let ev = WheelEvent::new_with_event_init_dict("wheel", &init).unwrap();
+    canvas.dispatch_event(&ev).unwrap();
+
+    window
+        .remove_event_listener_with_callback("error", counter.as_ref().unchecked_ref())
+        .unwrap();
+    assert_eq!(
+        errors.get(),
+        0,
+        "events on a dropped session's canvas must not raise dead-closure errors"
+    );
+}
+
+#[wasm_bindgen_test]
 fn drag_pan_and_double_click_reset_through_the_dom() {
     let session = bound_session("pan-target");
     let home = limits(&session);

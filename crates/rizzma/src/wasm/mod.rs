@@ -648,15 +648,34 @@ mod canvas {
 
     /// An interactive figure bound to a canvas.
     ///
-    /// Created by [`WasmFigure::bind`]. Dropping the session leaves the last
-    /// frame on the canvas but stops all interaction (the DOM listeners it
-    /// owns are dropped).
+    /// Created by [`WasmFigure::bind`]. **Keep the session alive** (a
+    /// variable, an array, a field — any live JS reference) for as long as
+    /// the canvas should stay interactive. Dropping it — explicitly via
+    /// `session.free()` or implicitly when the GC finalizes an unreferenced
+    /// session — leaves the last frame on the canvas and detaches every DOM
+    /// listener it registered, so the canvas goes cleanly inert instead of
+    /// throwing "closure invoked after being dropped" on later events.
     #[wasm_bindgen]
     pub struct WasmSession {
         /// Interaction + rendering state shared with the event closures.
         state: Rc<RefCell<SessionState>>,
-        /// Owned DOM event closures; dropping them detaches interaction.
-        _listeners: Vec<Closure<dyn FnMut(web_sys::Event)>>,
+        /// Owned DOM event closures with the event name each is attached
+        /// under, so `Drop` can unregister them from the canvas.
+        listeners: Vec<(&'static str, Closure<dyn FnMut(web_sys::Event)>)>,
+    }
+
+    impl Drop for WasmSession {
+        /// Detach every DOM listener this session registered. A dropped
+        /// wasm-bindgen [`Closure`] leaves a JS shim that throws when
+        /// invoked; unregistering first means later pointer events on the
+        /// canvas simply do nothing.
+        fn drop(&mut self) {
+            let canvas = self.state.borrow().canvas.clone();
+            for (name, cb) in &self.listeners {
+                let _ =
+                    canvas.remove_event_listener_with_callback(name, cb.as_ref().unchecked_ref());
+            }
+        }
     }
 
     #[wasm_bindgen]
@@ -807,10 +826,7 @@ mod canvas {
             let mut listeners = Vec::new();
             add_pointer_listeners(&state, &mut listeners)?;
             add_wheel_listener(&state, &mut listeners)?;
-            Ok(WasmSession {
-                state,
-                _listeners: listeners,
-            })
+            Ok(WasmSession { state, listeners })
         }
     }
 
@@ -841,7 +857,7 @@ mod canvas {
     /// is pinned to the figure's logical size.
     fn add_pointer_listeners(
         state: &Rc<RefCell<SessionState>>,
-        listeners: &mut Vec<Closure<dyn FnMut(web_sys::Event)>>,
+        listeners: &mut Vec<(&'static str, Closure<dyn FnMut(web_sys::Event)>)>,
     ) -> Result<(), JsValue> {
         add_listener(state, listeners, "pointerdown", |ev| {
             let pe: &PointerEvent = ev.dyn_ref()?;
@@ -905,7 +921,7 @@ mod canvas {
     /// scroll with `preventDefault`.
     fn add_wheel_listener(
         state: &Rc<RefCell<SessionState>>,
-        listeners: &mut Vec<Closure<dyn FnMut(web_sys::Event)>>,
+        listeners: &mut Vec<(&'static str, Closure<dyn FnMut(web_sys::Event)>)>,
     ) -> Result<(), JsValue> {
         let st = state.clone();
         let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |ev: web_sys::Event| {
@@ -928,7 +944,7 @@ mod canvas {
             cb.as_ref().unchecked_ref(),
             &opts,
         )?;
-        listeners.push(cb);
+        listeners.push(("wheel", cb));
         Ok(())
     }
 
@@ -936,8 +952,8 @@ mod canvas {
     /// dispatches the result.
     fn add_listener(
         state: &Rc<RefCell<SessionState>>,
-        listeners: &mut Vec<Closure<dyn FnMut(web_sys::Event)>>,
-        name: &str,
+        listeners: &mut Vec<(&'static str, Closure<dyn FnMut(web_sys::Event)>)>,
+        name: &'static str,
         map: impl Fn(&web_sys::Event) -> Option<Event> + 'static,
     ) -> Result<(), JsValue> {
         let st = state.clone();
@@ -948,7 +964,7 @@ mod canvas {
         });
         let canvas = state.borrow().canvas.clone();
         canvas.add_event_listener_with_callback(name, cb.as_ref().unchecked_ref())?;
-        listeners.push(cb);
+        listeners.push((name, cb));
         Ok(())
     }
 

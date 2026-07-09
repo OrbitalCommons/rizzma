@@ -146,8 +146,14 @@
       import init, { WasmFigure } from "./pkg/rizzma.js";
       await init();
 
+      // Sessions must stay referenced for as long as their canvases should
+      // stay interactive: an unreferenced WasmSession is eventually GC'd,
+      // which detaches its listeners and leaves the canvas inert.
+      const sessions = [];
+
       /** Wire the shared hover readout for a bound session. */
       function hookReadout(session, id) {
+        sessions.push(session);
         const el = document.getElementById(id);
         session.on_hover((axes, x, y) => {
           el.textContent =
