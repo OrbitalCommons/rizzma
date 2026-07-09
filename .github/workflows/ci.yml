@@ -13,7 +13,10 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
-  WASM_SIZE_MAX_BYTES: 2621440
+  # 2.625 MiB. Raised from 2.5 MiB for the 1.3.0 wasm surface growth
+  # (WasmAxes3D, imshow + live image updates, live scatter offsets — each
+  # export carries wasm-bindgen glue); still a tripwire for accidental bloat.
+  WASM_SIZE_MAX_BYTES: 2752512
 
 jobs:
   test:
