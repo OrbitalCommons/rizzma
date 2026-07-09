@@ -198,6 +198,26 @@ impl Figure {
             "sharex: the leader must not itself follow another axes"
         );
         self.axes[follower].xlim_link = Some(leader);
+
+        // matplotlib's `label_outer`: when the pair is stacked in one grid
+        // column, the upper axes' x tick labels are redundant — hide them
+        // (tick marks stay) so the reclaimed band goes to the frames.
+        let (f_env, l_env) = (
+            self.axes[follower].layout_envelope,
+            self.axes[leader].layout_envelope,
+        );
+        if let (Some(f), Some(l)) = (f_env, l_env)
+            && f.xmin() == l.xmin()
+            && f.xmax() == l.xmax()
+            && f.ymin() != l.ymin()
+        {
+            let upper = if f.ymin() > l.ymin() {
+                follower
+            } else {
+                leader
+            };
+            self.axes[upper].set_x_tick_labels_visible(false);
+        }
     }
 
     /// The shared x-limits a twin axes mirrors, or `None` for ordinary axes
@@ -215,7 +235,10 @@ impl Figure {
     ///
     /// All auto-layout axes sharing one envelope (a twin pair) are laid out
     /// together: their per-side decoration insets are unioned so every frame
-    /// in the group coincides.
+    /// in the group coincides. Left/right insets additionally union across
+    /// every axes in the same grid *column* (envelopes with equal x-extents),
+    /// so vertically stacked subplots get frames of identical width even when
+    /// their y tick labels differ (matplotlib aligns columns the same way).
     pub(crate) fn layout_rect_for(&self, idx: usize, fig_w: f64, fig_h: f64) -> Option<Bbox> {
         let envelope = self.axes.get(idx)?.layout_envelope?;
         // Decoration scale: DPI-relative, times any render_scaled factor
@@ -226,21 +249,55 @@ impl Figure {
 
         let (mut left, mut right, mut bottom, mut top) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
         for (i, ax) in self.axes.iter().enumerate() {
-            if ax.layout_envelope != Some(envelope) {
+            let Some(env) = ax.layout_envelope else {
+                continue;
+            };
+            let same_cell = env == envelope;
+            let same_column = env.xmin() == envelope.xmin() && env.xmax() == envelope.xmax();
+            if !same_cell && !same_column {
                 continue;
             }
             let (l, r, b, t_) = ax.layout_insets(&self.font, s, self.xlim_override_for(i));
-            left = left.max(l);
-            right = right.max(r);
-            bottom = bottom.max(b);
-            top = top.max(t_);
+            if same_column {
+                left = left.max(l);
+                right = right.max(r);
+            }
+            if same_cell {
+                bottom = bottom.max(b);
+                top = top.max(t_);
+            }
         }
 
+        // Interior cell edges (between adjacent subplots) carry half the pad
+        // each, so neighbors sit one full pad apart — matplotlib's tight
+        // layout spends a single h_pad/w_pad between subplots, not two.
+        const EDGE_EPS: f64 = 1e-9;
+        let pad_left = if envelope.xmin() > EDGE_EPS {
+            pad / 2.0
+        } else {
+            pad
+        };
+        let pad_right = if envelope.xmax() < 1.0 - EDGE_EPS {
+            pad / 2.0
+        } else {
+            pad
+        };
+        let pad_bottom = if envelope.ymin() > EDGE_EPS {
+            pad / 2.0
+        } else {
+            pad
+        };
+        let pad_top = if envelope.ymax() < 1.0 - EDGE_EPS {
+            pad / 2.0
+        } else {
+            pad
+        };
+
         let rect = Bbox::from_extents(
-            envelope.xmin() * fig_w + left + pad,
-            envelope.ymin() * fig_h + bottom + pad,
-            envelope.xmax() * fig_w - right - pad,
-            envelope.ymax() * fig_h - top - pad,
+            envelope.xmin() * fig_w + left + pad_left,
+            envelope.ymin() * fig_h + bottom + pad_bottom,
+            envelope.xmax() * fig_w - right - pad_right,
+            envelope.ymax() * fig_h - top - pad_top,
         );
         // Degenerate (decorations larger than the cell): fall back to the
         // literal position rather than an inverted rect.
@@ -544,6 +601,44 @@ mod tests {
             "a y label pushes the left edge in"
         );
         assert!((with_ylabel.xmax() - with_title.xmax()).abs() < 1e-9);
+    }
+
+    #[test]
+    fn stacked_subplots_get_equal_frame_widths() {
+        // Different y magnitudes produce different y-tick-label widths; the
+        // column union must still give both frames identical x extents.
+        let mut fig = Figure::new(4.0, 3.0);
+        fig.add_subplot(2, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+        fig.add_subplot(2, 1, 2)
+            .plot(&[0.0, 1.0], &[10000.0, 30000.0]);
+        let (w, h) = fig.size_px();
+        let a = fig.layout_rect_for(0, w, h).unwrap();
+        let b = fig.layout_rect_for(1, w, h).unwrap();
+        assert!((a.xmin() - b.xmin()).abs() < 1e-9, "left edges align");
+        assert!((a.xmax() - b.xmax()).abs() < 1e-9, "right edges align");
+        assert!(a.ymin() > b.ymax(), "still stacked, not overlapping");
+    }
+
+    #[test]
+    fn sharex_hides_the_upper_x_tick_labels_and_reclaims_the_band() {
+        let mut fig = Figure::new(4.0, 3.0);
+        fig.add_subplot(2, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+        fig.add_subplot(2, 1, 2).plot(&[0.0, 1.0], &[0.0, 1.0]);
+        let (w, h) = fig.size_px();
+        let before = fig.layout_rect_for(0, w, h).unwrap();
+
+        fig.sharex(1, 0);
+        let after = fig.layout_rect_for(0, w, h).unwrap();
+        // The upper subplot's x tick-label band is released to its frame.
+        assert!(
+            after.ymin() < before.ymin() - 5.0,
+            "upper frame must grow downward: {} -> {}",
+            before.ymin(),
+            after.ymin()
+        );
+        // The lower subplot keeps its labels (its frame bottom is unchanged).
+        let lower = fig.layout_rect_for(1, w, h).unwrap();
+        assert!(lower.ymin() > h * 0.05, "lower keeps its tick-label room");
     }
 
     #[test]

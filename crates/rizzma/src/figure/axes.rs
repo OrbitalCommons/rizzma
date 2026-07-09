@@ -506,6 +506,14 @@ impl Axes {
         self.lines.len()
     }
 
+    /// Show or hide the x axis' tick labels and axis label (tick marks and
+    /// the spine always draw), releasing their layout room when hidden —
+    /// matplotlib's `label_outer` for the inner axes of a shared-x stack.
+    pub fn set_x_tick_labels_visible(&mut self, visible: bool) -> &mut Self {
+        self.xaxis.set_tick_labels_visible(visible);
+        self
+    }
+
     /// Replace the data of line `line` in place (for live/streaming updates),
     /// keeping its style.
     ///
