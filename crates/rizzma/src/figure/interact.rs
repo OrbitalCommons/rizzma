@@ -145,14 +145,27 @@ impl Interactor {
     /// Reads the *scale-limited* limits (the draw-time values), so stored
     /// limits that sit outside the scale's domain — e.g. a log axis whose raw
     /// limits went non-positive — are repaired before being transformed,
-    /// instead of mapping to non-finite scaled coordinates.
+    /// instead of mapping to non-finite scaled coordinates. Linked x-limits
+    /// (twins, [`sharex`](Figure::sharex)) resolve through their leader, the
+    /// same values the axes draws with.
     fn scaled_limits(&self, axes: usize) -> Option<((f64, f64), (f64, f64))> {
         let ax = self.fig.axes().get(axes)?;
-        let ((xlo, xhi), (ylo, yhi)) = ax.scale_limited_effective_limits();
+        let ((xlo, xhi), (ylo, yhi)) = ax.limits_with_override(self.fig.xlim_override_for(axes));
         let t = ax.data_to_scaled();
         let [sx_lo, sy_lo] = t.map_point(xlo, ylo);
         let [sx_hi, sy_hi] = t.map_point(xhi, yhi);
         Some(((sx_lo, sx_hi), (sy_lo, sy_hi)))
+    }
+
+    /// The axes whose stored x-limits actually drive `axes`' x mapping: its
+    /// link leader when one is set (twins, [`sharex`](Figure::sharex)),
+    /// otherwise itself. Writing x changes there keeps a linked group in
+    /// lockstep — the followers re-resolve from the leader at draw time.
+    fn x_link_target(&self, axes: usize) -> usize {
+        match self.fig.axes()[axes].xlim_link {
+            Some(leader) if leader != axes && leader < self.fig.axes().len() => leader,
+            _ => axes,
+        }
     }
 
     /// Apply scale-transformed limits back to `axes` as explicit data limits,
@@ -164,17 +177,28 @@ impl Interactor {
     /// rejected when non-finite and clamped to the scale's domain before
     /// `set_xlim`/`set_ylim`. One extreme wheel or drag therefore cannot
     /// poison the axes for every later interaction.
+    ///
+    /// The x-limits are stored on the axes' link leader (see
+    /// [`Interactor::x_link_target`]); the y-limits always land on `axes`
+    /// itself, so linked groups zoom together in x while y stays per-axes.
     fn set_scaled_limits(&mut self, axes: usize, sx: (f64, f64), sy: (f64, f64)) -> bool {
-        let ax = &mut self.fig.axes_mut()[axes];
-        let t = ax.data_to_scaled();
-        let [xlo, ylo] = t.inverse_point(sx.0, sy.0);
-        let [xhi, yhi] = t.inverse_point(sx.1, sy.1);
-        if ![xlo, xhi, ylo, yhi].iter().all(|v| v.is_finite()) {
-            return false;
+        let x_target = self.x_link_target(axes);
+        let (xlim, ylim) = {
+            let ax = &self.fig.axes()[axes];
+            let t = ax.data_to_scaled();
+            let [xlo, ylo] = t.inverse_point(sx.0, sy.0);
+            let [xhi, yhi] = t.inverse_point(sx.1, sy.1);
+            if ![xlo, xhi, ylo, yhi].iter().all(|v| v.is_finite()) {
+                return false;
+            }
+            ax.clamp_limits_to_scale((xlo, xhi), (ylo, yhi))
+        };
+        if x_target != axes {
+            self.fig.axes_mut()[x_target].set_xlim(xlim.0, xlim.1);
+        } else {
+            self.fig.axes_mut()[axes].set_xlim(xlim.0, xlim.1);
         }
-        let ((xlo, xhi), (ylo, yhi)) = ax.clamp_limits_to_scale((xlo, xhi), (ylo, yhi));
-        ax.set_xlim(xlo, xhi);
-        ax.set_ylim(ylo, yhi);
+        self.fig.axes_mut()[axes].set_ylim(ylim.0, ylim.1);
         true
     }
 
@@ -264,6 +288,15 @@ impl Interactor {
         let ax = &mut self.fig.axes_mut()[axes];
         ax.set_xlim(xlo, xhi);
         ax.set_ylim(ylo, yhi);
+        // A linked axes draws its x from its leader: restore the leader's
+        // captured home too, so double-click resets the whole shared group.
+        let x_target = self.x_link_target(axes);
+        if x_target != axes
+            && let Some(((lxlo, lxhi), _)) = self.home.as_ref().and_then(|h| h.get(x_target))
+        {
+            let (lxlo, lxhi) = (*lxlo, *lxhi);
+            self.fig.axes_mut()[x_target].set_xlim(lxlo, lxhi);
+        }
         Outcome::NeedsRedraw
     }
 
@@ -595,6 +628,85 @@ mod tests {
             }),
             Outcome::NeedsRedraw
         );
+    }
+
+    /// A 4x3 in figure with two stacked axes sharing x: leader on top
+    /// (index 0), follower below (index 1). Event rows: top ≈ (200, 90),
+    /// bottom ≈ (200, 220).
+    fn sharex_fixture() -> Interactor {
+        let mut fig = Figure::new(4.0, 3.0);
+        let top = fig.add_axes(0.1, 0.55, 0.8, 0.35);
+        top.plot(&[0.0, 5.0, 10.0], &[0.0, 5.0, 10.0]);
+        top.set_xlim(0.0, 10.0);
+        top.set_ylim(0.0, 10.0);
+        let bottom = fig.add_axes(0.1, 0.1, 0.8, 0.35);
+        bottom.plot(&[0.0, 5.0, 10.0], &[20.0, 25.0, 30.0]);
+        bottom.set_xlim(0.0, 10.0);
+        bottom.set_ylim(20.0, 30.0);
+        fig.sharex(1, 0);
+        Interactor::new(fig)
+    }
+
+    #[test]
+    fn sharex_zoom_on_the_follower_moves_the_shared_x() {
+        let mut it = sharex_fixture();
+        // Wheel in over the bottom (follower) axes.
+        assert_eq!(
+            it.handle(Event::Wheel {
+                x: 200.0,
+                y: 220.0,
+                dy: -2.0
+            }),
+            Outcome::NeedsRedraw
+        );
+        // The shared x (stored on the leader) shrank...
+        let ((lxlo, lxhi), (lylo, lyhi)) = it.figure().axes()[0].effective_limits();
+        assert!(lxhi - lxlo < 10.0, "leader x must zoom: ({lxlo}, {lxhi})");
+        // ...the leader's y is untouched...
+        assert_close(lylo, 0.0, 1e-9, "leader ylo");
+        assert_close(lyhi, 10.0, 1e-9, "leader yhi");
+        // ...and only the follower's y zoomed.
+        let (_, (fylo, fyhi)) = it.figure().axes()[1].effective_limits();
+        assert!(fyhi - fylo < 10.0, "follower y must zoom: ({fylo}, {fyhi})");
+        // The follower draws with the leader's x.
+        let over = it.figure().xlim_override_for(1).expect("linked");
+        assert_close(over.0, lxlo, 1e-9, "follower drawn xlo");
+        assert_close(over.1, lxhi, 1e-9, "follower drawn xhi");
+    }
+
+    #[test]
+    fn sharex_zoom_on_the_leader_carries_the_follower() {
+        let mut it = sharex_fixture();
+        it.handle(Event::Wheel {
+            x: 200.0,
+            y: 90.0,
+            dy: -2.0,
+        });
+        let ((lxlo, lxhi), _) = it.figure().axes()[0].effective_limits();
+        assert!(lxhi - lxlo < 10.0, "leader x must zoom");
+        let over = it.figure().xlim_override_for(1).expect("linked");
+        assert_close(over.0, lxlo, 1e-9, "follower follows xlo");
+        assert_close(over.1, lxhi, 1e-9, "follower follows xhi");
+    }
+
+    #[test]
+    fn sharex_double_click_on_the_follower_restores_the_group() {
+        let mut it = sharex_fixture();
+        it.handle(Event::Wheel {
+            x: 200.0,
+            y: 220.0,
+            dy: -3.0,
+        });
+        let ((zxlo, zxhi), _) = it.figure().axes()[0].effective_limits();
+        assert!(zxhi - zxlo < 10.0, "precondition: zoomed in");
+
+        it.handle(Event::DoubleClick { x: 200.0, y: 220.0 });
+        let ((xlo, xhi), _) = it.figure().axes()[0].effective_limits();
+        assert_close(xlo, 0.0, 1e-9, "shared x home lo");
+        assert_close(xhi, 10.0, 1e-9, "shared x home hi");
+        let (_, (fylo, fyhi)) = it.figure().axes()[1].effective_limits();
+        assert_close(fylo, 20.0, 1e-9, "follower y home lo");
+        assert_close(fyhi, 30.0, 1e-9, "follower y home hi");
     }
 
     #[test]
