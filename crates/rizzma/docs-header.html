@@ -14,6 +14,57 @@
 .rizzma-live canvas {
   border-radius: 3px;
 }
+.rizzma-live-expand {
+  display: inline-block;
+  margin: 2px 0 0;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  opacity: 0.65;
+  cursor: pointer;
+}
+.rizzma-live-expand:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+.rizzma-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+.rizzma-modal-panel {
+  position: relative;
+  background: #fff;
+  border-radius: 8px;
+  padding: 26px 14px 12px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+  max-width: 96vw;
+  max-height: 94vh;
+  overflow: auto;
+}
+.rizzma-modal-close {
+  position: absolute;
+  top: 2px;
+  right: 8px;
+  padding: 2px 6px;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: #444;
+  cursor: pointer;
+}
+.rizzma-modal-close:hover {
+  color: #000;
+}
 </style>
 <script type="module">
 // rizzma live docs: upgrade `.rizzma-live` placeholders in the rendered
@@ -21,7 +72,9 @@
 // reset), loaded lazily from the gh-pages demo bundle. The static gallery
 // image inside each placeholder stays as the fallback: offline docs, a
 // blocked fetch, or any error simply leave it visible. Animated demos share
-// one ticker and pause while scrolled out of view.
+// one ticker and pause while scrolled out of view. Each live cell offers a
+// "full size" pop-up: the same demo rebuilt larger in an inline modal
+// (also reachable via a `#rizzma-live=<name>` URL hash).
 (() => {
   const PKG =
     window.RIZZMA_DEMO_PKG ||
@@ -29,7 +82,7 @@
 
   // Shared animation clock: each animator is {host, tick(t)}; ticks only run
   // while the host element is near the viewport.
-  const animators = [];
+  let animators = [];
   const visible = new WeakSet();
   const animIo = new IntersectionObserver(
     (entries) => {
@@ -51,6 +104,11 @@
     animIo.observe(host);
     animators.push({ host, tick });
   };
+  // Detach every animator bound to `host` (before freeing its session).
+  const unanimate = (host) => {
+    animators = animators.filter((a) => a.host !== host);
+    animIo.unobserve(host);
+  };
 
   const F64 = Float64Array;
   const linspace = (a, b, n) => {
@@ -59,10 +117,12 @@
     return out;
   };
 
-  // Demo builders: build(mod, canvas, host) -> session (kept alive).
+  // Demo builders: build(mod, canvas, host, k) -> session (kept alive; every
+  // session/WasmAxes3D exposes .free()). `k` scales the figure for the
+  // full-size modal; data resolution stays the same.
   const demos = {
     // Two close frequencies beating, the pattern traveling with time.
-    beats(mod, canvas, host) {
+    beats(mod, canvas, host, k = 1) {
       const n = 700;
       const xs = linspace(0, 16 * Math.PI, n);
       const ys = new F64(n);
@@ -72,7 +132,7 @@
         }
       };
       fill(0);
-      const fig = new mod.WasmFigure(3.6, 2.7);
+      const fig = new mod.WasmFigure(3.6 * k, 2.7 * k);
       const ax = fig.add_subplot(1, 1, 1);
       fig.plot(ax, xs, ys);
       fig.set_title(ax, "plot: two strings beating");
@@ -86,7 +146,7 @@
     },
 
     // Two counter-propagating waves and their interference sum.
-    interference(mod, canvas, host) {
+    interference(mod, canvas, host, k = 1) {
       const n = 500;
       const xs = linspace(0, 4 * Math.PI, n);
       const y1 = new F64(n);
@@ -100,7 +160,7 @@
         }
       };
       fill(0);
-      const fig = new mod.WasmFigure(3.6, 2.7);
+      const fig = new mod.WasmFigure(3.6 * k, 2.7 * k);
       const ax = fig.add_subplot(1, 1, 1);
       fig.plot_styled(ax, xs, y1, { color: "tab:gray", lw: 1.0 });
       fig.plot_styled(ax, xs, y2, { color: "tab:gray", lw: 1.0 });
@@ -118,20 +178,20 @@
     },
 
     // A rose curve morphing its petal count.
-    rose(mod, canvas, host) {
+    rose(mod, canvas, host, k = 1) {
       const n = 720;
       const xs = new F64(n);
       const ys = new F64(n);
-      const fill = (k) => {
+      const fill = (kk) => {
         for (let i = 0; i < n; i++) {
           const th = (2 * Math.PI * i) / (n - 1);
-          const r = Math.cos(k * th);
+          const r = Math.cos(kk * th);
           xs[i] = r * Math.cos(th);
           ys[i] = r * Math.sin(th);
         }
       };
       fill(3);
-      const fig = new mod.WasmFigure(3.6, 2.7);
+      const fig = new mod.WasmFigure(3.6 * k, 2.7 * k);
       const ax = fig.add_subplot(1, 1, 1);
       fig.plot_styled(ax, xs, ys, { color: "tab:purple", lw: 1.5 });
       fig.set_title(ax, "rose, petals in motion");
@@ -146,8 +206,11 @@
     },
 
     // A random two-tone signal streaming over a live spectrogram of itself,
-    // sharex-linked: zoom either panel and both follow.
-    spectro(mod, canvas, host) {
+    // sharex-linked. The x axis is a fixed trailing window ("seconds before
+    // now"): explicit static limits mean the trace and image sit flush
+    // against the frame, tick labels never grow or churn, and double-click
+    // home restores exactly this view.
+    spectro(mod, canvas, host, k = 1) {
       const fs = 80; // samples/sec
       const win = 64; // DFT window
       const bins = 24; // frequency rows, up to bins*fs/win = 30 Hz
@@ -174,15 +237,16 @@
         hann[j] = 0.5 - 0.5 * Math.cos((2 * Math.PI * j) / (win - 1));
       }
 
-      const fig = new mod.WasmFigure(3.6, 2.7);
+      const fig = new mod.WasmFigure(3.6 * k, 2.7 * k);
       const top = fig.add_subplot(2, 1, 1);
       const bottom = fig.add_subplot(2, 1, 2);
       fig.plot(top, new F64(0), new F64(0));
       fig.set_title(top, "signal + live spectrogram");
+      fig.set_xlim(top, -span, 0);
       fig.set_ylim(top, -2.6, 2.6);
-      fig.imshow(bottom, grid, bins, cols, [0, span, 0, 30], "", 0, 1.1);
+      fig.imshow(bottom, grid, bins, cols, [-span, 0, 0, 30], "", 0, 1.1);
       fig.set_ylabel(bottom, "Hz");
-      fig.set_xlabel(bottom, "t (s)");
+      fig.set_xlabel(bottom, "t − now (s)");
       fig.sharex(bottom, top);
       const session = fig.bind(canvas.id);
 
@@ -198,13 +262,16 @@
           samples.push(
             Math.sin(ph1) + 0.8 * Math.sin(ph2) + (rand() - 0.5) * 0.7,
           );
-          times.push(t - ((steps - 1 - j) * 1) / fs);
+          times.push(t - (steps - 1 - j) / fs);
         }
         while (times.length > 1 && t - times[0] > span) {
           times.shift();
           samples.shift();
         }
-        session.set_line_data(top, 0, F64.from(times), F64.from(samples));
+        // Data slides through the fixed [-span, 0] window.
+        const rel = new F64(times.length);
+        for (let i = 0; i < times.length; i++) rel[i] = times[i] - t;
+        session.set_line_data(top, 0, rel, F64.from(samples));
 
         // Newest spectrogram column: Hann-windowed DFT magnitudes of the
         // last `win` samples, high frequencies on top (row 0).
@@ -212,20 +279,20 @@
         for (let r = 0; r < bins; r++) grid[(r + 1) * cols - 1] = 0;
         if (samples.length >= win) {
           const o = samples.length - win;
-          for (let k = 1; k <= bins; k++) {
+          for (let kk = 1; kk <= bins; kk++) {
             let re = 0;
             let im = 0;
             for (let j = 0; j < win; j++) {
-              const a = (2 * Math.PI * k * j) / win;
+              const a = (2 * Math.PI * kk * j) / win;
               const s = samples[o + j] * hann[j];
               re += s * Math.cos(a);
               im -= s * Math.sin(a);
             }
-            const row = bins - k;
+            const row = bins - kk;
             grid[(row + 1) * cols - 1] = Math.hypot(re, im) / (win / 4);
           }
         }
-        session.set_image_data(bottom, 0, grid, bins, cols, [t - span, t, 0, 30]);
+        session.set_image_data(bottom, 0, grid, bins, cols, [-span, 0, 0, 30]);
         lastT = t;
       });
       return session;
@@ -233,7 +300,7 @@
 
     // A two-armed spiral galaxy, slowly rotating — and fully interactive:
     // it keeps spinning inside whatever view you zoom to.
-    galaxy(mod, canvas, host) {
+    galaxy(mod, canvas, host, k = 1) {
       const stars = 900;
       const gx = new F64(stars);
       const gy = new F64(stars);
@@ -253,7 +320,7 @@
         gx[i] = r * Math.cos(2.1 * a + arm) + (rand() - 0.5) * 0.09;
         gy[i] = r * Math.sin(2.1 * a + arm) + (rand() - 0.5) * 0.09;
       }
-      const fig = new mod.WasmFigure(3.6, 2.7);
+      const fig = new mod.WasmFigure(3.6 * k, 2.7 * k);
       const ax = fig.add_subplot(1, 1, 1);
       fig.scatter(ax, gx, gy);
       fig.set_title(ax, "scatter: zoom into the galaxy");
@@ -274,7 +341,7 @@
 
     // A spinning 3D sombrero surface, re-rendered each tick from a new
     // azimuth (WasmAxes3D renders full frames; no session machinery).
-    surface3d(mod, canvas, host) {
+    surface3d(mod, canvas, host, k = 1) {
       const n = 32;
       const gx = linspace(-8, 8, n);
       const gz = new F64(n * n);
@@ -284,7 +351,11 @@
           gz[j * n + i] = r < 1e-9 ? 1 : Math.sin(r) / r;
         }
       }
-      const ax = new mod.WasmAxes3D(360, 270, 100);
+      const ax = new mod.WasmAxes3D(
+        Math.round(360 * k),
+        Math.round(270 * k),
+        100,
+      );
       ax.plot_surface(gx, gx, gz);
       ax.set_title("plot_surface: sombrero, spinning");
       ax.set_view(28, -60);
@@ -298,7 +369,7 @@
 
     // A ripple tank: two point sources interfering, the field streamed
     // through imshow as a diverging-colormapped image.
-    ripples(mod, canvas, host) {
+    ripples(mod, canvas, host, k = 1) {
       const nr = 40;
       const nc = 54;
       const grid = new F64(nr * nc);
@@ -316,7 +387,7 @@
         }
       };
       fill(0);
-      const fig = new mod.WasmFigure(3.6, 2.7);
+      const fig = new mod.WasmFigure(3.6 * k, 2.7 * k);
       const ax = fig.add_subplot(1, 1, 1);
       fig.imshow(ax, grid, nr, nc, [0, 1.35, 0, 1], "coolwarm", -1.4, 1.4);
       fig.set_title(ax, "imshow: a ripple tank");
@@ -329,7 +400,7 @@
     },
 
     // The Lorenz attractor traced live in the x-z plane.
-    lorenz(mod, canvas, host) {
+    lorenz(mod, canvas, host, k = 1) {
       const keep = 2200;
       let x = 0.9;
       let y = 1.4;
@@ -352,7 +423,7 @@
         }
       };
       for (let i = 0; i < 400; i++) step();
-      const fig = new mod.WasmFigure(3.6, 2.7);
+      const fig = new mod.WasmFigure(3.6 * k, 2.7 * k);
       const ax = fig.add_subplot(1, 1, 1);
       fig.plot_styled(ax, F64.from(xs), F64.from(zs), {
         color: "tab:orange",
@@ -370,8 +441,8 @@
     },
 
     // Streaming oscilloscope strips, x-linked.
-    scope(mod, canvas, host) {
-      const fig = new mod.WasmFigure(3.6, 2.7);
+    scope(mod, canvas, host, k = 1) {
+      const fig = new mod.WasmFigure(3.6 * k, 2.7 * k);
       fig.set_facecolor("#0a0d0b");
       const strips = [
         fig.add_axes(0.0, 0.68, 1.0, 0.32),
@@ -425,6 +496,76 @@
       return mod;
     }));
 
+  const newCanvas = () => {
+    const canvas = document.createElement("canvas");
+    canvas.id = "rizzma-live-" + Math.random().toString(36).slice(2);
+    canvas.style.touchAction = "none";
+    canvas.style.display = "block";
+    return canvas;
+  };
+
+  // Full-size pop-up: rebuild `name` at a viewport-fitted scale in a modal.
+  // Esc, the close button, or a backdrop click tears it down and frees the
+  // session.
+  let openOverlay = null;
+  const closeModal = () => {
+    if (!openOverlay) return;
+    const { overlay, panel, session, onKey } = openOverlay;
+    openOverlay = null;
+    unanimate(panel);
+    try {
+      session.free();
+    } catch (_) {
+      /* already freed */
+    }
+    document.removeEventListener("keydown", onKey);
+    overlay.remove();
+    document.body.style.overflow = "";
+  };
+  const openModal = (mod, name) => {
+    closeModal();
+    const build = demos[name];
+    if (!build) return;
+    const k = Math.max(
+      1,
+      Math.min(
+        2.4,
+        (Math.min(window.innerWidth, 1200) - 90) / 360,
+        (window.innerHeight - 130) / 270,
+      ),
+    );
+    const overlay = document.createElement("div");
+    overlay.className = "rizzma-modal-overlay";
+    const panel = document.createElement("div");
+    panel.className = "rizzma-modal-panel";
+    const close = document.createElement("button");
+    close.className = "rizzma-modal-close";
+    close.textContent = "×";
+    close.setAttribute("aria-label", "close");
+    close.addEventListener("click", closeModal);
+    const canvas = newCanvas();
+    panel.append(close, canvas);
+    overlay.append(panel);
+    overlay.addEventListener("pointerdown", (e) => {
+      if (e.target === overlay) closeModal();
+    });
+    const onKey = (e) => {
+      if (e.key === "Escape") closeModal();
+    };
+    document.addEventListener("keydown", onKey);
+    document.body.append(overlay);
+    document.body.style.overflow = "hidden";
+    try {
+      const session = build(mod, canvas, panel, k);
+      openOverlay = { overlay, panel, session, onKey };
+    } catch (e) {
+      overlay.remove();
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", onKey);
+      console.warn("rizzma full-size demo unavailable:", e);
+    }
+  };
+
   const upgrade = async (el) => {
     if (el.dataset.rizzmaMounted) return;
     el.dataset.rizzmaMounted = "1";
@@ -432,12 +573,14 @@
       const mod = await boot();
       const build = demos[el.dataset.demo];
       if (!build) return;
-      const canvas = document.createElement("canvas");
-      canvas.id = "rizzma-live-" + Math.random().toString(36).slice(2);
-      canvas.style.touchAction = "none";
-      canvas.style.display = "block";
+      const canvas = newCanvas();
       el.prepend(canvas);
       sessions.push(build(mod, canvas, el));
+      const expand = document.createElement("button");
+      expand.className = "rizzma-live-expand";
+      expand.textContent = "⤢ full size";
+      expand.addEventListener("click", () => openModal(mod, el.dataset.demo));
+      canvas.after(expand);
       for (const img of el.querySelectorAll("img")) {
         img.style.display = "none";
       }
@@ -462,6 +605,13 @@
       { rootMargin: "200px" },
     );
     hosts.forEach((h) => io.observe(h));
+    // Deep link: #rizzma-live=<demo> opens the full-size modal directly.
+    const m = /^#rizzma-live=([a-z0-9_]+)$/.exec(location.hash);
+    if (m && demos[m[1]]) {
+      boot()
+        .then((mod) => openModal(mod, m[1]))
+        .catch(() => {});
+    }
   };
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start);
