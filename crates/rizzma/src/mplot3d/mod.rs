@@ -255,6 +255,13 @@ impl Axes3D {
         self
     }
 
+    /// Set the elevation and azimuth (degrees) in place (for animated views).
+    pub fn set_view(&mut self, elev: f64, azim: f64) -> &mut Self {
+        self.elev_deg = elev;
+        self.azim_deg = azim;
+        self
+    }
+
     /// The current `(elev, azim)` view angles in degrees.
     #[must_use]
     pub fn view(&self) -> (f64, f64) {

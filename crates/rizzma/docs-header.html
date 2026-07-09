@@ -1,46 +1,384 @@
+<style>
+/* Layout for the crate-root live demo matrix (see lib.rs docs). Cells and
+   their canvases shrink responsively; pointer math stays exact because the
+   session maps events through the live bounding rect. */
+.rizzma-live-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.rizzma-live-grid .rizzma-live {
+  margin: 0;
+}
+.rizzma-live canvas {
+  border-radius: 3px;
+}
+</style>
 <script type="module">
 // rizzma live docs: upgrade `.rizzma-live` placeholders in the rendered
 // rustdoc into interactive wasm canvases (wheel zoom, drag pan, double-click
 // reset), loaded lazily from the gh-pages demo bundle. The static gallery
 // image inside each placeholder stays as the fallback: offline docs, a
-// blocked fetch, or any error simply leave it visible.
+// blocked fetch, or any error simply leave it visible. Animated demos share
+// one ticker and pause while scrolled out of view.
 (() => {
   const PKG =
     window.RIZZMA_DEMO_PKG ||
     "https://orbitalcommons.github.io/rizzma/demo/pkg/rizzma.js";
 
-  const demos = {
-    // Mirrors the gallery's `plot` case: two close frequencies beating.
-    beats(mod, canvas) {
-      const { WasmFigure } = mod;
-      const n = 900;
-      const xs = new Float64Array(n);
-      const ys = new Float64Array(n);
-      for (let i = 0; i < n; i++) {
-        const t = (8 * 2 * Math.PI * i) / (n - 1);
-        xs[i] = t;
-        ys[i] = Math.sin(3 * t) + Math.sin(3.35 * t);
+  // Shared animation clock: each animator is {host, tick(t)}; ticks only run
+  // while the host element is near the viewport.
+  const animators = [];
+  const visible = new WeakSet();
+  const animIo = new IntersectionObserver(
+    (entries) => {
+      for (const en of entries) {
+        if (en.isIntersecting) visible.add(en.target);
+        else visible.delete(en.target);
       }
-      const fig = new WasmFigure(5.0, 3.5);
+    },
+    { rootMargin: "100px" },
+  );
+  const t0 = performance.now();
+  setInterval(() => {
+    const t = (performance.now() - t0) / 1000;
+    for (const a of animators) {
+      if (visible.has(a.host)) a.tick(t);
+    }
+  }, 50);
+  const animate = (host, tick) => {
+    animIo.observe(host);
+    animators.push({ host, tick });
+  };
+
+  const F64 = Float64Array;
+  const linspace = (a, b, n) => {
+    const out = new F64(n);
+    for (let i = 0; i < n; i++) out[i] = a + ((b - a) * i) / (n - 1);
+    return out;
+  };
+
+  // Demo builders: build(mod, canvas, host) -> session (kept alive).
+  const demos = {
+    // Two close frequencies beating, the pattern traveling with time.
+    beats(mod, canvas, host) {
+      const n = 700;
+      const xs = linspace(0, 16 * Math.PI, n);
+      const ys = new F64(n);
+      const fill = (phase) => {
+        for (let i = 0; i < n; i++) {
+          ys[i] = Math.sin(3 * xs[i] - phase) + Math.sin(3.35 * xs[i] - phase);
+        }
+      };
+      fill(0);
+      const fig = new mod.WasmFigure(3.6, 2.7);
       const ax = fig.add_subplot(1, 1, 1);
       fig.plot(ax, xs, ys);
-      fig.set_title(ax, "live: wheel zooms · drag pans · double-click resets");
-      fig.set_xlabel(ax, "time (s)");
-      fig.set_ylabel(ax, "amplitude");
-      return fig.bind(canvas.id);
+      fig.set_title(ax, "plot: two strings beating");
+      fig.set_ylim(ax, -2.2, 2.2);
+      const session = fig.bind(canvas.id);
+      animate(host, (t) => {
+        fill(t * 4);
+        session.set_line_data(ax, 0, xs, ys);
+      });
+      return session;
     },
 
-    // Mirrors the gallery's `oscilloscope` case, streaming a live window.
-    scope(mod, canvas) {
-      const { WasmFigure } = mod;
-      const fig = new WasmFigure(4.8, 1.7);
+    // Two counter-propagating waves and their interference sum.
+    interference(mod, canvas, host) {
+      const n = 500;
+      const xs = linspace(0, 4 * Math.PI, n);
+      const y1 = new F64(n);
+      const y2 = new F64(n);
+      const sum = new F64(n);
+      const fill = (t) => {
+        for (let i = 0; i < n; i++) {
+          y1[i] = Math.sin(xs[i] - 2 * t) * 0.9;
+          y2[i] = Math.sin(1.5 * xs[i] + 2 * t) * 0.7;
+          sum[i] = y1[i] + y2[i];
+        }
+      };
+      fill(0);
+      const fig = new mod.WasmFigure(3.6, 2.7);
+      const ax = fig.add_subplot(1, 1, 1);
+      fig.plot_styled(ax, xs, y1, { color: "tab:gray", lw: 1.0 });
+      fig.plot_styled(ax, xs, y2, { color: "tab:gray", lw: 1.0 });
+      fig.plot_styled(ax, xs, sum, { color: "tab:blue", lw: 2.0 });
+      fig.set_title(ax, "counter-propagating waves");
+      fig.set_ylim(ax, -2.0, 2.0);
+      const session = fig.bind(canvas.id);
+      animate(host, (t) => {
+        fill(t);
+        session.set_line_data(ax, 0, xs, y1);
+        session.set_line_data(ax, 1, xs, y2);
+        session.set_line_data(ax, 2, xs, sum);
+      });
+      return session;
+    },
+
+    // A rose curve morphing its petal count.
+    rose(mod, canvas, host) {
+      const n = 720;
+      const xs = new F64(n);
+      const ys = new F64(n);
+      const fill = (k) => {
+        for (let i = 0; i < n; i++) {
+          const th = (2 * Math.PI * i) / (n - 1);
+          const r = Math.cos(k * th);
+          xs[i] = r * Math.cos(th);
+          ys[i] = r * Math.sin(th);
+        }
+      };
+      fill(3);
+      const fig = new mod.WasmFigure(3.6, 2.7);
+      const ax = fig.add_subplot(1, 1, 1);
+      fig.plot_styled(ax, xs, ys, { color: "tab:purple", lw: 1.5 });
+      fig.set_title(ax, "rose, petals in motion");
+      fig.set_xlim(ax, -1.15, 1.15);
+      fig.set_ylim(ax, -1.15, 1.15);
+      const session = fig.bind(canvas.id);
+      animate(host, (t) => {
+        fill(4.5 + 2.5 * Math.sin(0.25 * t));
+        session.set_line_data(ax, 0, xs, ys);
+      });
+      return session;
+    },
+
+    // A random two-tone signal streaming over a live spectrogram of itself,
+    // sharex-linked: zoom either panel and both follow.
+    spectro(mod, canvas, host) {
+      const fs = 80; // samples/sec
+      const win = 64; // DFT window
+      const bins = 24; // frequency rows, up to bins*fs/win = 30 Hz
+      const cols = 120; // spectrogram columns (one per tick)
+      const dt = 0.05; // ticker period
+      const span = cols * dt; // seconds on screen
+      let seed = 0xd5b;
+      const rand = () => {
+        seed ^= seed << 13;
+        seed ^= seed >>> 17;
+        seed ^= seed << 5;
+        return ((seed >>> 0) % 10000) / 10000;
+      };
+      // The two tones random-walk their frequencies.
+      let f1 = 8;
+      let f2 = 22;
+      let ph1 = 0;
+      let ph2 = 0;
+      const samples = [];
+      const times = [];
+      const grid = new F64(bins * cols);
+      const hann = new F64(win);
+      for (let j = 0; j < win; j++) {
+        hann[j] = 0.5 - 0.5 * Math.cos((2 * Math.PI * j) / (win - 1));
+      }
+
+      const fig = new mod.WasmFigure(3.6, 2.7);
+      const top = fig.add_subplot(2, 1, 1);
+      const bottom = fig.add_subplot(2, 1, 2);
+      fig.plot(top, new F64(0), new F64(0));
+      fig.set_title(top, "signal + live spectrogram");
+      fig.set_ylim(top, -2.6, 2.6);
+      fig.imshow(bottom, grid, bins, cols, [0, span, 0, 30], "", 0, 1.1);
+      fig.set_ylabel(bottom, "Hz");
+      fig.set_xlabel(bottom, "t (s)");
+      fig.sharex(bottom, top);
+      const session = fig.bind(canvas.id);
+
+      let lastT = 0;
+      animate(host, (t) => {
+        // Wander the tones, then extend the signal since the last tick.
+        f1 = Math.min(14, Math.max(3, f1 + (rand() - 0.5) * 0.6));
+        f2 = Math.min(28, Math.max(16, f2 + (rand() - 0.5) * 0.9));
+        const steps = Math.max(1, Math.min(8, Math.round((t - lastT) * fs)));
+        for (let j = 0; j < steps; j++) {
+          ph1 += (2 * Math.PI * f1) / fs;
+          ph2 += (2 * Math.PI * f2) / fs;
+          samples.push(
+            Math.sin(ph1) + 0.8 * Math.sin(ph2) + (rand() - 0.5) * 0.7,
+          );
+          times.push(t - ((steps - 1 - j) * 1) / fs);
+        }
+        while (times.length > 1 && t - times[0] > span) {
+          times.shift();
+          samples.shift();
+        }
+        session.set_line_data(top, 0, F64.from(times), F64.from(samples));
+
+        // Newest spectrogram column: Hann-windowed DFT magnitudes of the
+        // last `win` samples, high frequencies on top (row 0).
+        grid.copyWithin(0, 1);
+        for (let r = 0; r < bins; r++) grid[(r + 1) * cols - 1] = 0;
+        if (samples.length >= win) {
+          const o = samples.length - win;
+          for (let k = 1; k <= bins; k++) {
+            let re = 0;
+            let im = 0;
+            for (let j = 0; j < win; j++) {
+              const a = (2 * Math.PI * k * j) / win;
+              const s = samples[o + j] * hann[j];
+              re += s * Math.cos(a);
+              im -= s * Math.sin(a);
+            }
+            const row = bins - k;
+            grid[(row + 1) * cols - 1] = Math.hypot(re, im) / (win / 4);
+          }
+        }
+        session.set_image_data(bottom, 0, grid, bins, cols, [t - span, t, 0, 30]);
+        lastT = t;
+      });
+      return session;
+    },
+
+    // A two-armed spiral galaxy, slowly rotating — and fully interactive:
+    // it keeps spinning inside whatever view you zoom to.
+    galaxy(mod, canvas, host) {
+      const stars = 900;
+      const gx = new F64(stars);
+      const gy = new F64(stars);
+      const rx = new F64(stars);
+      const ry = new F64(stars);
+      let seed = 0x5eed;
+      const rand = () => {
+        seed ^= seed << 13;
+        seed ^= seed >>> 17;
+        seed ^= seed << 5;
+        return ((seed >>> 0) % 10000) / 10000;
+      };
+      for (let i = 0; i < stars; i++) {
+        const arm = i % 2 === 0 ? 0 : Math.PI;
+        const a = 0.4 + 3.4 * (i / stars);
+        const r = 0.22 * a;
+        gx[i] = r * Math.cos(2.1 * a + arm) + (rand() - 0.5) * 0.09;
+        gy[i] = r * Math.sin(2.1 * a + arm) + (rand() - 0.5) * 0.09;
+      }
+      const fig = new mod.WasmFigure(3.6, 2.7);
+      const ax = fig.add_subplot(1, 1, 1);
+      fig.scatter(ax, gx, gy);
+      fig.set_title(ax, "scatter: zoom into the galaxy");
+      fig.set_xlim(ax, -0.95, 0.95);
+      fig.set_ylim(ax, -0.95, 0.95);
+      const session = fig.bind(canvas.id);
+      animate(host, (t) => {
+        const c = Math.cos(0.15 * t);
+        const s = Math.sin(0.15 * t);
+        for (let i = 0; i < stars; i++) {
+          rx[i] = c * gx[i] - s * gy[i];
+          ry[i] = s * gx[i] + c * gy[i];
+        }
+        session.set_scatter_offsets(ax, 0, rx, ry);
+      });
+      return session;
+    },
+
+    // A spinning 3D sombrero surface, re-rendered each tick from a new
+    // azimuth (WasmAxes3D renders full frames; no session machinery).
+    surface3d(mod, canvas, host) {
+      const n = 32;
+      const gx = linspace(-8, 8, n);
+      const gz = new F64(n * n);
+      for (let j = 0; j < n; j++) {
+        for (let i = 0; i < n; i++) {
+          const r = Math.hypot(gx[i], gx[j]);
+          gz[j * n + i] = r < 1e-9 ? 1 : Math.sin(r) / r;
+        }
+      }
+      const ax = new mod.WasmAxes3D(360, 270, 100);
+      ax.plot_surface(gx, gx, gz);
+      ax.set_title("plot_surface: sombrero, spinning");
+      ax.set_view(28, -60);
+      ax.render(canvas.id);
+      animate(host, (t) => {
+        ax.set_view(28, -60 + 12 * t);
+        ax.render(canvas.id);
+      });
+      return ax;
+    },
+
+    // A ripple tank: two point sources interfering, the field streamed
+    // through imshow as a diverging-colormapped image.
+    ripples(mod, canvas, host) {
+      const nr = 40;
+      const nc = 54;
+      const grid = new F64(nr * nc);
+      const fill = (t) => {
+        for (let r = 0; r < nr; r++) {
+          for (let c = 0; c < nc; c++) {
+            const x = (c + 0.5) / nc;
+            const y = (r + 0.5) / nr;
+            const r1 = Math.hypot(x - 0.32, y - 0.5);
+            const r2 = Math.hypot(x - 0.68, y - 0.5);
+            grid[r * nc + c] =
+              Math.sin(38 * r1 - 5 * t) / (1 + 4 * r1) +
+              Math.sin(38 * r2 - 5 * t) / (1 + 4 * r2);
+          }
+        }
+      };
+      fill(0);
+      const fig = new mod.WasmFigure(3.6, 2.7);
+      const ax = fig.add_subplot(1, 1, 1);
+      fig.imshow(ax, grid, nr, nc, [0, 1.35, 0, 1], "coolwarm", -1.4, 1.4);
+      fig.set_title(ax, "imshow: a ripple tank");
+      const session = fig.bind(canvas.id);
+      animate(host, (t) => {
+        fill(t);
+        session.set_image_data(ax, 0, grid, nr, nc, [0, 1.35, 0, 1]);
+      });
+      return session;
+    },
+
+    // The Lorenz attractor traced live in the x-z plane.
+    lorenz(mod, canvas, host) {
+      const keep = 2200;
+      let x = 0.9;
+      let y = 1.4;
+      let z = 19;
+      const xs = [];
+      const zs = [];
+      const step = () => {
+        const dt = 0.005;
+        const dx = 10 * (y - x);
+        const dy = x * (28 - z) - y;
+        const dz = x * y - (8 / 3) * z;
+        x += dx * dt;
+        y += dy * dt;
+        z += dz * dt;
+        xs.push(x);
+        zs.push(z);
+        if (xs.length > keep) {
+          xs.shift();
+          zs.shift();
+        }
+      };
+      for (let i = 0; i < 400; i++) step();
+      const fig = new mod.WasmFigure(3.6, 2.7);
+      const ax = fig.add_subplot(1, 1, 1);
+      fig.plot_styled(ax, F64.from(xs), F64.from(zs), {
+        color: "tab:orange",
+        lw: 1.0,
+      });
+      fig.set_title(ax, "the Lorenz attractor, live");
+      fig.set_xlim(ax, -23, 23);
+      fig.set_ylim(ax, 0, 52);
+      const session = fig.bind(canvas.id);
+      animate(host, () => {
+        for (let i = 0; i < 12; i++) step();
+        session.set_line_data(ax, 0, F64.from(xs), F64.from(zs));
+      });
+      return session;
+    },
+
+    // Streaming oscilloscope strips, x-linked.
+    scope(mod, canvas, host) {
+      const fig = new mod.WasmFigure(3.6, 2.7);
       fig.set_facecolor("#0a0d0b");
       const strips = [
         fig.add_axes(0.0, 0.68, 1.0, 0.32),
         fig.add_axes(0.0, 0.34, 1.0, 0.32),
         fig.add_axes(0.0, 0.0, 1.0, 0.32),
       ];
-      const empty = new Float64Array(0);
+      const empty = new F64(0);
       for (const s of strips) {
         fig.oscilloscope(s);
         fig.plot(s, empty, empty);
@@ -49,19 +387,17 @@
       fig.sharex(strips[2], strips[0]);
       const session = fig.bind(canvas.id);
 
-      let seed = 0x5eed;
+      let seed = 0xacab;
       const rand = () => {
         seed ^= seed << 13;
         seed ^= seed >>> 17;
         seed ^= seed << 5;
         return ((seed >>> 0) % 10000) / 10000;
       };
-      const t0 = performance.now();
       const T = [];
       const C = [[], [], []];
       let drift = 0;
-      setInterval(() => {
-        const t = (performance.now() - t0) / 1000;
+      animate(host, (t) => {
         drift += (rand() - 0.5) * 0.05;
         T.push(t);
         C[0].push(Math.sin(t * 2.1) * 0.4 + (rand() - 0.5) * 0.12);
@@ -71,11 +407,11 @@
           T.shift();
           for (const c of C) c.shift();
         }
-        const ts = Float64Array.from(T);
+        const ts = F64.from(T);
         strips.forEach((s, i) => {
-          session.set_line_data(s, 0, ts, Float64Array.from(C[i]));
+          session.set_line_data(s, 0, ts, F64.from(C[i]));
         });
-      }, 50);
+      });
       return session;
     },
   };
@@ -101,7 +437,7 @@
       canvas.style.touchAction = "none";
       canvas.style.display = "block";
       el.prepend(canvas);
-      sessions.push(build(mod, canvas));
+      sessions.push(build(mod, canvas, el));
       for (const img of el.querySelectorAll("img")) {
         img.style.display = "none";
       }

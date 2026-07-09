@@ -20,6 +20,62 @@
 //! assert!(!png.is_empty());
 //! ```
 //!
+//! ## Live demos
+//!
+//! On docs.rs every cell below is a real canvas driven by this crate compiled
+//! to WebAssembly — animated from Rust each frame, and interactive: wheel to
+//! zoom at the cursor, drag to pan, double-click to reset. (Elsewhere the
+//! cells fall back to static gallery images. More at
+//! <https://orbitalcommons.github.io/rizzma/demo/>.)
+//!
+//! <div class="rizzma-live-grid">
+//! <div class="rizzma-live" data-demo="beats">
+//!
+//! ![plot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_plot.png)
+//!
+//! </div>
+//! <div class="rizzma-live" data-demo="interference">
+//!
+//! ![interference](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_fill_between.png)
+//!
+//! </div>
+//! <div class="rizzma-live" data-demo="rose">
+//!
+//! ![rose](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_polar.png)
+//!
+//! </div>
+//! <div class="rizzma-live" data-demo="spectro">
+//!
+//! ![spectrogram](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_imshow.png)
+//!
+//! </div>
+//! <div class="rizzma-live" data-demo="galaxy">
+//!
+//! ![galaxy](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_scatter.png)
+//!
+//! </div>
+//! <div class="rizzma-live" data-demo="surface3d">
+//!
+//! ![surface3d](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_surface3d.png)
+//!
+//! </div>
+//! <div class="rizzma-live" data-demo="ripples">
+//!
+//! ![ripples](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_pcolormesh.png)
+//!
+//! </div>
+//! <div class="rizzma-live" data-demo="lorenz">
+//!
+//! ![lorenz](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_streamplot.png)
+//!
+//! </div>
+//! <div class="rizzma-live" data-demo="scope">
+//!
+//! ![oscilloscope](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_oscilloscope.png)
+//!
+//! </div>
+//! </div>
+//!
 //! ## Features
 //!
 //! The core plotting stack plus the SVG/PDF/raster backends are always compiled.

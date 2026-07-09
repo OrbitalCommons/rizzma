@@ -474,3 +474,57 @@ fn live_data_updates_repaint_and_preserve_the_view() {
     // Bad indices surface as errors, not panics.
     assert!(session.set_line_data(0, 9, &[0.0], &[0.0]).is_err());
 }
+
+#[wasm_bindgen_test]
+fn live_scatter_updates_repaint_and_preserve_the_view() {
+    make_canvas("scatter-live-target");
+    let mut fig = WasmFigure::new(3.0, 2.0);
+    let ax = fig.add_axes(0.15, 0.15, 0.7, 0.7);
+    fig.scatter(ax, &[2.0, 5.0, 8.0], &[2.0, 5.0, 8.0]).unwrap();
+    fig.set_xlim(ax, 0.0, 10.0).unwrap();
+    fig.set_ylim(ax, 0.0, 10.0).unwrap();
+    let session = fig.bind("scatter-live-target").unwrap();
+    let home = limits(&session);
+
+    let canvas: HtmlCanvasElement = web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .get_element_by_id("scatter-live-target")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    let context: CanvasRenderingContext2d = canvas
+        .get_context("2d")
+        .unwrap()
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    let (w, h) = (canvas.width(), canvas.height());
+    let before = context
+        .get_image_data(0.0, 0.0, f64::from(w), f64::from(h))
+        .unwrap()
+        .data();
+
+    // Move every marker and paint synchronously.
+    session
+        .set_scatter_offsets(0, 0, &[8.0, 5.0, 2.0], &[2.0, 8.0, 5.0])
+        .unwrap();
+    session.render().unwrap();
+
+    let after = context
+        .get_image_data(0.0, 0.0, f64::from(w), f64::from(h))
+        .unwrap()
+        .data();
+    assert_ne!(
+        before.to_vec(),
+        after.to_vec(),
+        "moved markers must repaint different pixels"
+    );
+
+    // The explicit limits (the framed view) survive the offset swap.
+    assert_eq!(limits(&session), home);
+
+    // Bad indices surface as errors, not panics.
+    assert!(session.set_scatter_offsets(0, 9, &[0.0], &[0.0]).is_err());
+}

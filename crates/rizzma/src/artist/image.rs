@@ -91,6 +91,27 @@ impl AxesImage {
         self
     }
 
+    /// Replace the row-major scalar data (and shape) in place, keeping the
+    /// extent, colormap, and `vmin`/`vmax` normalization — live updates never
+    /// re-derive an explicit norm, so streaming frames don't flicker.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `data.len() != nrows * ncols`.
+    pub fn set_data(&mut self, data: Vec<f64>, nrows: usize, ncols: usize) -> Result<(), String> {
+        if data.len() != nrows * ncols {
+            return Err(format!(
+                "AxesImage::set_data: data length {} must equal nrows * ncols = {}",
+                data.len(),
+                nrows * ncols
+            ));
+        }
+        self.data = data;
+        self.nrows = nrows;
+        self.ncols = ncols;
+        Ok(())
+    }
+
     /// Set the colormap name (see [`colormap`]), returning `self`.
     #[must_use]
     pub fn with_cmap(mut self, cmap_name: impl Into<String>) -> Self {

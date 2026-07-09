@@ -617,6 +617,65 @@ impl Axes {
         Ok(())
     }
 
+    /// Replace the offsets of collection `collection` in place (for
+    /// live/streaming scatter updates), keeping its markers, sizes, and
+    /// colors. Only the common prefix of `x` and `y` is used.
+    ///
+    /// Autoscaled limits re-derive from the new offsets on the next draw;
+    /// explicit limits (including limits stored by interaction) are
+    /// untouched, exactly like [`set_line_data`](Axes::set_line_data).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error naming the valid range when `collection` is out of
+    /// range.
+    pub fn set_collection_offsets(
+        &mut self,
+        collection: usize,
+        x: &[f64],
+        y: &[f64],
+    ) -> Result<(), String> {
+        let count = self.collections.len();
+        let entry = self.collections.get_mut(collection).ok_or_else(|| {
+            format!("collection index {collection} out of range (axes has {count} collections)")
+        })?;
+        let n = x.len().min(y.len());
+        entry.set_offsets((0..n).map(|i| [x[i], y[i]]).collect());
+        Ok(())
+    }
+
+    /// Replace the data (and optionally the extent) of image `image` in
+    /// place (for live/streaming updates — e.g. a scrolling spectrogram),
+    /// keeping its colormap and `vmin`/`vmax` normalization.
+    ///
+    /// Autoscaled limits re-derive from the new extent on the next draw;
+    /// explicit limits (including limits stored by interaction) are
+    /// untouched, exactly like [`set_line_data`](Axes::set_line_data).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `image` is out of range or `data.len()` is not
+    /// `nrows * ncols`.
+    pub fn set_image_data(
+        &mut self,
+        image: usize,
+        data: &[f64],
+        nrows: usize,
+        ncols: usize,
+        extent: Option<[f64; 4]>,
+    ) -> Result<(), String> {
+        let count = self.images.len();
+        let entry = self
+            .images
+            .get_mut(image)
+            .ok_or_else(|| format!("image index {image} out of range (axes has {count} images)"))?;
+        entry.set_data(data.to_vec(), nrows, ncols)?;
+        if let Some(extent) = extent {
+            entry.set_extent(extent);
+        }
+        Ok(())
+    }
+
     /// Add a [`Patch`], returning a mutable reference to it.
     pub fn add_patch(&mut self, patch: Patch) -> &mut Patch {
         self.patches.push(patch);

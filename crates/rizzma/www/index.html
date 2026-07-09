@@ -136,6 +136,12 @@
           oscilloscope strips: beam x / beam y / SNR &mdash; live, x-linked
         </p>
       </div>
+      <div class="card">
+        <canvas id="plot-surface3d"></canvas>
+        <p class="readout" id="readout-surface3d">
+          3D surface re-rendered each frame from a sweeping azimuth
+        </p>
+      </div>
     </div>
 
     <footer>
@@ -149,7 +155,7 @@
     </footer>
 
     <script type="module">
-      import init, { WasmFigure } from "./pkg/rizzma.js";
+      import init, { WasmFigure, WasmAxes3D } from "./pkg/rizzma.js";
       await init();
 
       // Sessions must stay referenced for as long as their canvases should
@@ -210,10 +216,13 @@
         liveBtn.textContent = "stop live updates";
       });
 
-      // 2. Scatter: a two-armed spiral galaxy with jitter.
+      // 2. Scatter: a two-armed spiral galaxy with jitter, slowly rotating
+      // via live scatter-offset updates (it keeps spinning while zoomed).
       const stars = 900;
       const gx = new Float64Array(stars);
       const gy = new Float64Array(stars);
+      const grx = new Float64Array(stars);
+      const gry = new Float64Array(stars);
       let seed = 0x5eed;
       const rand = () => {
         // xorshift — deterministic so reloads look identical.
@@ -233,7 +242,20 @@
       fig2.set_title(ax2, "scatter: a tidy little galaxy");
       fig2.set_xlabel(ax2, "kpc");
       fig2.set_ylabel(ax2, "kpc");
-      hookReadout(fig2.bind("plot-galaxy"), "readout-galaxy");
+      fig2.set_xlim(ax2, -0.95, 0.95);
+      fig2.set_ylim(ax2, -0.95, 0.95);
+      const session2 = fig2.bind("plot-galaxy");
+      hookReadout(session2, "readout-galaxy");
+      const spin0 = performance.now();
+      setInterval(() => {
+        const a = 0.15 * (performance.now() - spin0) / 1000;
+        const c = Math.cos(a), s = Math.sin(a);
+        for (let i = 0; i < stars; i++) {
+          grx[i] = c * gx[i] - s * gy[i];
+          gry[i] = s * gx[i] + c * gy[i];
+        }
+        session2.set_scatter_offsets(ax2, 0, grx, gry);
+      }, 50);
 
       // 3. Log-log axes: Zipf's law.
       const ranks = 240;
@@ -256,29 +278,77 @@
       fig3.set_ylabel(ax3, "frequency");
       hookReadout(fig3.bind("plot-zipf"), "readout-zipf");
 
-      // 4. Subplots: a chirp and its instantaneous frequency, stacked.
-      const m = 500;
-      const tt = new Float64Array(m);
-      const chirp = new Float64Array(m);
-      const freq = new Float64Array(m);
-      for (let i = 0; i < m; i++) {
-        const t = (10 * i) / (m - 1);
-        tt[i] = t;
-        chirp[i] = Math.sin(t * (1 + 0.4 * t));
-        freq[i] = (1 + 0.8 * t) / (2 * Math.PI);
+      // 4. Subplots (sharex): a random two-tone signal streaming over a
+      // live spectrogram of itself — Hann-windowed DFT columns pushed into
+      // an imshow image via session.set_image_data.
+      const fs = 80; // samples/sec
+      const win = 64; // DFT window
+      const bins = 24; // frequency rows, up to bins*fs/win = 30 Hz
+      const cols = 120; // spectrogram columns (one per tick)
+      const specSpan = cols * 0.05;
+      let sf1 = 8;
+      let sf2 = 22;
+      let sph1 = 0;
+      let sph2 = 0;
+      const sigT = [];
+      const sig = [];
+      const specGrid = new Float64Array(bins * cols);
+      const hann = new Float64Array(win);
+      for (let j = 0; j < win; j++) {
+        hann[j] = 0.5 - 0.5 * Math.cos((2 * Math.PI * j) / (win - 1));
       }
       const fig4 = new WasmFigure(4.8, 3.4);
       const axTop = fig4.add_subplot(2, 1, 1);
       const axBot = fig4.add_subplot(2, 1, 2);
-      fig4.plot(axTop, tt, chirp);
-      fig4.set_title(axTop, "subplots (sharex): a chirp and its frequency");
-      fig4.set_ylabel(axTop, "amplitude");
-      fig4.plot_styled(axBot, tt, freq, { color: "tab:green" });
+      fig4.plot(axTop, new Float64Array(0), new Float64Array(0));
+      fig4.set_title(axTop, "sharex: random signal + live spectrogram");
+      fig4.set_ylim(axTop, -2.6, 2.6);
+      fig4.imshow(axBot, specGrid, bins, cols, [0, specSpan, 0, 30], "", 0, 1.1);
       fig4.set_xlabel(axBot, "t (s)");
-      fig4.set_ylabel(axBot, "frequency (Hz)");
+      fig4.set_ylabel(axBot, "Hz");
       // Zooming or panning either subplot moves both x ranges together.
       fig4.sharex(axBot, axTop);
-      hookReadout(fig4.bind("plot-subplots"), "readout-subplots");
+      const session4 = hookReadout(fig4.bind("plot-subplots"), "readout-subplots");
+      const spec0 = performance.now();
+      let specLast = 0;
+      setInterval(() => {
+        const t = (performance.now() - spec0) / 1000;
+        sf1 = Math.min(14, Math.max(3, sf1 + (rand() - 0.5) * 0.6));
+        sf2 = Math.min(28, Math.max(16, sf2 + (rand() - 0.5) * 0.9));
+        const steps = Math.max(1, Math.min(8, Math.round((t - specLast) * fs)));
+        for (let j = 0; j < steps; j++) {
+          sph1 += (2 * Math.PI * sf1) / fs;
+          sph2 += (2 * Math.PI * sf2) / fs;
+          sig.push(Math.sin(sph1) + 0.8 * Math.sin(sph2) + (rand() - 0.5) * 0.7);
+          sigT.push(t - (steps - 1 - j) / fs);
+        }
+        while (sigT.length > 1 && t - sigT[0] > specSpan) {
+          sigT.shift();
+          sig.shift();
+        }
+        session4.set_line_data(axTop, 0, Float64Array.from(sigT), Float64Array.from(sig));
+        // Newest column: DFT magnitudes of the last `win` samples, high
+        // frequencies on top (row 0). The flat shift moves every row left;
+        // the freshly-zeroed last column of each row is then overwritten.
+        specGrid.copyWithin(0, 1);
+        for (let r = 0; r < bins; r++) specGrid[(r + 1) * cols - 1] = 0;
+        if (sig.length >= win) {
+          const o = sig.length - win;
+          for (let k = 1; k <= bins; k++) {
+            let re = 0;
+            let im = 0;
+            for (let j = 0; j < win; j++) {
+              const a = (2 * Math.PI * k * j) / win;
+              const s = sig[o + j] * hann[j];
+              re += s * Math.cos(a);
+              im -= s * Math.sin(a);
+            }
+            specGrid[(bins - k + 1) * cols - 1] = Math.hypot(re, im) / (win / 4);
+          }
+        }
+        session4.set_image_data(axBot, 0, specGrid, bins, cols, [t - specSpan, t, 0, 30]);
+        specLast = t;
+      }, 50);
 
       // 5. Cursor trail, recorded on the Rust side: session.track_cursor
       //    mirrors pointer positions into the line with no JS in the loop.
@@ -334,6 +404,28 @@
           session6.set_line_data(s, 0, ts, Float64Array.from(scopeChannels[i]));
         });
       }, 33);
+
+      // 7. Spinning 3D surface: WasmAxes3D renders full frames (no session
+      // machinery) — set a new view each tick and re-render.
+      const sn = 40;
+      const sx = new Float64Array(sn);
+      for (let i = 0; i < sn; i++) sx[i] = -8 + (16 * i) / (sn - 1);
+      const sz = new Float64Array(sn * sn);
+      for (let j = 0; j < sn; j++) {
+        for (let i = 0; i < sn; i++) {
+          const r = Math.hypot(sx[i], sx[j]);
+          sz[j * sn + i] = r < 1e-9 ? 1 : Math.sin(r) / r;
+        }
+      }
+      const ax7 = new WasmAxes3D(480, 340, 100);
+      ax7.plot_surface(sx, sx, sz);
+      ax7.set_title("plot_surface: sombrero, spinning");
+      const spin3d0 = performance.now();
+      setInterval(() => {
+        const t = (performance.now() - spin3d0) / 1000;
+        ax7.set_view(28, -60 + 12 * t);
+        ax7.render("plot-surface3d");
+      }, 50);
     </script>
   </body>
 </html>
