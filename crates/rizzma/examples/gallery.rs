@@ -1164,5 +1164,33 @@ fn main() {
         .unwrap();
     }
 
+    // 52. oscilloscope — three sparkline-height phosphor strips, x-linked.
+    {
+        let mut noise = rng(0x5C09E5C09E);
+        let n = 300;
+        let mut t = vec![0.0; n];
+        let (mut bx, mut by, mut snr) = (vec![0.0; n], vec![0.0; n], vec![0.0; n]);
+        let mut drift = 0.0;
+        for i in 0..n {
+            let tt = 10.0 * i as f64 / (n - 1) as f64;
+            t[i] = tt;
+            drift += (noise() - 0.5) * 0.05;
+            bx[i] = (tt * 2.1).sin() * 0.4 + (noise() - 0.5) * 0.12;
+            by[i] = (tt * 1.3).cos() * 0.3 + drift + (noise() - 0.5) * 0.12;
+            snr[i] = 18.0 + (tt * 0.7).sin() * 3.0 + (noise() - 0.5) * 2.0;
+        }
+        let mut fig = gallery_figure(4.8, 1.7);
+        fig.set_facecolor(Rgba::new(0.039, 0.051, 0.043, 1.0));
+        for (b, h) in [(0.68, 0.32), (0.34, 0.32), (0.0, 0.32)] {
+            fig.add_axes(0.0, b, 1.0, h).oscilloscope();
+        }
+        fig.axes_mut()[0].plot(&t, &bx);
+        fig.axes_mut()[1].plot(&t, &by);
+        fig.axes_mut()[2].plot(&t, &snr);
+        fig.sharex(1, 0);
+        fig.sharex(2, 0);
+        fig.save_png("target/gallery_oscilloscope.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

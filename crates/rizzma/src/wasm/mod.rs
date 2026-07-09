@@ -21,6 +21,19 @@
 //! (non-premultiplied) RGBA. The core path therefore un-premultiplies every
 //! pixel before returning, so the bytes are ready to feed directly into
 //! `ImageData`.
+//!
+//! # Live demo
+//!
+//! On docs.rs the figure below is a real interactive canvas rendered by this
+//! module — wheel to zoom at the cursor, drag to pan, double-click to reset.
+//! (Elsewhere it falls back to the static gallery image. More demos:
+//! <https://orbitalcommons.github.io/rizzma/demo/>.)
+//!
+//! <div class="rizzma-live" data-demo="beats">
+//!
+//! ![plot](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_plot.png)
+//!
+//! </div>
 
 use crate::artist::Line2D;
 use crate::core::color::{Rgba, to_rgba};

@@ -1,0 +1,137 @@
+<script type="module">
+// rizzma live docs: upgrade `.rizzma-live` placeholders in the rendered
+// rustdoc into interactive wasm canvases (wheel zoom, drag pan, double-click
+// reset), loaded lazily from the gh-pages demo bundle. The static gallery
+// image inside each placeholder stays as the fallback: offline docs, a
+// blocked fetch, or any error simply leave it visible.
+(() => {
+  const PKG =
+    window.RIZZMA_DEMO_PKG ||
+    "https://orbitalcommons.github.io/rizzma/demo/pkg/rizzma.js";
+
+  const demos = {
+    // Mirrors the gallery's `plot` case: two close frequencies beating.
+    beats(mod, canvas) {
+      const { WasmFigure } = mod;
+      const n = 900;
+      const xs = new Float64Array(n);
+      const ys = new Float64Array(n);
+      for (let i = 0; i < n; i++) {
+        const t = (8 * 2 * Math.PI * i) / (n - 1);
+        xs[i] = t;
+        ys[i] = Math.sin(3 * t) + Math.sin(3.35 * t);
+      }
+      const fig = new WasmFigure(5.0, 3.5);
+      const ax = fig.add_subplot(1, 1, 1);
+      fig.plot(ax, xs, ys);
+      fig.set_title(ax, "live: wheel zooms · drag pans · double-click resets");
+      fig.set_xlabel(ax, "time (s)");
+      fig.set_ylabel(ax, "amplitude");
+      return fig.bind(canvas.id);
+    },
+
+    // Mirrors the gallery's `oscilloscope` case, streaming a live window.
+    scope(mod, canvas) {
+      const { WasmFigure } = mod;
+      const fig = new WasmFigure(4.8, 1.7);
+      fig.set_facecolor("#0a0d0b");
+      const strips = [
+        fig.add_axes(0.0, 0.68, 1.0, 0.32),
+        fig.add_axes(0.0, 0.34, 1.0, 0.32),
+        fig.add_axes(0.0, 0.0, 1.0, 0.32),
+      ];
+      const empty = new Float64Array(0);
+      for (const s of strips) {
+        fig.oscilloscope(s);
+        fig.plot(s, empty, empty);
+      }
+      fig.sharex(strips[1], strips[0]);
+      fig.sharex(strips[2], strips[0]);
+      const session = fig.bind(canvas.id);
+
+      let seed = 0x5eed;
+      const rand = () => {
+        seed ^= seed << 13;
+        seed ^= seed >>> 17;
+        seed ^= seed << 5;
+        return ((seed >>> 0) % 10000) / 10000;
+      };
+      const t0 = performance.now();
+      const T = [];
+      const C = [[], [], []];
+      let drift = 0;
+      setInterval(() => {
+        const t = (performance.now() - t0) / 1000;
+        drift += (rand() - 0.5) * 0.05;
+        T.push(t);
+        C[0].push(Math.sin(t * 2.1) * 0.4 + (rand() - 0.5) * 0.12);
+        C[1].push(Math.cos(t * 1.3) * 0.3 + drift + (rand() - 0.5) * 0.12);
+        C[2].push(18 + Math.sin(t * 0.7) * 3 + (rand() - 0.5) * 2);
+        while (T.length > 1 && t - T[0] > 10) {
+          T.shift();
+          for (const c of C) c.shift();
+        }
+        const ts = Float64Array.from(T);
+        strips.forEach((s, i) => {
+          session.set_line_data(s, 0, ts, Float64Array.from(C[i]));
+        });
+      }, 50);
+      return session;
+    },
+  };
+
+  // Sessions must stay referenced or the GC detaches their interaction.
+  const sessions = [];
+  let loading = null;
+  const boot = () =>
+    (loading ??= import(PKG).then(async (mod) => {
+      await mod.default();
+      return mod;
+    }));
+
+  const upgrade = async (el) => {
+    if (el.dataset.rizzmaMounted) return;
+    el.dataset.rizzmaMounted = "1";
+    try {
+      const mod = await boot();
+      const build = demos[el.dataset.demo];
+      if (!build) return;
+      const canvas = document.createElement("canvas");
+      canvas.id = "rizzma-live-" + Math.random().toString(36).slice(2);
+      canvas.style.touchAction = "none";
+      canvas.style.maxWidth = "100%";
+      canvas.style.display = "block";
+      el.prepend(canvas);
+      sessions.push(build(mod, canvas));
+      for (const img of el.querySelectorAll("img")) {
+        img.style.display = "none";
+      }
+    } catch (e) {
+      // Leave the static fallback image in place.
+      console.warn("rizzma live demo unavailable:", e);
+    }
+  };
+
+  const start = () => {
+    const hosts = document.querySelectorAll(".rizzma-live[data-demo]");
+    if (!hosts.length) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const en of entries) {
+          if (en.isIntersecting) {
+            io.unobserve(en.target);
+            upgrade(en.target);
+          }
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    hosts.forEach((h) => io.observe(h));
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", start);
+  } else {
+    start();
+  }
+})();
+</script>
