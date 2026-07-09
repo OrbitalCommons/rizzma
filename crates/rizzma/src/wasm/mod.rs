@@ -201,7 +201,13 @@ pub fn figure_to_rgba(fig: &Figure) -> (Vec<u8>, u32, u32) {
 /// Panics if `scale` is not finite and positive.
 #[must_use]
 pub fn figure_to_rgba_scaled(fig: &Figure, scale: f64) -> (Vec<u8>, u32, u32) {
-    let renderer = fig.render_scaled(scale);
+    renderer_to_rgba(&fig.render_scaled(scale))
+}
+
+/// Read a finished [`SkiaRenderer`](crate::skia::SkiaRenderer)'s pixmap back
+/// out as straight RGBA8 plus its pixel dimensions.
+#[must_use]
+pub fn renderer_to_rgba(renderer: &crate::skia::SkiaRenderer) -> (Vec<u8>, u32, u32) {
     let pixmap = renderer.pixmap();
     let width = pixmap.width();
     let height = pixmap.height();
@@ -624,6 +630,67 @@ impl WasmFigure {
     }
 }
 
+/// An [`Axes3D`](crate::mplot3d::Axes3D) owned across the wasm boundary.
+///
+/// 3D scenes render as full frames rather than through the interactive
+/// session machinery: build the scene once, then call `render` (wasm only)
+/// each time the view changes — `set_view` plus a JS interval is a spinning
+/// plot. `width_px`/`height_px`/`dpi` are fixed at construction and match
+/// [`Axes3D::render_png`](crate::mplot3d::Axes3D::render_png) semantics
+/// (`dpi` scales titles and decorations).
+#[cfg(feature = "plot3d")]
+#[wasm_bindgen]
+pub struct WasmAxes3D {
+    /// The wrapped 3D scene.
+    ax: crate::mplot3d::Axes3D,
+    /// Logical render size and decoration DPI, consumed by the wasm-only
+    /// `render` (unused when compiled for the native host).
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    width_px: u32,
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    height_px: u32,
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    dpi: f64,
+}
+
+#[cfg(feature = "plot3d")]
+#[wasm_bindgen]
+impl WasmAxes3D {
+    /// Create an empty `width_px` by `height_px` scene rendered at `dpi`.
+    #[wasm_bindgen(constructor)]
+    #[must_use]
+    pub fn new(width_px: u32, height_px: u32, dpi: f64) -> WasmAxes3D {
+        WasmAxes3D {
+            ax: crate::mplot3d::Axes3D::new(),
+            width_px,
+            height_px,
+            dpi,
+        }
+    }
+
+    /// Set the elevation and azimuth view angles in degrees.
+    pub fn set_view(&mut self, elev: f64, azim: f64) {
+        self.ax.set_view(elev, azim);
+    }
+
+    /// Set a title drawn centered at the top of the canvas.
+    pub fn set_title(&mut self, title: &str) {
+        self.ax.set_title(title);
+    }
+
+    /// Add a flat-shaded colormapped surface over the `x` × `y` grid; `z` is
+    /// row-major with `x.len() * y.len()` heights. Degenerate input adds
+    /// nothing.
+    pub fn plot_surface(&mut self, x: &[f64], y: &[f64], z: &[f64]) {
+        self.ax.plot_surface(x, y, z);
+    }
+
+    /// Add a cloud of 3D scatter markers (common prefix of the slices).
+    pub fn scatter3d(&mut self, x: &[f64], y: &[f64], z: &[f64]) {
+        self.ax.scatter3d(x, y, z);
+    }
+}
+
 /// Convert a core error message into a JS exception value.
 ///
 /// Only called on the wasm boundary; `JsValue` construction is unimplemented
@@ -648,6 +715,8 @@ mod canvas {
     };
 
     use crate::figure::{Event, Interactor, MouseButton, Outcome};
+    #[cfg(feature = "plot3d")]
+    use crate::wasm::WasmAxes3D;
     use crate::wasm::{WasmFigure, figure_to_rgba_scaled, sample_figure};
 
     #[wasm_bindgen]
@@ -681,6 +750,33 @@ mod canvas {
         /// is not a canvas, has no 2D context, or rendering fails.
         pub fn bind(self, canvas_id: &str) -> Result<WasmSession, JsValue> {
             WasmSession::attach(self.fig, canvas_id)
+        }
+    }
+
+    #[cfg(feature = "plot3d")]
+    #[wasm_bindgen]
+    impl WasmAxes3D {
+        /// Render the scene onto the canvas element with id `canvas_id`,
+        /// HiDPI-crisp: the backing store is `devicePixelRatio` × the logical
+        /// pixel size (decorations scale to match) and the canvas CSS size is
+        /// set to the logical size. Call again after `set_view` to animate.
+        ///
+        /// # Errors
+        ///
+        /// Returns a [`JsValue`] error if the canvas element cannot be found,
+        /// is not a canvas, has no 2D context, or `putImageData` fails.
+        pub fn render(&self, canvas_id: &str) -> Result<(), JsValue> {
+            let (canvas, context) = canvas_context(canvas_id)?;
+            let scale = device_scale();
+            let width = (f64::from(self.width_px) * scale).round().max(1.0) as u32;
+            let height = (f64::from(self.height_px) * scale).round().max(1.0) as u32;
+            let renderer = self.ax.render_png(width, height, self.dpi * scale);
+            let (rgba, width, height) = crate::wasm::renderer_to_rgba(&renderer);
+            set_css_size(
+                &canvas,
+                (f64::from(self.width_px), f64::from(self.height_px)),
+            )?;
+            blit(&canvas, &context, &rgba, width, height)
         }
     }
 
@@ -826,6 +922,38 @@ mod canvas {
                     .get_mut(axes)
                     .ok_or_else(|| JsValue::from_str(&format!("axes index {axes} out of range")))?;
                 ax.set_line_data(line, x, y)
+                    .map_err(|e| JsValue::from_str(&e))?;
+            }
+            schedule_redraw(&self.state);
+            Ok(())
+        }
+
+        /// Replace the offsets of scatter collection `collection` on axes
+        /// `axes` in place (live updates), keeping its markers and styling,
+        /// and schedule a rAF-coalesced repaint. Only the common prefix of
+        /// `x` and `y` is used.
+        ///
+        /// Autoscaled limits re-derive from the new offsets; explicit limits
+        /// — including a view the user has panned/zoomed — are untouched.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if `axes` or `collection` is out of range.
+        pub fn set_scatter_offsets(
+            &self,
+            axes: usize,
+            collection: usize,
+            x: &[f64],
+            y: &[f64],
+        ) -> Result<(), JsValue> {
+            {
+                let mut st = self.state.borrow_mut();
+                let fig = st.interactor.figure_mut();
+                let ax = fig
+                    .axes_mut()
+                    .get_mut(axes)
+                    .ok_or_else(|| JsValue::from_str(&format!("axes index {axes} out of range")))?;
+                ax.set_collection_offsets(collection, x, y)
                     .map_err(|e| JsValue::from_str(&e))?;
             }
             schedule_redraw(&self.state);

@@ -216,6 +216,27 @@ mod tests {
     }
 
     #[test]
+    fn set_collection_offsets_replaces_data_and_checks_range() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        ax.scatter(&[0.0, 1.0], &[0.0, 1.0]);
+        ax.set_collection_offsets(0, &[5.0, 7.0, 9.0], &[10.0, 20.0])
+            .expect("collection 0 exists");
+        // Common prefix of x/y is used; extents re-derive from the new data.
+        let e = ax.collections[0]
+            .data_extents()
+            .expect("collection has extents");
+        approx(e.xmin(), 5.0);
+        approx(e.xmax(), 7.0);
+        approx(e.ymin(), 10.0);
+        approx(e.ymax(), 20.0);
+
+        let err = ax
+            .set_collection_offsets(3, &[0.0], &[0.0])
+            .expect_err("index 3 is out of range");
+        assert!(err.contains("out of range"), "unexpected error: {err}");
+    }
+
+    #[test]
     fn scatter_mapped_sets_per_point_face_colors() {
         let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
         let x = [0.0, 1.0, 2.0];

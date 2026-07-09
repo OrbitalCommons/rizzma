@@ -617,6 +617,33 @@ impl Axes {
         Ok(())
     }
 
+    /// Replace the offsets of collection `collection` in place (for
+    /// live/streaming scatter updates), keeping its markers, sizes, and
+    /// colors. Only the common prefix of `x` and `y` is used.
+    ///
+    /// Autoscaled limits re-derive from the new offsets on the next draw;
+    /// explicit limits (including limits stored by interaction) are
+    /// untouched, exactly like [`set_line_data`](Axes::set_line_data).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error naming the valid range when `collection` is out of
+    /// range.
+    pub fn set_collection_offsets(
+        &mut self,
+        collection: usize,
+        x: &[f64],
+        y: &[f64],
+    ) -> Result<(), String> {
+        let count = self.collections.len();
+        let entry = self.collections.get_mut(collection).ok_or_else(|| {
+            format!("collection index {collection} out of range (axes has {count} collections)")
+        })?;
+        let n = x.len().min(y.len());
+        entry.set_offsets((0..n).map(|i| [x[i], y[i]]).collect());
+        Ok(())
+    }
+
     /// Add a [`Patch`], returning a mutable reference to it.
     pub fn add_patch(&mut self, patch: Patch) -> &mut Patch {
         self.patches.push(patch);

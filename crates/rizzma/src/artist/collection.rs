@@ -154,6 +154,13 @@ impl Collection {
         &self.offsets
     }
 
+    /// Replace the marker offsets in place (for live/streaming updates),
+    /// keeping the glyphs, sizes, colors, and z-order.
+    pub fn set_offsets(&mut self, offsets: Vec<[f64; 2]>) -> &mut Self {
+        self.offsets = offsets;
+        self
+    }
+
     /// Draw this collection with caller-supplied data offsets.
     ///
     /// The marker glyphs, sizes, colors, and z-order stay owned by the
