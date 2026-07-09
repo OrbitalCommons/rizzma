@@ -7,6 +7,35 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.3.0] - 2026-07-09
+
+### Added
+- **A live demo matrix on the crate main page**: the docs.rs front page now
+  hosts a responsive grid of seven interactive, animated wasm demos —
+  traveling beats, counter-propagating waves, a morphing rose, a random
+  two-tone signal above a live spectrogram (sharex-linked), a slowly
+  rotating spiral galaxy, a spinning 3D sombrero surface, and streaming
+  oscilloscope strips. One shared ticker drives every cell and pauses
+  whatever scrolls out of view; static gallery images remain the fallback.
+- **Live scatter updates**: `Axes::set_collection_offsets` and
+  `WasmSession::set_scatter_offsets` replace a scatter collection's offsets
+  in place (markers, sizes, and colors kept), mirroring `set_line_data` —
+  explicit limits survive, so an animated scatter keeps moving inside a
+  zoomed view.
+- **3D in the browser**: `WasmAxes3D` wraps `Axes3D` for full-frame,
+  HiDPI-crisp canvas rendering from JS (`plot_surface`, `scatter3d`,
+  `set_title`, `set_view`, `render`), and `Axes3D::set_view` sets the
+  elevation/azimuth in place for animated views.
+- **Images from JS, with live updates**: `WasmFigure::imshow` displays a
+  colormapped row-major array with an explicit extent and `vmin`/`vmax`,
+  and `AxesImage::set_data` / `Axes::set_image_data` /
+  `WasmSession::set_image_data` replace an image's data (and extent) in
+  place — explicit norms survive, so streaming spectrogram frames don't
+  flicker.
+- The demo site gains the spinning galaxy, the signal + spectrogram card
+  (replacing the static chirp), and a spinning 3D surface card; the gallery
+  gains a `surface3d` case.
+
 ## [1.2.1] - 2026-07-09
 
 ### Added
