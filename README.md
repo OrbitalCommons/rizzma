@@ -18,6 +18,13 @@
 A Rust reimplementation of the good parts of **matplotlib / pyplot**, with first-class
 **WebAssembly** support.
 
+**▶ The plots in this README are static — the wasm renderer is not.** Try the
+[live interactive demos](https://orbitalcommons.github.io/rizzma/demo/) (wheel
+to zoom, drag to pan, streaming oscilloscope strips), or the interactive
+figures embedded right in the
+[API docs on docs.rs](https://docs.rs/rizzma/latest/rizzma/wasm/). (crates.io
+sanitizes READMEs, so nothing can run *here* — follow the links.)
+
 The object model mirrors matplotlib (Figure → Axes → Artists) behind a thin pyplot-style
 stateful facade, with a single `Renderer` trait driving multiple targets: a `tiny-skia`
 raster backend (PNG), an SVG emitter, and a browser `<canvas>` backend — the same figure,
@@ -29,7 +36,8 @@ One figure per Tier-1 plot type, auto-rendered from
 [`crates/rizzma/examples/gallery.rs`](crates/rizzma/examples/gallery.rs) on
 every push to `main` and published to the `gh-pages` branch (so these images never live in
 `main`'s history). Browse them all at the
-[gallery page](https://orbitalcommons.github.io/rizzma/).
+[gallery page](https://orbitalcommons.github.io/rizzma/), or play with the
+[live wasm demos](https://orbitalcommons.github.io/rizzma/demo/).
 
 <!-- Images are served from the orphan gh-pages branch; they appear after the Gallery
      workflow runs on main. -->
