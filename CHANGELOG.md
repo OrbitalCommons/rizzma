@@ -7,6 +7,21 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.3.1] - 2026-07-09
+
+### Added
+- Every live demo cell in the docs offers a **"⤢ full size" pop-up**: the
+  same demo rebuilt at a viewport-fitted scale in an inline modal (close
+  with Esc, the ✕ button, or a backdrop click; deep-linkable via a
+  `#rizzma-live=<name>` URL hash).
+
+### Fixed
+- The signal + spectrogram demo plots against a **fixed trailing time
+  window** (`t − now`), so the trace and the spectrogram image sit flush
+  against the axes frame and the ever-growing time tick labels no longer
+  make the frame edge bounce as they pop in and out of the layout's
+  overhang reservation.
+
 ## [1.3.0] - 2026-07-09
 
 ### Added
