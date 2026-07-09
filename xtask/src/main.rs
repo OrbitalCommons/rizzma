@@ -585,8 +585,10 @@ fn serve_connection(mut stream: std::net::TcpStream, root: &Path) {
         405 => "Method Not Allowed",
         _ => "Internal Server Error",
     };
+    // Access-Control-Allow-Origin matches GitHub Pages' behavior, so pages
+    // served elsewhere (e.g. locally built rustdoc) can fetch the wasm pkg.
     let header = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
         body.len()
     );
     let _ = stream.write_all(header.as_bytes());

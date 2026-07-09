@@ -28,10 +28,33 @@ jobs:
       - name: Render gallery
         run: cargo run -p rizzma --example gallery
 
+      - name: Install wasm target and wasm-pack
+        run: |
+          rustup target add wasm32-unknown-unknown
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64|amd64) target="x86_64-unknown-linux-musl" ;;
+            aarch64|arm64) target="aarch64-unknown-linux-musl" ;;
+            *) echo "unsupported wasm-pack host architecture: $arch" >&2; exit 1 ;;
+          esac
+          curl -sL -o /tmp/wasm-pack.tgz "https://github.com/rustwasm/wasm-pack/releases/download/v${WASM_PACK_VERSION}/wasm-pack-v${WASM_PACK_VERSION}-${target}.tar.gz"
+          tar xzf /tmp/wasm-pack.tgz -C /tmp
+          sudo mv "/tmp/wasm-pack-v${WASM_PACK_VERSION}-${target}/wasm-pack" /usr/local/bin/
+          wasm-pack --version
+        env:
+          WASM_PACK_VERSION: 0.15.0
+
+      # The interactive demo site — and the wasm pkg that the docs.rs live
+      # demos import (see crates/rizzma/docs-header.html) — publish to
+      # gh-pages under /demo/.
+      - name: Build wasm demo bundle
+        run: wasm-pack build --target web --out-dir www/pkg crates/rizzma --features wasm
+
       - name: Assemble site
         run: |
-          mkdir -p gallery-out
+          mkdir -p gallery-out/demo
           cp target/gallery_*.png gallery-out/
+          cp -r crates/rizzma/www/index.html crates/rizzma/www/pkg gallery-out/demo/
           {
             echo '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>rizzma gallery</title>'
             # Responsive grid: images fill their track (100% width), tracks are
@@ -39,7 +62,7 @@ jobs:
             # mobile via auto-fill + minmax.
             echo '<style>body{font-family:system-ui;background:#1a1b26;color:#c0caf5;max-width:1640px;margin:2rem auto;padding:0 12px}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(800px,100%),1fr));gap:16px}figure{margin:0}img{width:100%;height:auto;display:block;border:1px solid #565f89;border-radius:6px;background:#fff}figcaption{text-align:center;padding:4px 0 0;font-size:0.9rem;opacity:0.85}</style>'
             echo '<h1>rizzma gallery</h1>'
-            echo '<p>Auto-rendered from <code>crates/rizzma/examples/gallery.rs</code> on every push to <code>main</code>.</p>'
+            echo '<p>Auto-rendered from <code>crates/rizzma/examples/gallery.rs</code> on every push to <code>main</code>. There is also a <a href="demo/" style="color:#7aa2f7">live interactive wasm demo</a>.</p>'
             echo '<main>'
             for f in gallery-out/*.png; do
               n=$(basename "$f")

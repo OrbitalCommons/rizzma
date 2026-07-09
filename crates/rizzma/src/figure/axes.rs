@@ -493,6 +493,15 @@ impl Axes {
     /// Call before plotting so the traces pick up the phosphor cycle.
     /// Interaction, [`set_line_data`](Axes::set_line_data) streaming, and
     /// [`sharex`](crate::figure::Figure::sharex) all work as usual.
+    ///
+    /// On docs.rs the strips below are live — streaming, zoomable, x-linked;
+    /// elsewhere they fall back to the static gallery render.
+    ///
+    /// <div class="rizzma-live" data-demo="scope">
+    ///
+    /// ![oscilloscope](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_oscilloscope.png)
+    ///
+    /// </div>
     pub fn oscilloscope(&mut self) -> &mut Self {
         self.scope = true;
         self.facecolor = SCOPE_BG;

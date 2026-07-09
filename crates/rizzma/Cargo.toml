@@ -10,6 +10,13 @@ readme = "README.md"
 keywords = ["plotting", "matplotlib", "visualization", "charts", "wasm"]
 categories = ["visualization", "graphics", "wasm"]
 
+# Injects the live-demo loader into every docs.rs page: `.rizzma-live`
+# placeholders in doc comments upgrade to interactive wasm canvases (bundle
+# served from the gh-pages `demo/` deployment), with their static gallery
+# images left as the fallback.
+[package.metadata.docs.rs]
+rustdoc-args = ["--html-in-header", "docs-header.html"]
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
