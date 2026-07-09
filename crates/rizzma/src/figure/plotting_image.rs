@@ -59,6 +59,24 @@ mod tests {
     }
 
     #[test]
+    fn set_image_data_replaces_data_and_keeps_the_norm() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        ax.imshow(&[0.0, 1.0, 2.0, 3.0], 2, 2).vmin(0.0).vmax(10.0);
+
+        // New shape + a scrolled extent; the explicit norm survives.
+        ax.set_image_data(0, &[0.0; 6], 2, 3, Some([5.0, 8.0, 0.0, 2.0]))
+            .expect("image 0 exists");
+        assert_eq!(ax.images[0].clim(), (0.0, 10.0));
+        assert_eq!(ax.images[0].extent(), [5.0, 8.0, 0.0, 2.0]);
+        let limits = ax.data_limits().expect("image provides data limits");
+        assert_eq!((limits.xmin(), limits.xmax()), (5.0, 8.0));
+
+        // Errors, not panics, for a bad index or a shape mismatch.
+        assert!(ax.set_image_data(3, &[0.0; 4], 2, 2, None).is_err());
+        assert!(ax.set_image_data(0, &[0.0; 5], 2, 2, None).is_err());
+    }
+
+    #[test]
     fn imshow_explicit_extent_drives_limits() {
         let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
         ax.imshow(&[0.0; 4], 2, 2).set_extent([-2.0, 6.0, 1.0, 9.0]);

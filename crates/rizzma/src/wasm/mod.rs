@@ -381,6 +381,33 @@ impl WasmFigure {
         self.plot_styled_impl(axes, x, y, spec).map_err(js_err)
     }
 
+    /// Display row-major scalar `data` (`nrows` × `ncols`) as a colormapped
+    /// image on axes `axes` — `extent` is `[x0, x1, y0, y1]` in data space,
+    /// `cmap` a colormap name (empty string for the default), and
+    /// `vmin`/`vmax` the fixed normalization bounds (live updates through
+    /// `WasmSession::set_image_data` keep them, so streaming frames don't
+    /// flicker). Data row `0` sits at the top of the extent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `axes` is out of range, `extent` is not 4 numbers,
+    /// or `data.len()` is not `nrows * ncols`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn imshow(
+        &mut self,
+        axes: usize,
+        data: &[f64],
+        nrows: usize,
+        ncols: usize,
+        extent: &[f64],
+        cmap: &str,
+        vmin: f64,
+        vmax: f64,
+    ) -> Result<(), JsValue> {
+        self.imshow_impl(axes, data, nrows, ncols, extent, cmap, vmin, vmax)
+            .map_err(js_err)
+    }
+
     /// Scatter-plot `y` against `x` on axes `axes`, using the color cycle.
     ///
     /// # Errors
@@ -595,6 +622,40 @@ impl WasmFigure {
     fn scatter_impl(&mut self, axes: usize, x: &[f64], y: &[f64]) -> Result<(), String> {
         self.with_axes(axes, |ax| {
             ax.scatter(x, y);
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn imshow_impl(
+        &mut self,
+        axes: usize,
+        data: &[f64],
+        nrows: usize,
+        ncols: usize,
+        extent: &[f64],
+        cmap: &str,
+        vmin: f64,
+        vmax: f64,
+    ) -> Result<(), String> {
+        if data.len() != nrows * ncols {
+            return Err(format!(
+                "imshow: data length {} must equal nrows * ncols = {}",
+                data.len(),
+                nrows * ncols
+            ));
+        }
+        let extent: [f64; 4] = extent.try_into().map_err(|_| {
+            format!(
+                "imshow: extent must be [x0, x1, y0, y1], got {} numbers",
+                extent.len()
+            )
+        })?;
+        self.with_axes(axes, |ax| {
+            let image = ax.imshow(data, nrows, ncols);
+            image.set_extent(extent).vmin(vmin).vmax(vmax);
+            if !cmap.is_empty() {
+                image.cmap(cmap);
+            }
         })
     }
 
@@ -954,6 +1015,48 @@ mod canvas {
                     .get_mut(axes)
                     .ok_or_else(|| JsValue::from_str(&format!("axes index {axes} out of range")))?;
                 ax.set_collection_offsets(collection, x, y)
+                    .map_err(|e| JsValue::from_str(&e))?;
+            }
+            schedule_redraw(&self.state);
+            Ok(())
+        }
+
+        /// Replace the data and extent of image `image` on axes `axes` in
+        /// place (live updates — e.g. a scrolling spectrogram), keeping its
+        /// colormap and `vmin`/`vmax` normalization, and schedule a
+        /// rAF-coalesced repaint. `extent` is `[x0, x1, y0, y1]` in data
+        /// space.
+        ///
+        /// Autoscaled limits re-derive from the new extent; explicit limits
+        /// — including a view the user has panned/zoomed — are untouched.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if `axes` or `image` is out of range, `extent`
+        /// is not 4 numbers, or `data.len()` is not `nrows * ncols`.
+        pub fn set_image_data(
+            &self,
+            axes: usize,
+            image: usize,
+            data: &[f64],
+            nrows: usize,
+            ncols: usize,
+            extent: &[f64],
+        ) -> Result<(), JsValue> {
+            let extent: [f64; 4] = extent.try_into().map_err(|_| {
+                JsValue::from_str(&format!(
+                    "set_image_data: extent must be [x0, x1, y0, y1], got {} numbers",
+                    extent.len()
+                ))
+            })?;
+            {
+                let mut st = self.state.borrow_mut();
+                let fig = st.interactor.figure_mut();
+                let ax = fig
+                    .axes_mut()
+                    .get_mut(axes)
+                    .ok_or_else(|| JsValue::from_str(&format!("axes index {axes} out of range")))?;
+                ax.set_image_data(image, data, nrows, ncols, Some(extent))
                     .map_err(|e| JsValue::from_str(&e))?;
             }
             schedule_redraw(&self.state);
