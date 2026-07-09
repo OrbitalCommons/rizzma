@@ -55,6 +55,9 @@ jobs:
           mkdir -p gallery-out/demo
           cp target/gallery_*.png gallery-out/
           cp -r crates/rizzma/www/index.html crates/rizzma/www/pkg gallery-out/demo/
+          # wasm-pack writes a `*` .gitignore into pkg/; left in place it makes
+          # the deploy action's git commit silently drop the whole bundle.
+          rm -f gallery-out/demo/pkg/.gitignore
           {
             echo '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>rizzma gallery</title>'
             # Responsive grid: images fill their track (100% width), tracks are
