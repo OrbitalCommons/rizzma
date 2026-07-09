@@ -126,6 +126,10 @@
         <canvas id="plot-subplots"></canvas>
         <p class="readout" id="readout-subplots">&mdash;</p>
       </div>
+      <div class="card">
+        <canvas id="plot-trail"></canvas>
+        <p class="readout" id="readout-trail">move the cursor over the plot</p>
+      </div>
     </div>
 
     <footer>
@@ -261,6 +265,19 @@
       fig4.set_xlabel(axBot, "t (s)");
       fig4.set_ylabel(axBot, "Hz");
       hookReadout(fig4.bind("plot-subplots"), "readout-subplots");
+
+      // 5. Cursor trail, recorded on the Rust side: session.track_cursor
+      //    mirrors pointer positions into the line with no JS in the loop.
+      const fig5 = new WasmFigure(4.8, 3.4);
+      const ax5 = fig5.add_subplot(1, 1, 1);
+      fig5.plot(ax5, new Float64Array(0), new Float64Array(0));
+      fig5.set_xlim(ax5, 0.0, 10.0);
+      fig5.set_ylim(ax5, 0.0, 10.0);
+      fig5.set_title(ax5, "track_cursor: your pointer, plotted from Rust");
+      fig5.set_xlabel(ax5, "x (data units)");
+      fig5.set_ylabel(ax5, "y (data units)");
+      const session5 = hookReadout(fig5.bind("plot-trail"), "readout-trail");
+      session5.track_cursor(ax5, 0, 400);
     </script>
   </body>
 </html>
