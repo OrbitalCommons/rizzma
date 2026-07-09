@@ -11,12 +11,14 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 
 ### Added
 - **A live demo matrix on the crate main page**: the docs.rs front page now
-  hosts a responsive grid of seven interactive, animated wasm demos —
+  hosts a responsive 3×3 grid of interactive, animated wasm demos —
   traveling beats, counter-propagating waves, a morphing rose, a random
   two-tone signal above a live spectrogram (sharex-linked), a slowly
-  rotating spiral galaxy, a spinning 3D sombrero surface, and streaming
-  oscilloscope strips. One shared ticker drives every cell and pauses
-  whatever scrolls out of view; static gallery images remain the fallback.
+  rotating spiral galaxy, a spinning 3D sombrero surface, a two-source
+  ripple tank streamed through `imshow`, the Lorenz attractor traced live,
+  and streaming oscilloscope strips. One shared ticker drives every cell
+  and pauses whatever scrolls out of view; static gallery images remain
+  the fallback.
 - **Live scatter updates**: `Axes::set_collection_offsets` and
   `WasmSession::set_scatter_offsets` replace a scatter collection's offsets
   in place (markers, sizes, and colors kept), mirroring `set_line_data` —
