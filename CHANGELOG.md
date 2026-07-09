@@ -7,6 +7,23 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.2.1] - 2026-07-09
+
+### Added
+- **Live wasm demos in the crate docs**: docs.rs pages now mount real
+  interactive canvases (wheel zoom, drag pan, double-click reset) where the
+  docs previously showed static gallery images, via an injected
+  `--html-in-header` loader that lazily imports the wasm bundle from the
+  gh-pages `demo/` deployment. The static images remain as fallbacks
+  everywhere the bundle cannot load. First two: an interactive line plot on
+  the `wasm` module docs, and streaming x-linked strips on
+  `Axes::oscilloscope`.
+- The interactive demo site now deploys permanently to
+  <https://orbitalcommons.github.io/rizzma/demo/> from the Gallery
+  workflow, and the gallery gains an `oscilloscope` case.
+- `cargo xtask serve-www` sends `Access-Control-Allow-Origin: *`, matching
+  GitHub Pages, so locally built rustdoc can exercise the live-docs path.
+
 ## [1.2.0] - 2026-07-08
 
 ### Added
