@@ -59,6 +59,16 @@
 //! ![surface3d](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_surface3d.png)
 //!
 //! </div>
+//! <div class="rizzma-live" data-demo="ripples">
+//!
+//! ![ripples](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_pcolormesh.png)
+//!
+//! </div>
+//! <div class="rizzma-live" data-demo="lorenz">
+//!
+//! ![lorenz](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_streamplot.png)
+//!
+//! </div>
 //! <div class="rizzma-live" data-demo="scope">
 //!
 //! ![oscilloscope](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_oscilloscope.png)
