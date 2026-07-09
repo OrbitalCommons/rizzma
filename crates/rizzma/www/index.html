@@ -302,9 +302,12 @@
       const axBot = fig4.add_subplot(2, 1, 2);
       fig4.plot(axTop, new Float64Array(0), new Float64Array(0));
       fig4.set_title(axTop, "sharex: random signal + live spectrogram");
+      // Fixed trailing window ("seconds before now"): explicit limits keep
+      // the trace and image flush with the frame and the tick labels static.
+      fig4.set_xlim(axTop, -specSpan, 0);
       fig4.set_ylim(axTop, -2.6, 2.6);
-      fig4.imshow(axBot, specGrid, bins, cols, [0, specSpan, 0, 30], "", 0, 1.1);
-      fig4.set_xlabel(axBot, "t (s)");
+      fig4.imshow(axBot, specGrid, bins, cols, [-specSpan, 0, 0, 30], "", 0, 1.1);
+      fig4.set_xlabel(axBot, "t − now (s)");
       fig4.set_ylabel(axBot, "Hz");
       // Zooming or panning either subplot moves both x ranges together.
       fig4.sharex(axBot, axTop);
@@ -326,7 +329,10 @@
           sigT.shift();
           sig.shift();
         }
-        session4.set_line_data(axTop, 0, Float64Array.from(sigT), Float64Array.from(sig));
+        // Data slides through the fixed [-specSpan, 0] window.
+        const rel = new Float64Array(sigT.length);
+        for (let i = 0; i < sigT.length; i++) rel[i] = sigT[i] - t;
+        session4.set_line_data(axTop, 0, rel, Float64Array.from(sig));
         // Newest column: DFT magnitudes of the last `win` samples, high
         // frequencies on top (row 0). The flat shift moves every row left;
         // the freshly-zeroed last column of each row is then overwritten.
@@ -346,7 +352,7 @@
             specGrid[(bins - k + 1) * cols - 1] = Math.hypot(re, im) / (win / 4);
           }
         }
-        session4.set_image_data(axBot, 0, specGrid, bins, cols, [t - specSpan, t, 0, 30]);
+        session4.set_image_data(axBot, 0, specGrid, bins, cols, [-specSpan, 0, 0, 30]);
         specLast = t;
       }, 50);
 
