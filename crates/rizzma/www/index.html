@@ -216,11 +216,14 @@
         liveBtn.textContent = "stop live updates";
       });
 
-      // 2. Scatter: a two-armed spiral galaxy with jitter, slowly rotating
-      // via live scatter-offset updates (it keeps spinning while zoomed).
+      // 2. Scatter: a two-armed spiral galaxy spinning about an out-of-plane
+      // axis — 3D star positions (a thin disk) pushed through the full
+      // rotation matrix M = Rz(precession) · Rx(inclination) · Rz(spin) each
+      // tick and projected to the screen (it keeps turning while zoomed).
       const stars = 900;
       const gx = new Float64Array(stars);
       const gy = new Float64Array(stars);
+      const gz = new Float64Array(stars);
       const grx = new Float64Array(stars);
       const gry = new Float64Array(stars);
       let seed = 0x5eed;
@@ -235,6 +238,8 @@
         const r = 0.22 * t;
         gx[i] = r * Math.cos(2.1 * t + arm) + (rand() - 0.5) * 0.09;
         gy[i] = r * Math.sin(2.1 * t + arm) + (rand() - 0.5) * 0.09;
+        // A thin disk, slightly thicker toward the core.
+        gz[i] = ((rand() - 0.5) * 0.08) / (1 + 2.5 * r);
       }
       const fig2 = new WasmFigure(4.8, 3.4);
       const ax2 = fig2.add_subplot(1, 1, 1);
@@ -246,13 +251,25 @@
       fig2.set_ylim(ax2, -0.95, 0.95);
       const session2 = fig2.bind("plot-galaxy");
       hookReadout(session2, "readout-galaxy");
+      const galCa = Math.cos(0.96); // ~55° inclination
+      const galSa = Math.sin(0.96);
       const spin0 = performance.now();
       setInterval(() => {
-        const a = 0.15 * (performance.now() - spin0) / 1000;
-        const c = Math.cos(a), s = Math.sin(a);
+        const t = (performance.now() - spin0) / 1000;
+        const th = 0.4 * t; // spin about the disk normal
+        const ph = 0.06 * t; // slow precession of the projected axis
+        const c1 = Math.cos(th), s1 = Math.sin(th);
+        const c2 = Math.cos(ph), s2 = Math.sin(ph);
+        // Screen rows of M = Rz(ph) · Rx(a) · Rz(th).
+        const m00 = c2 * c1 - s2 * galCa * s1;
+        const m01 = -c2 * s1 - s2 * galCa * c1;
+        const m02 = s2 * galSa;
+        const m10 = s2 * c1 + c2 * galCa * s1;
+        const m11 = -s2 * s1 + c2 * galCa * c1;
+        const m12 = -c2 * galSa;
         for (let i = 0; i < stars; i++) {
-          grx[i] = c * gx[i] - s * gy[i];
-          gry[i] = s * gx[i] + c * gy[i];
+          grx[i] = m00 * gx[i] + m01 * gy[i] + m02 * gz[i];
+          gry[i] = m10 * gx[i] + m11 * gy[i] + m12 * gz[i];
         }
         session2.set_scatter_offsets(ax2, 0, grx, gry);
       }, 50);

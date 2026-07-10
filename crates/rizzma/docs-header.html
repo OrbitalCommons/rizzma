@@ -298,12 +298,16 @@
       return session;
     },
 
-    // A two-armed spiral galaxy, slowly rotating — and fully interactive:
-    // it keeps spinning inside whatever view you zoom to.
+    // A two-armed spiral galaxy spinning about an out-of-plane axis: the
+    // stars live in 3D (a thin disk), and each tick applies the full
+    // rotation matrix M = Rz(precession) · Rx(inclination) · Rz(spin) and
+    // projects orthographically to the screen. Fully interactive — it keeps
+    // turning inside whatever view you zoom to.
     galaxy(mod, canvas, host, k = 1) {
       const stars = 900;
       const gx = new F64(stars);
       const gy = new F64(stars);
+      const gz = new F64(stars);
       const rx = new F64(stars);
       const ry = new F64(stars);
       let seed = 0x5eed;
@@ -319,6 +323,8 @@
         const r = 0.22 * a;
         gx[i] = r * Math.cos(2.1 * a + arm) + (rand() - 0.5) * 0.09;
         gy[i] = r * Math.sin(2.1 * a + arm) + (rand() - 0.5) * 0.09;
+        // A thin disk, slightly thicker toward the core.
+        gz[i] = ((rand() - 0.5) * 0.08) / (1 + 2.5 * r);
       }
       const fig = new mod.WasmFigure(3.6 * k, 2.7 * k);
       const ax = fig.add_subplot(1, 1, 1);
@@ -327,12 +333,25 @@
       fig.set_xlim(ax, -0.95, 0.95);
       fig.set_ylim(ax, -0.95, 0.95);
       const session = fig.bind(canvas.id);
+      const ca = Math.cos(0.96); // ~55° inclination
+      const sa = Math.sin(0.96);
       animate(host, (t) => {
-        const c = Math.cos(0.15 * t);
-        const s = Math.sin(0.15 * t);
+        const th = 0.4 * t; // spin about the disk normal
+        const ph = 0.06 * t; // slow precession of the projected axis
+        const c1 = Math.cos(th);
+        const s1 = Math.sin(th);
+        const c2 = Math.cos(ph);
+        const s2 = Math.sin(ph);
+        // Screen rows of M = Rz(ph) · Rx(a) · Rz(th).
+        const m00 = c2 * c1 - s2 * ca * s1;
+        const m01 = -c2 * s1 - s2 * ca * c1;
+        const m02 = s2 * sa;
+        const m10 = s2 * c1 + c2 * ca * s1;
+        const m11 = -s2 * s1 + c2 * ca * c1;
+        const m12 = -c2 * sa;
         for (let i = 0; i < stars; i++) {
-          rx[i] = c * gx[i] - s * gy[i];
-          ry[i] = s * gx[i] + c * gy[i];
+          rx[i] = m00 * gx[i] + m01 * gy[i] + m02 * gz[i];
+          ry[i] = m10 * gx[i] + m11 * gy[i] + m12 * gz[i];
         }
         session.set_scatter_offsets(ax, 0, rx, ry);
       });
