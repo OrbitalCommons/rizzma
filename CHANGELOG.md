@@ -7,6 +7,15 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.3.2] - 2026-07-09
+
+### Changed
+- The galaxy demo now spins about an **out-of-plane axis**: 3D star
+  positions (a thin, core-thickened disk) go through the full rotation
+  matrix `Rz(precession) · Rx(inclination) · Rz(spin)` each tick and
+  project orthographically — the disk tumbles in 3D on both the docs
+  matrix and the demo site, and stays fully interactive.
+
 ## [1.3.1] - 2026-07-09
 
 ### Added
