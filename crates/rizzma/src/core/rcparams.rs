@@ -116,6 +116,20 @@ pub struct RcParams {
     pub grid_linewidth: f64,
     /// Grid line opacity (`grid.alpha`).
     pub grid_alpha: f64,
+
+    // --- legend ---
+    /// Legend box background color (`legend.facecolor`).
+    pub legend_facecolor: Rgba,
+    /// Legend box border color (`legend.edgecolor`).
+    pub legend_edgecolor: Rgba,
+    /// Legend label text color (`legend.labelcolor`).
+    pub legend_labelcolor: Rgba,
+
+    // --- text ---
+    /// Default ink color for titles, axis/tick labels, and annotations
+    /// (`text.color`). Also seeds each axis' spine/tick ink together with
+    /// [`axes_edgecolor`](Self::axes_edgecolor).
+    pub text_color: Rgba,
 }
 
 impl Default for RcParams {
@@ -157,6 +171,12 @@ impl Default for RcParams {
             grid_color: Rgba::from_u8(217, 217, 217, 255),
             grid_linewidth: 0.8,
             grid_alpha: 1.0,
+
+            legend_facecolor: Rgba::WHITE,
+            legend_edgecolor: Rgba::from_u8(128, 128, 128, 255),
+            legend_labelcolor: Rgba::BLACK,
+
+            text_color: Rgba::BLACK,
         }
     }
 }
@@ -174,12 +194,17 @@ impl RcParams {
     pub fn dark() -> Self {
         // 8-bit-derived so the preset round-trips through hex serialization.
         let dark = Rgba::from_u8(31, 31, 31, 255);
+        let panel = Rgba::from_u8(45, 45, 45, 255);
         let light = Rgba::from_u8(230, 230, 230, 255);
         Self {
             figure_facecolor: dark,
             axes_facecolor: dark,
             axes_edgecolor: light,
             grid_color: Rgba::from_u8(77, 77, 77, 255),
+            legend_facecolor: panel,
+            legend_edgecolor: Rgba::from_u8(160, 160, 160, 255),
+            legend_labelcolor: light,
+            text_color: light,
             ..Self::default()
         }
     }
@@ -241,6 +266,10 @@ impl RcParams {
         merge_field!(grid_color);
         merge_field!(grid_linewidth);
         merge_field!(grid_alpha);
+        merge_field!(legend_facecolor);
+        merge_field!(legend_edgecolor);
+        merge_field!(legend_labelcolor);
+        merge_field!(text_color);
         out
     }
 }
@@ -277,6 +306,10 @@ mod tests {
         assert_eq!(rc.font_family, "DejaVu Sans");
         assert_eq!(rc.grid_linewidth, 0.8);
         assert_eq!(rc.grid_alpha, 1.0);
+        assert_eq!(rc.legend_facecolor, Rgba::WHITE);
+        assert_eq!(rc.legend_edgecolor, Rgba::from_u8(128, 128, 128, 255));
+        assert_eq!(rc.legend_labelcolor, Rgba::BLACK);
+        assert_eq!(rc.text_color, Rgba::BLACK);
     }
 
     #[test]

@@ -122,6 +122,7 @@ pub mod pyplot;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
+pub use core::rcparams::{RcParams, TickDirection};
 pub use figure::{Axes, Figure, GridSpec, PolarAxes, SkyAxes, SkyProjection, SubplotSpec};
 
 /// The version of this crate, from `CARGO_PKG_VERSION`.

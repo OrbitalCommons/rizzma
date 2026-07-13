@@ -23,6 +23,7 @@ use crate::axis::ticker::{
     LogitFormatterMathtext, LogitLocator, ScalarFormatter, SymlogFormatterMathtext, SymlogLocator,
 };
 use crate::core::color::{DEFAULT_COLOR_CYCLE, Rgba};
+use crate::core::rcparams::RcParams;
 use crate::core::{Affine2D, Bbox, Path};
 use crate::render::{ClippedRenderer, GraphicsContext, Renderer};
 use crate::text::FontSource;
@@ -49,6 +50,15 @@ pub(crate) enum ScaleSpec {
 
 const DEFAULT_TITLE_SIZE: f64 = 12.0;
 const DEFAULT_TITLE_PAD: f64 = 6.0;
+
+/// Resolve the built-in ten-color property cycle (matplotlib's `tab10`) into
+/// [`Rgba`] values, the default an [`Axes`] draws successive artists from.
+fn default_prop_cycle() -> Vec<Rgba> {
+    DEFAULT_COLOR_CYCLE
+        .iter()
+        .filter_map(|hex| Rgba::from_hex(hex))
+        .collect()
+}
 
 /// Default annotation/text font size in pixels (matplotlib's `font.size`).
 const DEFAULT_ANNOTATION_SIZE: f64 = 10.0;
@@ -293,6 +303,22 @@ pub struct Axes {
     yscale: ScaleSpec,
     /// Background fill color of the axes region.
     facecolor: Rgba,
+    /// Stroke color of the axes frame (border rectangle).
+    edgecolor: Rgba,
+    /// Stroke width of the axes frame, in pixels.
+    linewidth: f64,
+    /// Ink color of the axes title.
+    title_color: Rgba,
+    /// The color cycle successive artists draw from (matplotlib's
+    /// `axes.prop_cycle`), resolved from [`RcParams`] and overridable via
+    /// [`Axes::set_prop_cycle`].
+    prop_cycle: Vec<Rgba>,
+    /// Legend box background color.
+    pub(crate) legend_facecolor: Rgba,
+    /// Legend box border color.
+    pub(crate) legend_edgecolor: Rgba,
+    /// Legend label text color.
+    pub(crate) legend_labelcolor: Rgba,
     /// Line artists, drawn in ascending zorder.
     pub(crate) lines: Vec<Line2D>,
     /// Patch artists, drawn in ascending zorder.
@@ -455,6 +481,13 @@ impl Axes {
             xscale: ScaleSpec::Linear,
             yscale: ScaleSpec::Linear,
             facecolor: Rgba::WHITE,
+            edgecolor: Rgba::BLACK,
+            linewidth: 0.8,
+            title_color: Rgba::BLACK,
+            prop_cycle: default_prop_cycle(),
+            legend_facecolor: Rgba::WHITE,
+            legend_edgecolor: Rgba::from_u8(128, 128, 128, 255),
+            legend_labelcolor: Rgba::BLACK,
             lines: Vec::new(),
             patches: Vec::new(),
             collections: Vec::new(),
@@ -524,8 +557,10 @@ impl Axes {
         if self.scope {
             return SCOPE_CYCLE[index % SCOPE_CYCLE.len()];
         }
-        let hex = DEFAULT_COLOR_CYCLE[index % DEFAULT_COLOR_CYCLE.len()];
-        Rgba::from_hex(hex).unwrap_or(Self::FALLBACK_CYCLE_COLOR)
+        if self.prop_cycle.is_empty() {
+            return Self::FALLBACK_CYCLE_COLOR;
+        }
+        self.prop_cycle[index % self.prop_cycle.len()]
     }
 
     /// Return the next property-cycle color and advance the per-axes cycle
@@ -777,7 +812,11 @@ impl Axes {
         self.facecolor = Rgba::TRANSPARENT;
         self.frame = false;
         self.xaxis_hidden = true;
-        self.yaxis = Axis::new(AxisSide::Right);
+        // Carry the themed ink/tick direction onto the fresh right-hand axis so
+        // a dark (or otherwise styled) figure themes the twin's y decoration.
+        self.yaxis = Axis::new(AxisSide::Right)
+            .with_color(self.yaxis.color())
+            .with_tick_direction(self.yaxis.tick_direction());
         self.xlim_link = Some(source);
     }
 
@@ -829,6 +868,98 @@ impl Axes {
     pub fn set_facecolor(&mut self, color: Rgba) -> &mut Self {
         self.facecolor = color;
         self
+    }
+
+    /// Set the stroke color of the axes frame (the border rectangle).
+    pub fn set_edgecolor(&mut self, color: Rgba) -> &mut Self {
+        self.edgecolor = color;
+        self
+    }
+
+    /// Set the stroke width of the axes frame, in pixels.
+    pub fn set_linewidth(&mut self, width: f64) -> &mut Self {
+        self.linewidth = width;
+        self
+    }
+
+    /// Set the ink color of the axes title.
+    pub fn set_title_color(&mut self, color: Rgba) -> &mut Self {
+        self.title_color = color;
+        self
+    }
+
+    /// Replace the color cycle successive artists draw from (matplotlib's
+    /// `axes.prop_cycle`). An empty cycle falls back to C0.
+    pub fn set_prop_cycle(&mut self, colors: Vec<Rgba>) -> &mut Self {
+        self.prop_cycle = colors;
+        self
+    }
+
+    /// Mutable access to the bottom (x) axis, for styling its spine/tick ink,
+    /// grid, tick direction, locator, formatter, and label.
+    pub fn xaxis_mut(&mut self) -> &mut Axis {
+        &mut self.xaxis
+    }
+
+    /// Mutable access to the left (y) axis; see [`Axes::xaxis_mut`].
+    pub fn yaxis_mut(&mut self) -> &mut Axis {
+        &mut self.yaxis
+    }
+
+    /// Enable or disable grid lines on both axes (matplotlib's `ax.grid(...)`).
+    pub fn grid(&mut self, on: bool) -> &mut Self {
+        self.xaxis.set_grid(on);
+        self.yaxis.set_grid(on);
+        self
+    }
+
+    /// Enable grid lines on both axes with an explicit color, width (px), and
+    /// opacity (`0.0..=1.0`).
+    pub fn grid_with(&mut self, color: Rgba, linewidth: f64, alpha: f64) -> &mut Self {
+        self.xaxis
+            .set_grid(true)
+            .set_grid_style(color, linewidth, alpha);
+        self.yaxis
+            .set_grid(true)
+            .set_grid_style(color, linewidth, alpha);
+        self
+    }
+
+    /// Recolor the spine, ticks, and tick/axis labels of both axes together
+    /// (a coarse-grained `tick_params(colors=…)` / spine recolor). Pass the
+    /// title separately with [`Axes::set_title_color`].
+    pub fn set_axis_color(&mut self, color: Rgba) -> &mut Self {
+        self.edgecolor = color;
+        self.xaxis.set_color(color);
+        self.yaxis.set_color(color);
+        self
+    }
+
+    /// Seed every style field from `rc`: face/edge colors, frame width, title
+    /// and axis ink, the property cycle, grid on/off and grid style, tick
+    /// direction, and legend colors. Called by [`Figure`] as axes are created
+    /// so a figure-level [`RcParams`] flows into each axes; the default `rc`
+    /// reproduces the built-in look exactly.
+    ///
+    /// [`Figure`]: crate::figure::Figure
+    pub(crate) fn apply_rcparams(&mut self, rc: &RcParams) {
+        self.facecolor = rc.axes_facecolor;
+        self.edgecolor = rc.axes_edgecolor;
+        self.linewidth = rc.axes_linewidth;
+        self.title_color = rc.text_color;
+        self.prop_cycle = rc.axes_prop_cycle.clone();
+        self.legend_facecolor = rc.legend_facecolor;
+        self.legend_edgecolor = rc.legend_edgecolor;
+        self.legend_labelcolor = rc.legend_labelcolor;
+        for (axis, direction) in [
+            (&mut self.xaxis, rc.xtick_direction),
+            (&mut self.yaxis, rc.ytick_direction),
+        ] {
+            axis.set_color(rc.text_color);
+            axis.set_grid(rc.axes_grid);
+            axis.set_grid_style(rc.grid_color, rc.grid_linewidth, rc.grid_alpha);
+            axis.set_tick_direction(direction);
+        }
     }
 
     /// Set the autoscale margin (fraction added on each side).
@@ -1710,8 +1841,8 @@ impl Axes {
         // 5. Stroke the frame (suppressed when the axis is turned off).
         if self.frame && self.axis_visible {
             let frame_gc = GraphicsContext::new()
-                .with_stroke(Rgba::BLACK)
-                .with_line_width(0.8);
+                .with_stroke(self.edgecolor)
+                .with_line_width(self.linewidth);
             renderer.draw_path(&frame_gc, &rect, &Affine2D::identity(), None);
         }
 
@@ -1770,7 +1901,7 @@ impl Axes {
                     &GraphicsContext::new(),
                     &path.transformed(&shift),
                     &Affine2D::identity(),
-                    Some(Rgba::BLACK),
+                    Some(self.title_color),
                 );
             }
         }

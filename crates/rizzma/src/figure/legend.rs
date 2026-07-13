@@ -92,12 +92,17 @@ impl Axes {
         let y0 = y1 - box_h;
         let box_bbox = Bbox::from_extents(x0, y0, x1, y1);
 
-        // White background with a thin gray border.
+        // Background and border colors follow the axes' resolved style.
         let rect = rect_path(&box_bbox);
         let id = Affine2D::identity();
-        renderer.draw_path(&GraphicsContext::new(), &rect, &id, Some(Rgba::WHITE));
+        renderer.draw_path(
+            &GraphicsContext::new(),
+            &rect,
+            &id,
+            Some(self.legend_facecolor),
+        );
         let border_gc = GraphicsContext::new()
-            .with_stroke(Rgba::rgb(0.5, 0.5, 0.5))
+            .with_stroke(self.legend_edgecolor)
             .with_line_width(layout::BORDER_WIDTH);
         renderer.draw_path(&border_gc, &rect, &id, None);
 
@@ -120,7 +125,12 @@ impl Axes {
             let tx = sx1 + sample_gap;
             let ty = row_mid - font_size / 3.0;
             let text = font.text_to_path(&entry.label, font_size, [tx, ty]);
-            renderer.draw_path(&GraphicsContext::new(), &text, &id, Some(Rgba::BLACK));
+            renderer.draw_path(
+                &GraphicsContext::new(),
+                &text,
+                &id,
+                Some(self.legend_labelcolor),
+            );
         }
     }
 }

@@ -7,6 +7,28 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.4.0] - 2026-07-13
+
+### Added
+- **Figure-level styling via `RcParams`.** `Figure::with_rcparams` /
+  `set_rcparams` (and `pyplot::style`) seed every axes' resolved style —
+  face/edge colors, frame width, title and axis ink, the property color
+  cycle, grid on/off + color/width/alpha, tick direction, and legend
+  colors — from a single typed config. `RcParams::dark()` ships as a preset;
+  any custom `RcParams` works too. Re-exported at the crate root as
+  `rizzma::RcParams` / `rizzma::TickDirection`.
+- **Reachable per-axes styling.** `Axes::xaxis_mut`/`yaxis_mut` expose the
+  axes' `Axis` for styling; `Axes::grid`/`grid_with`, `set_edgecolor`,
+  `set_linewidth`, `set_title_color`, `set_axis_color`, and `set_prop_cycle`
+  cover the common cases directly. `Axis` gains `set_color`, `set_grid`,
+  `set_grid_style`, and `with_tick_direction`/`set_tick_direction`.
+
+### Changed
+- The axes frame stroke, title ink, grid ink, legend box colors, and the
+  property color cycle are now driven by resolved style fields instead of
+  hardcoded constants. The default `RcParams` reproduces the previous look
+  byte-for-byte (guarded by a test).
+
 ## [1.3.2] - 2026-07-09
 
 ### Changed
