@@ -509,13 +509,28 @@ pub fn savefig<P: AsRef<Path>>(path: P) -> Result<(), SaveError> {
     })
 }
 
-/// Display the current figure.
+/// Display the current figure in the system browser, blocking until the window
+/// is closed (matplotlib's `plt.show()`). Consumes the current figure, so a
+/// subsequent plotting call starts a fresh one. See [`crate::show`].
 ///
-/// Interactive display requires a GUI/wasm backend that does not yet exist, so
-/// this is currently a no-op that prints a hint. Use [`savefig`] to persist a
-/// figure in the meantime.
+/// A no-op printing a hint if the `show` feature is disabled or building for
+/// wasm.
 pub fn show() {
-    eprintln!("crate::pyplot::show() is a no-op; use savefig() to write a file.");
+    #[cfg(all(feature = "show", not(target_arch = "wasm32")))]
+    {
+        let figure = STATE.with(|s| {
+            let mut state = s.borrow_mut();
+            state.current_axes = 0;
+            state.figure.take()
+        });
+        if let Some(figure) = figure {
+            crate::show::show(figure);
+        }
+    }
+    #[cfg(not(all(feature = "show", not(target_arch = "wasm32"))))]
+    {
+        eprintln!("crate::pyplot::show() needs the `show` feature; use savefig() instead.");
+    }
 }
 
 /// Clear the current figure, dropping all its axes and artists.

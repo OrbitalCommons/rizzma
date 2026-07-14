@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{TITLE}}</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: #f4f5f7; color: #1a1b26;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 14px; background: #ffffff; border-bottom: 1px solid #d7dae0;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .tools { display: flex; gap: 6px; margin-left: auto; }
+  button {
+    font: inherit; padding: 5px 10px; border: 1px solid #c3c8d2; border-radius: 7px;
+    background: #fbfbfd; cursor: pointer; color: inherit;
+  }
+  button:hover { background: #eef0f4; }
+  button:active { background: #e3e6ec; }
+  .status { margin-left: 6px; color: #565f89; font-variant-numeric: tabular-nums; min-width: 12ch; }
+  main {
+    display: grid; gap: 18px; padding: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, max-content));
+    justify-content: center;
+  }
+  figure.card {
+    margin: 0; padding: 8px; background: #fff; border: 1px solid #d7dae0;
+    border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  canvas { display: block; touch-action: none; border-radius: 4px; cursor: crosshair; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #16161e; color: #c0caf5; }
+    header { background: #1a1b26; border-color: #2a2e3f; }
+    button { background: #1f2233; border-color: #2a2e3f; }
+    button:hover { background: #252a3d; }
+    figure.card { background: #1a1b26; border-color: #2a2e3f; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>{{TITLE}}</h1>
+  <span class="status" id="status">ready</span>
+  <div class="tools">
+    <button id="home" title="Reset view (or double-click a plot)">⌂ Home</button>
+    <button data-ext="png" title="Save the active figure as PNG">PNG</button>
+    <button data-ext="svg" title="Save the active figure as SVG">SVG</button>
+    <button data-ext="pdf" title="Save the active figure as PDF">PDF</button>
+    <button id="close" title="Close this window and stop the server">✕ Close</button>
+  </div>
+</header>
+<main>{{CARDS}}</main>
+<script>
+  const TOKEN = "{{TOKEN}}";
+  const COUNT = {{COUNT}};
+  const SIZES = [{{SIZES}}];
+  const base = "/" + TOKEN + "/";
+  const status = document.getElementById("status");
+  let active = 0;
+
+  // Paint the PNG returned by `url` into figure `i`'s canvas.
+  function paint(i, url) {
+    const canvas = document.getElementById("fig" + i);
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+    img.onload = () => ctx.drawImage(img, 0, 0);
+    img.src = base + url;
+  }
+
+  function ev(i, type, e, extra) {
+    const rect = e ? e.target.getBoundingClientRect() : null;
+    const x = e ? (e.clientX - rect.left) : 0;
+    const y = e ? (e.clientY - rect.top) : 0;
+    let q = "fig/" + i + "/ev?type=" + type + "&x=" + x.toFixed(1) + "&y=" + y.toFixed(1);
+    if (extra) q += extra;
+    q += "&t=" + Date.now();
+    paint(i, q);
+  }
+
+  for (let i = 0; i < COUNT; i++) {
+    const canvas = document.getElementById("fig" + i);
+    let dragging = false, pending = false;
+
+    canvas.addEventListener("pointerenter", () => { active = i; });
+
+    canvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      active = i;
+      const dy = e.deltaY > 0 ? 1 : -1; // dy>0 zooms out (rizzma convention)
+      ev(i, "wheel", e, "&dy=" + dy);
+      status.textContent = "zoom";
+    }, { passive: false });
+
+    canvas.addEventListener("pointerdown", (e) => {
+      active = i; dragging = true;
+      canvas.setPointerCapture(e.pointerId);
+      ev(i, "down", e);
+      status.textContent = "pan";
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      status.textContent = (e.clientX - rect.left).toFixed(0) + ", " + (e.clientY - rect.top).toFixed(0) + " px";
+      if (!dragging || pending) return;
+      pending = true;
+      requestAnimationFrame(() => { pending = false; ev(i, "move", e); });
+    });
+    const end = (e) => { if (dragging) { dragging = false; ev(i, "up", e); status.textContent = "ready"; } };
+    canvas.addEventListener("pointerup", end);
+    canvas.addEventListener("pointercancel", end);
+    canvas.addEventListener("dblclick", (e) => { ev(i, "home", e); status.textContent = "reset"; });
+
+    paint(i, "fig/" + i + ".png?t=" + Date.now()); // initial frame
+  }
+
+  document.getElementById("home").addEventListener("click", () => {
+    for (let i = 0; i < COUNT; i++) {
+      const c = document.getElementById("fig" + i);
+      paint(i, "fig/" + i + "/ev?type=home&x=" + (c.width / 2) + "&y=" + (c.height / 2) + "&t=" + Date.now());
+    }
+    status.textContent = "reset";
+  });
+
+  document.querySelectorAll("button[data-ext]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const a = document.createElement("a");
+      a.href = base + "fig/" + active + "." + btn.dataset.ext;
+      a.download = "figure-" + active + "." + btn.dataset.ext;
+      document.body.appendChild(a); a.click(); a.remove();
+    });
+  });
+
+  function shutdown() { navigator.sendBeacon(base + "shutdown"); }
+  document.getElementById("close").addEventListener("click", () => { shutdown(); window.close(); });
+  window.addEventListener("beforeunload", shutdown);
+</script>
+</body>
+</html>

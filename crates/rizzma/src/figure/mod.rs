@@ -54,7 +54,7 @@ pub mod event;
 #[allow(clippy::module_inception)]
 mod figure;
 mod gridspec;
-mod interact;
+pub(crate) mod interact;
 mod legend;
 mod plotting;
 mod plotting_area;

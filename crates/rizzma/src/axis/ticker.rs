@@ -59,7 +59,7 @@
 /// This is the Rust analogue of matplotlib's `Locator` base class. The core
 /// method is [`Locator::tick_values`]; [`Locator::view_limits`] optionally
 /// adjusts the view interval and defaults to the identity.
-pub trait Locator {
+pub trait Locator: Send + Sync {
     /// Return the tick positions for the closed view interval `[vmin, vmax]`.
     ///
     /// Locations slightly beyond the limits may be included to support
@@ -80,7 +80,7 @@ pub trait Locator {
 /// the index of the tick among the visible ticks (matplotlib passes `None` in
 /// some contexts), and is used by position-based formatters such as
 /// [`FixedFormatter`].
-pub trait Formatter {
+pub trait Formatter: Send + Sync {
     /// Return the label for `value` at the optional position index `pos`.
     fn format(&self, value: f64, pos: Option<usize>) -> String;
 
@@ -2545,19 +2545,19 @@ impl Formatter for IndexFormatter {
 /// Port of matplotlib's `FuncFormatter`. The closure receives the value and the
 /// optional position index and returns the label.
 pub struct FuncFormatter {
-    func: Box<dyn Fn(f64, Option<usize>) -> String>,
+    func: Box<dyn Fn(f64, Option<usize>) -> String + Send + Sync>,
 }
 
 impl FuncFormatter {
     /// Create a formatter from a boxed closure.
-    pub fn new(func: Box<dyn Fn(f64, Option<usize>) -> String>) -> Self {
+    pub fn new(func: Box<dyn Fn(f64, Option<usize>) -> String + Send + Sync>) -> Self {
         FuncFormatter { func }
     }
 
     /// Create a formatter from an unboxed closure or function.
     pub fn from_fn<F>(func: F) -> Self
     where
-        F: Fn(f64, Option<usize>) -> String + 'static,
+        F: Fn(f64, Option<usize>) -> String + Send + Sync + 'static,
     {
         Self::new(Box::new(func))
     }

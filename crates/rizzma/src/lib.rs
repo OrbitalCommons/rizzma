@@ -83,6 +83,7 @@
 //!
 //! - `plot3d` — the [`mplot3d`] 3D plotting module.
 //! - `pyplot` — the stateful [`pyplot`] facade.
+//! - `show` — the native-only [`show`] interactive browser viewer.
 //! - `wasm` — the [`wasm`] browser bridge.
 //!
 //! Building with `--no-default-features` yields the core, figure, and all backends
@@ -119,6 +120,8 @@ pub mod text;
 pub mod mplot3d;
 #[cfg(feature = "pyplot")]
 pub mod pyplot;
+#[cfg(all(feature = "show", not(target_arch = "wasm32")))]
+pub mod show;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 

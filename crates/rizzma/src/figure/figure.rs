@@ -493,6 +493,15 @@ impl Figure {
         std::fs::write(path, self.to_pdf())
     }
 
+    /// Open this figure in the system browser as an interactive viewer
+    /// (matplotlib's `plt.show()`), blocking until the window is closed. Pan by
+    /// dragging, zoom with the wheel, double-click or **⌂ Home** to reset, and
+    /// export to PNG/SVG/PDF from the toolbar. See [`crate::show`].
+    #[cfg(all(feature = "show", not(target_arch = "wasm32")))]
+    pub fn show(self) {
+        crate::show::show(self);
+    }
+
     /// Forward-map a data point in axes `axes_index` to a **top-down canvas
     /// pixel** `(px, py)` (the same pixel space [`Figure::render`] produces, with
     /// `py` measured from the top-left corner).
