@@ -1,6 +1,6 @@
 [package]
 name = "rizzma"
-version = "1.4.0"
+version = "1.5.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -24,7 +24,9 @@ crate-type = ["cdylib", "rlib"]
 workspace = true
 
 [features]
-default = ["plot3d", "pyplot", "wasm"]
+default = ["plot3d", "pyplot", "wasm", "show"]
+# Native-only: `Figure::show()` / `pyplot::show()` local browser viewer.
+show = []
 plot3d = []
 pyplot = []
 wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys"]

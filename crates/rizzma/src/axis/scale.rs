@@ -12,7 +12,7 @@
 /// Implementations map data coordinates to scaled coordinates via
 /// [`transform`](Scale::transform) and back via [`inverse`](Scale::inverse).
 /// The two functions must round-trip over the scale's valid domain.
-pub trait Scale {
+pub trait Scale: Send + Sync {
     /// Map a data coordinate to a scaled (display) coordinate.
     fn transform(&self, x: f64) -> f64;
 

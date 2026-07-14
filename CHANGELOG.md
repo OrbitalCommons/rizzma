@@ -7,6 +7,23 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.5.0] - 2026-07-13
+
+### Added
+- **Interactive local-browser viewer (`show()`).** `Figure::show()` /
+  `pyplot::show()` (and `show::show_all` / `show_nonblocking`) open the system
+  browser onto a single window holding every figure — drag to pan, wheel to zoom
+  at the cursor, double-click or **⌂ Home** to reset, and export the active
+  figure to PNG/SVG/PDF from the toolbar. Behind a dependency-free loopback
+  HTTP server (matplotlib's WebAgg model) reusing the existing `Interactor` and
+  render backends; gated behind the native-only `show` feature (on by default).
+  See `design/09-show-browser.md`.
+
+### Changed
+- The axis trait objects `Scale`, `Locator`, and `Formatter` (and
+  `FuncFormatter`'s closure) are now `Send + Sync`, so a `Figure` can be moved
+  across threads (needed by the non-blocking viewer).
+
 ## [1.4.0] - 2026-07-13
 
 ### Added
