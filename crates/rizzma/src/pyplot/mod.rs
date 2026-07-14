@@ -19,6 +19,7 @@ use std::cell::RefCell;
 use std::path::Path;
 
 use crate::core::color::Rgba;
+use crate::core::rcparams::RcParams;
 use crate::figure::{Axes, Figure};
 use crate::skia::PngError;
 
@@ -30,10 +31,10 @@ const DEFAULT_HEIGHT_IN: f64 = 4.8;
 /// fractions, matching matplotlib's default subplot margins.
 const DEFAULT_AXES_RECT: (f64, f64, f64, f64) = (0.125, 0.11, 0.775, 0.79);
 
-/// Build a fresh `w_in` by `h_in` figure with a single full-size axes on a white
-/// background.
-fn new_single_axes_figure(w_in: f64, h_in: f64) -> Figure {
-    let mut fig = Figure::new(w_in, h_in).with_facecolor(Rgba::WHITE);
+/// Build a fresh `w_in` by `h_in` figure with a single full-size axes, styled by
+/// `rc` (the current pyplot style; the default reproduces the built-in look).
+fn new_single_axes_figure(w_in: f64, h_in: f64, rc: &RcParams) -> Figure {
+    let mut fig = Figure::new(w_in, h_in).with_rcparams(rc.clone());
     let (l, b, w, h) = DEFAULT_AXES_RECT;
     fig.add_axes(l, b, w, h);
     fig
@@ -50,15 +51,24 @@ struct PyplotState {
     figure: Option<Figure>,
     /// Index of the current axes within [`figure`](Self::figure)'s axes list.
     current_axes: usize,
+    /// The active style applied to figures as they are created (`None` means
+    /// the built-in default). Set with [`style`].
+    style: Option<RcParams>,
 }
 
 impl PyplotState {
-    /// An empty state with no current figure.
+    /// An empty state with no current figure and the default style.
     const fn new() -> Self {
         Self {
             figure: None,
             current_axes: 0,
+            style: None,
         }
+    }
+
+    /// The active style, or the built-in default when none has been set.
+    fn current_style(&self) -> RcParams {
+        self.style.clone().unwrap_or_default()
     }
 
     /// Return the current figure, creating a default `6.4 x 4.8` inch figure
@@ -67,7 +77,12 @@ impl PyplotState {
     /// This is the equivalent of matplotlib's implicit `gcf()` + `gca()`.
     fn ensure_figure(&mut self) -> &mut Figure {
         if self.figure.is_none() {
-            self.figure = Some(new_single_axes_figure(DEFAULT_WIDTH_IN, DEFAULT_HEIGHT_IN));
+            let rc = self.current_style();
+            self.figure = Some(new_single_axes_figure(
+                DEFAULT_WIDTH_IN,
+                DEFAULT_HEIGHT_IN,
+                &rc,
+            ));
             self.current_axes = 0;
         }
         self.figure.as_mut().expect("figure just ensured")
@@ -111,9 +126,17 @@ pub fn figure() {
 pub fn figure_sized(w_in: f64, h_in: f64) {
     STATE.with(|s| {
         let mut state = s.borrow_mut();
-        state.figure = Some(new_single_axes_figure(w_in, h_in));
+        let rc = state.current_style();
+        state.figure = Some(new_single_axes_figure(w_in, h_in, &rc));
         state.current_axes = 0;
     });
+}
+
+/// Set the active style applied to figures created afterward, mirroring
+/// matplotlib's `plt.style.use(...)`. Pass [`RcParams::dark`] for a dark theme,
+/// or any custom [`RcParams`].
+pub fn style(rc: RcParams) {
+    STATE.with(|s| s.borrow_mut().style = Some(rc));
 }
 
 /// Create a new current figure tiled into an `nrows` by `ncols` grid of axes,
@@ -129,7 +152,8 @@ pub fn subplots(nrows: usize, ncols: usize) {
     assert!(nrows >= 1 && ncols >= 1, "subplots grid must be non-empty");
     STATE.with(|s| {
         let mut state = s.borrow_mut();
-        let mut fig = Figure::new(DEFAULT_WIDTH_IN, DEFAULT_HEIGHT_IN).with_facecolor(Rgba::WHITE);
+        let rc = state.current_style();
+        let mut fig = Figure::new(DEFAULT_WIDTH_IN, DEFAULT_HEIGHT_IN).with_rcparams(rc);
         for index in 1..=(nrows * ncols) {
             fig.add_subplot(nrows, ncols, index);
         }

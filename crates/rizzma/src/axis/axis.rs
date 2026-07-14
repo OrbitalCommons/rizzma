@@ -16,6 +16,7 @@
 //! [`AxisSide::Left`] the spine lies at `x = xmin` and ticks extend leftward
 //! (decreasing x). [`AxisSide::Top`] and [`AxisSide::Right`] mirror these.
 
+use crate::core::rcparams::TickDirection;
 use crate::core::{Affine2D, Bbox, Path, color::Rgba};
 use crate::mathtext::{RichText, layout_rich_text};
 use crate::render::{GraphicsContext, Renderer};
@@ -76,6 +77,14 @@ pub struct Axis {
     axis_label_pad: f64,
     /// Whether to draw grid lines spanning the axes at each tick.
     grid: bool,
+    /// Grid line color (before `grid_alpha` is applied).
+    grid_color: Rgba,
+    /// Grid line stroke width in pixels.
+    grid_linewidth: f64,
+    /// Grid line opacity in `0.0..=1.0`, multiplied into `grid_color`'s alpha.
+    grid_alpha: f64,
+    /// Which way tick marks point relative to the spine.
+    tick_direction: TickDirection,
     /// Whether tick labels (and the axis label) are drawn and reserved in
     /// layout. Hidden by `sharex` on the inner axes of a stacked pair
     /// (matplotlib's `label_outer`); tick marks and the spine stay visible.
@@ -103,6 +112,11 @@ impl Axis {
             tick_label_pad: 3.5,
             axis_label_pad: 4.0,
             grid: false,
+            // 0.85 gray, matching the long-standing hardcoded grid ink.
+            grid_color: Rgba::rgb(0.85, 0.85, 0.85),
+            grid_linewidth: 1.0,
+            grid_alpha: 1.0,
+            tick_direction: TickDirection::Out,
             tick_labels_visible: true,
         }
     }
@@ -118,6 +132,18 @@ impl Axis {
     #[must_use]
     pub fn side(&self) -> AxisSide {
         self.side
+    }
+
+    /// The ink color of the spine, ticks, and text.
+    #[must_use]
+    pub fn color(&self) -> Rgba {
+        self.color
+    }
+
+    /// Which way tick marks currently point.
+    #[must_use]
+    pub fn tick_direction(&self) -> TickDirection {
+        self.tick_direction
     }
 
     /// Set the scale, returning `self` for chaining.
@@ -238,6 +264,40 @@ impl Axis {
     #[must_use]
     pub fn with_grid(mut self, grid: bool) -> Self {
         self.grid = grid;
+        self
+    }
+
+    /// Set the ink color (spine, ticks, and text) in place.
+    pub fn set_color(&mut self, color: Rgba) -> &mut Self {
+        self.color = color;
+        self
+    }
+
+    /// Enable or disable grid lines in place.
+    pub fn set_grid(&mut self, grid: bool) -> &mut Self {
+        self.grid = grid;
+        self
+    }
+
+    /// Set the grid line color, width (px), and opacity (`0.0..=1.0`) in place.
+    pub fn set_grid_style(&mut self, color: Rgba, linewidth: f64, alpha: f64) -> &mut Self {
+        self.grid_color = color;
+        self.grid_linewidth = linewidth;
+        self.grid_alpha = alpha;
+        self
+    }
+
+    /// Set which way tick marks point relative to the spine, returning `self`
+    /// for chaining.
+    #[must_use]
+    pub fn with_tick_direction(mut self, direction: TickDirection) -> Self {
+        self.tick_direction = direction;
+        self
+    }
+
+    /// Set the tick-mark direction in place.
+    pub fn set_tick_direction(&mut self, direction: TickDirection) -> &mut Self {
+        self.tick_direction = direction;
         self
     }
 
@@ -432,9 +492,11 @@ impl Axis {
         vmin: f64,
         vmax: f64,
     ) {
+        let alpha = self.grid_alpha.clamp(0.0, 1.0);
+        let stroke = self.grid_color.with_alpha(self.grid_color.a * alpha);
         let gc = GraphicsContext::new()
-            .with_stroke(Rgba::rgb(0.85, 0.85, 0.85))
-            .with_line_width(self.tick_width.max(1.0));
+            .with_stroke(stroke)
+            .with_line_width(self.grid_linewidth.max(1.0));
         let (xmin, xmax) = (axes_bbox.xmin(), axes_bbox.xmax());
         let (ymin, ymax) = (axes_bbox.ymin(), axes_bbox.ymax());
         for &t in ticks {
@@ -462,17 +524,28 @@ impl Axis {
     ) {
         let (vmin, vmax) = lim;
         let len = self.tick_length * s;
+        // Outward and inward extents relative to the spine, per direction.
+        let (out_len, in_len) = match self.tick_direction {
+            TickDirection::Out => (len, 0.0),
+            TickDirection::In => (0.0, len),
+            TickDirection::InOut => (len, len),
+        };
         for &t in ticks {
             let p = self.data_to_pixel(t, axes_bbox, vmin, vmax);
-            let line = match self.side {
-                // Out of axes = downward (decreasing y).
-                AxisSide::Bottom => [[p, axes_bbox.ymin()], [p, axes_bbox.ymin() - len]],
-                // Out of axes = upward (increasing y).
-                AxisSide::Top => [[p, axes_bbox.ymax()], [p, axes_bbox.ymax() + len]],
-                // Out of axes = leftward (decreasing x).
-                AxisSide::Left => [[axes_bbox.xmin(), p], [axes_bbox.xmin() - len, p]],
-                // Out of axes = rightward (increasing x).
-                AxisSide::Right => [[axes_bbox.xmax(), p], [axes_bbox.xmax() + len, p]],
+            // `edge` is the spine coordinate; `out`/`in` sign points away from /
+            // into the axes for this side.
+            let (edge, out_sign) = match self.side {
+                AxisSide::Bottom => (axes_bbox.ymin(), -1.0),
+                AxisSide::Top => (axes_bbox.ymax(), 1.0),
+                AxisSide::Left => (axes_bbox.xmin(), -1.0),
+                AxisSide::Right => (axes_bbox.xmax(), 1.0),
+            };
+            let far = edge + out_sign * out_len;
+            let near = edge - out_sign * in_len;
+            let line = if self.side.is_horizontal() {
+                [[p, near], [p, far]]
+            } else {
+                [[near, p], [far, p]]
             };
             let path = Path::from_polyline(&line);
             renderer.draw_path(gc, &path, &Affine2D::identity(), None);

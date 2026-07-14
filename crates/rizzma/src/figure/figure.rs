@@ -12,6 +12,7 @@
 //! with `W = width_in * dpi`, `H = height_in * dpi`; the raster backend applies
 //! its own Y-flip.
 
+use crate::core::rcparams::RcParams;
 use crate::core::{Bbox, color::Rgba};
 use crate::render::Renderer;
 use crate::skia::{PngError, SkiaRenderer};
@@ -44,6 +45,8 @@ pub struct Figure {
     dpi: f64,
     /// Background fill color of the whole canvas.
     facecolor: Rgba,
+    /// Resolved style defaults seeded into each axes as it is created.
+    rc: RcParams,
     /// Font source used for all text in the figure.
     font: FontSource,
     /// The axes owned by this figure, drawn in insertion order.
@@ -58,11 +61,13 @@ impl Figure {
     /// (`100`), a white background, and the embedded DejaVu Sans font.
     #[must_use]
     pub fn new(width_in: f64, height_in: f64) -> Self {
+        let rc = RcParams::default();
         Self {
             width_in,
             height_in,
             dpi: DEFAULT_DPI,
-            facecolor: Rgba::WHITE,
+            facecolor: rc.figure_facecolor,
+            rc,
             font: FontSource::dejavu_sans(),
             axes: Vec::new(),
             colorbars: Vec::new(),
@@ -96,6 +101,35 @@ impl Figure {
         self
     }
 
+    /// Adopt `rc` as this figure's style defaults, returning `self` for
+    /// chaining. Applies the canvas background immediately and seeds every
+    /// axes created afterward (and any that already exist). Build a theme with
+    /// [`RcParams::dark`] or any custom [`RcParams`], e.g.
+    /// `Figure::new(6.0, 4.0).with_rcparams(RcParams::dark())`.
+    #[must_use]
+    pub fn with_rcparams(mut self, rc: RcParams) -> Self {
+        self.set_rcparams(rc);
+        self
+    }
+
+    /// The post-construction counterpart of
+    /// [`with_rcparams`](Figure::with_rcparams): adopt `rc`, recolor the
+    /// canvas, and re-seed every existing axes' style.
+    pub fn set_rcparams(&mut self, rc: RcParams) -> &mut Self {
+        self.facecolor = rc.figure_facecolor;
+        for ax in &mut self.axes {
+            ax.apply_rcparams(&rc);
+        }
+        self.rc = rc;
+        self
+    }
+
+    /// This figure's current style defaults.
+    #[must_use]
+    pub fn rcparams(&self) -> &RcParams {
+        &self.rc
+    }
+
     /// The figure size in pixels as `(width, height)` (`size_in * dpi`).
     #[must_use]
     pub fn size_px(&self) -> (f64, f64) {
@@ -111,7 +145,9 @@ impl Figure {
     /// Add axes at the figure-fraction rectangle `(left, bottom, width,
     /// height)`, returning a mutable reference to the new [`Axes`].
     pub fn add_axes(&mut self, l: f64, b: f64, w: f64, h: f64) -> &mut Axes {
-        self.axes.push(Axes::new(Bbox::from_bounds(l, b, w, h)));
+        let mut ax = Axes::new(Bbox::from_bounds(l, b, w, h));
+        ax.apply_rcparams(&self.rc);
+        self.axes.push(ax);
         self.axes.last_mut().expect("just pushed axes")
     }
 
@@ -132,6 +168,7 @@ impl Figure {
         let gs = GridSpec::new(nrows, ncols);
         let position = gs.subplot(row, col).get_position(&gs);
         let mut ax = Axes::new(position);
+        ax.apply_rcparams(&self.rc);
         // Subplot-managed axes get tight layout: the margin-less grid cell is
         // the outer envelope and the frame rect is derived from decoration
         // extents at draw time (matplotlib's tight layout). Explicit
@@ -176,6 +213,7 @@ impl Figure {
     pub fn twinx(&mut self, source: usize) -> usize {
         assert!(source < self.axes.len(), "twinx: axes index out of range");
         let mut twin = Axes::new(self.axes[source].position());
+        twin.apply_rcparams(&self.rc);
         twin.layout_envelope = self.axes[source].layout_envelope;
         twin.configure_as_twinx(source);
         self.axes.push(twin);
