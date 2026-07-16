@@ -7,6 +7,14 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.6.1] - 2026-07-16
+
+### Fixed
+- Equal-aspect axes with descending (inverted) limits — e.g. an image panel
+  with `set_ylim(high, low)` — no longer collapse to a degenerate rect that
+  dropped the image; the box equalizes on span magnitude and the limits keep
+  their direction.
+
 ## [1.6.0] - 2026-07-16
 
 ### Added
