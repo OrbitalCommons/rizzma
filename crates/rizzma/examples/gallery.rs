@@ -1220,5 +1220,25 @@ fn main() {
         .unwrap();
     }
 
+    // 54. text / text_with_color — themed annotation ink on a dark figure:
+    // plain text() inherits the rc text color, text_with_color() overrides it.
+    {
+        use rizzma::core::rcparams::RcParams;
+        let mut fig = gallery_figure(5.0, 3.5).with_rcparams(RcParams::dark());
+        let x = linspace(0.0, TAU, 400);
+        let y: Vec<f64> = x.iter().map(|t| t.sin() * (-t / 4.0).exp()).collect();
+        let ax = fig.add_subplot(1, 1, 1);
+        ax.plot(&x, &y);
+        ax.set_ylim(-0.65, 1.0);
+        ax.text(0.25, 0.85, "themed ink follows rc");
+        ax.text_with_color(1.5, 0.72, "peak", Rgba::from_hex("#f7768e").unwrap());
+        ax.text_with_color(4.6, -0.5, "trough", Rgba::from_hex("#7dcfff").unwrap());
+        ax.annotate("zero crossing", (PI, 0.0), (3.5, 0.55));
+        ax.set_title("text: annotation ink inherits the theme");
+        ax.set_xlabel("t (s)");
+        ax.set_ylabel("response");
+        fig.save_png("target/gallery_text_color.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
