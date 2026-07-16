@@ -2147,8 +2147,10 @@ fn rect_path(bbox: &Bbox) -> Path {
 /// scales; the over-long pixel dimension is reduced to match while staying
 /// centered on the original rectangle. The non-binding dimension is left intact.
 fn equalize_aspect(rect: &Bbox, xlim: (f64, f64), ylim: (f64, f64)) -> Bbox {
-    let xrange = xlim.1 - xlim.0;
-    let yrange = ylim.1 - ylim.0;
+    // Magnitudes only: a descending (inverted) limit pair must not flip the
+    // scale's sign — direction is carried by the limits themselves.
+    let xrange = (xlim.1 - xlim.0).abs();
+    let yrange = (ylim.1 - ylim.0).abs();
     let (w, h) = (rect.width(), rect.height());
     // Pixels per data unit currently afforded by each dimension.
     let scale_x = w / xrange;
@@ -2888,6 +2890,22 @@ mod tests {
         let ex = td_equal.transform_point((1.0, 0.0)).0 - td_equal.transform_point((0.0, 0.0)).0;
         let ey = td_equal.transform_point((0.0, 1.0)).1 - td_equal.transform_point((0.0, 0.0)).1;
         approx(ex, ey);
+    }
+
+    #[test]
+    fn aspect_equal_handles_inverted_limits() {
+        // Descending (image-style) y limits: the equalized box must use the
+        // span magnitude, keeping the y pixel scale equal-and-opposite to x
+        // instead of collapsing to a degenerate rect.
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.set_xlim(0.0, 8.0).set_ylim(8.0, 0.0);
+        axes.set_aspect_equal();
+        let (rect, td) = axes.pixel_rect_and_trans_data_in(400.0, 200.0, None, None);
+        assert!(rect.width() > 0.0 && rect.height() > 0.0);
+        approx(rect.width(), rect.height());
+        let ex = td.transform_point((1.0, 0.0)).0 - td.transform_point((0.0, 0.0)).0;
+        let ey = td.transform_point((0.0, 1.0)).1 - td.transform_point((0.0, 0.0)).1;
+        approx(ex, -ey);
     }
 
     #[test]
