@@ -309,6 +309,11 @@ pub struct Axes {
     linewidth: f64,
     /// Ink color of the axes title.
     title_color: Rgba,
+    /// Ink for free text and annotations ([`text`](Axes::text) /
+    /// [`annotate`](Axes::annotate)); themed from [`RcParams::text_color`]
+    /// like the title, overridable per call with
+    /// [`text_with_color`](Axes::text_with_color).
+    annotation_color: Rgba,
     /// The color cycle successive artists draw from (matplotlib's
     /// `axes.prop_cycle`), resolved from [`RcParams`] and overridable via
     /// [`Axes::set_prop_cycle`].
@@ -484,6 +489,7 @@ impl Axes {
             edgecolor: Rgba::BLACK,
             linewidth: 0.8,
             title_color: Rgba::BLACK,
+            annotation_color: Rgba::BLACK,
             prop_cycle: default_prop_cycle(),
             legend_facecolor: Rgba::WHITE,
             legend_edgecolor: Rgba::from_u8(128, 128, 128, 255),
@@ -759,11 +765,40 @@ impl Axes {
     /// assert!(!fig.encode_png().unwrap().is_empty());
     /// ```
     pub fn text(&mut self, x: f64, y: f64, s: impl Into<String>) -> &mut Self {
+        let color = self.annotation_color;
+        self.text_with_color(x, y, s, color)
+    }
+
+    /// Place `s` at `(x, y)` in data coordinates with an explicit text color,
+    /// overriding the themed annotation ink — matplotlib's
+    /// `text(x, y, s, color=…)`.
+    ///
+    /// The gallery's themed-annotation panel
+    /// (![text_color](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_text_color.png))
+    /// colors its callouts exactly this way.
+    ///
+    /// ```
+    /// use rizzma::artist::Rgba;
+    /// use rizzma::Figure;
+    ///
+    /// let mut fig = Figure::new(3.0, 2.0);
+    /// let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+    /// ax.set_xlim(0.0, 10.0).set_ylim(0.0, 10.0);
+    /// ax.text_with_color(2.0, 5.0, "hot", Rgba::from_hex("#f7768e").unwrap());
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn text_with_color(
+        &mut self,
+        x: f64,
+        y: f64,
+        s: impl Into<String>,
+        color: Rgba,
+    ) -> &mut Self {
         self.annotations.push(Annotation {
             text: s.into(),
             xy: (x, y),
             text_at: None,
-            color: Rgba::BLACK,
+            color,
             size: DEFAULT_ANNOTATION_SIZE,
         });
         self
@@ -799,7 +834,7 @@ impl Axes {
             text: s.into(),
             xy,
             text_at: Some(xytext),
-            color: Rgba::BLACK,
+            color: self.annotation_color,
             size: DEFAULT_ANNOTATION_SIZE,
         });
         self
@@ -947,6 +982,7 @@ impl Axes {
         self.edgecolor = rc.axes_edgecolor;
         self.linewidth = rc.axes_linewidth;
         self.title_color = rc.text_color;
+        self.annotation_color = rc.text_color;
         self.prop_cycle = rc.axes_prop_cycle.clone();
         self.legend_facecolor = rc.legend_facecolor;
         self.legend_edgecolor = rc.legend_edgecolor;

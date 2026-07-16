@@ -7,6 +7,18 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.6.0] - 2026-07-16
+
+### Added
+- **Explicit annotation color: `Axes::text_with_color`.** Places text at a data
+  point with a caller-chosen ink, matching matplotlib's `text(x, y, s, color=…)`.
+
+### Changed
+- `Axes::text` and `Axes::annotate` now draw in the figure's themed text color
+  (`RcParams::text_color`) instead of unconditionally black, so annotations are
+  legible on dark-styled figures. The default theme's text color is black, so
+  unstyled figures render identically.
+
 ## [1.5.0] - 2026-07-13
 
 ### Added
