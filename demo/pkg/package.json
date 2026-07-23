@@ -1,0 +1,28 @@
+{
+  "name": "rizzma",
+  "type": "module",
+  "description": "A Rust reimplementation of the good parts of matplotlib/pyplot, with first-class wasm support.",
+  "version": "1.6.2",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OrbitalCommons/rizzma"
+  },
+  "files": [
+    "rizzma_bg.wasm",
+    "rizzma.js",
+    "rizzma.d.ts"
+  ],
+  "main": "rizzma.js",
+  "types": "rizzma.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "keywords": [
+    "plotting",
+    "matplotlib",
+    "visualization",
+    "charts",
+    "wasm"
+  ]
+}

@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>rizzma — interactive wasm demos</title>
+    <style>
+      :root {
+        --bg: #1a1b26;
+        --fg: #c0caf5;
+        --muted: #9aa5ce;
+        --accent: #7aa2f7;
+      }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 2rem 1rem 3rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1.5rem;
+      }
+      header {
+        max-width: 62rem;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 0.4rem;
+        font-size: 1.6rem;
+      }
+      h1 em {
+        color: var(--accent);
+        font-style: italic;
+      }
+      .tagline {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+      .hint {
+        margin: 0.6rem 0 0;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      .grid {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 1.5rem;
+        /* Canvas CSS size is pinned to the figure's logical pixels (pointer
+           math depends on it), so cards never shrink their canvases; the
+           page scrolls instead on very narrow screens. */
+      }
+      .card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      canvas {
+        background: #fff;
+        border-radius: 4px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        touch-action: none; /* pointer events drive pan; no browser gestures */
+      }
+      .readout {
+        font-family: ui-monospace, monospace;
+        font-size: 0.85rem;
+        color: var(--muted);
+        min-height: 1.2em;
+      }
+      button {
+        background: transparent;
+        border: 1px solid var(--accent);
+        border-radius: 4px;
+        color: var(--accent);
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.85rem;
+        padding: 0.25rem 0.8rem;
+      }
+      button:hover {
+        background: rgba(122, 162, 247, 0.15);
+      }
+      footer {
+        color: var(--muted);
+        font-size: 0.85rem;
+        max-width: 42rem;
+        text-align: center;
+      }
+      footer a {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>rizzma <em>interactive wasm demos</em></h1>
+      <p class="tagline">
+        Scientific communication reflects on the scientist, and your figures
+        should carry the same <em>rizzma</em> as your ideas.
+      </p>
+      <p class="hint">
+        Every plot is live: scroll to zoom at the cursor &middot; drag to pan
+        &middot; double-click to reset &middot; hover for data coordinates.
+      </p>
+    </header>
+
+    <div class="grid">
+      <div class="card">
+        <canvas id="plot-damped"></canvas>
+        <p class="readout" id="readout-damped">&mdash;</p>
+        <button id="live">start live updates</button>
+      </div>
+      <div class="card">
+        <canvas id="plot-galaxy"></canvas>
+        <p class="readout" id="readout-galaxy">&mdash;</p>
+      </div>
+      <div class="card">
+        <canvas id="plot-zipf"></canvas>
+        <p class="readout" id="readout-zipf">&mdash;</p>
+      </div>
+      <div class="card">
+        <canvas id="plot-subplots"></canvas>
+        <p class="readout" id="readout-subplots">&mdash;</p>
+      </div>
+      <div class="card">
+        <canvas id="plot-trail"></canvas>
+        <p class="readout" id="readout-trail">move the cursor over the plot</p>
+      </div>
+      <div class="card">
+        <canvas id="plot-scope"></canvas>
+        <p class="readout" id="readout-scope">
+          oscilloscope strips: beam x / beam y / SNR &mdash; live, x-linked
+        </p>
+      </div>
+      <div class="card">
+        <canvas id="plot-surface3d"></canvas>
+        <p class="readout" id="readout-surface3d">
+          3D surface re-rendered each frame from a sweeping azimuth
+        </p>
+      </div>
+    </div>
+
+    <footer>
+      Figures are built from JS data via <code>WasmFigure</code>, rasterized by
+      the same Rust core that renders PNG/SVG/PDF (tiny-skia &rarr;
+      <code>ImageData</code>, HiDPI-crisp), and driven by
+      <code>WasmSession</code> pointer events with rAF-coalesced repaints.
+      Source: <a href="https://github.com/OrbitalCommons/rizzma">rizzma on
+      GitHub</a> &middot; <a
+      href="https://orbitalcommons.github.io/rizzma/">static gallery</a>.
+    </footer>
+
+    <script type="module">
+      import init, { WasmFigure, WasmAxes3D } from "./pkg/rizzma.js";
+      await init();
+
+      // Sessions must stay referenced for as long as their canvases should
+      // stay interactive: an unreferenced WasmSession is eventually GC'd,
+      // which detaches its listeners and leaves the canvas inert.
+      const sessions = [];
+
+      /** Wire the shared hover readout for a bound session. */
+      function hookReadout(session, id) {
+        sessions.push(session);
+        const el = document.getElementById(id);
+        session.on_hover((axes, x, y) => {
+          el.textContent =
+            axes === null ? "—" : `x=${x.toFixed(3)}, y=${y.toFixed(3)}`;
+        });
+        return session;
+      }
+
+      // 1. Damped oscillation with live phase animation.
+      const n = 400;
+      const xs = new Float64Array(n);
+      const damped = new Float64Array(n);
+      const envelope = new Float64Array(n);
+      for (let i = 0; i < n; i++) {
+        const x = (12 * i) / (n - 1);
+        xs[i] = x;
+        envelope[i] = Math.exp(-x / 4);
+        damped[i] = envelope[i] * Math.cos(2 * x);
+      }
+      const fig1 = new WasmFigure(4.8, 3.4);
+      const ax1 = fig1.add_subplot(1, 1, 1);
+      fig1.plot(ax1, xs, damped);
+      fig1.plot_styled(ax1, xs, envelope, { color: "tab:orange", ls: "--", lw: 1.0 });
+      fig1.set_title(ax1, "plot: damped oscillation (live)");
+      fig1.set_xlabel(ax1, "t");
+      fig1.set_ylabel(ax1, "amplitude");
+      fig1.legend(ax1, ["exp(-t/4)·cos(2t)", "envelope"]);
+      const session1 = hookReadout(fig1.bind("plot-damped"), "readout-damped");
+
+      const liveBtn = document.getElementById("live");
+      let timer = null;
+      let phase = 0;
+      liveBtn.addEventListener("click", () => {
+        if (timer !== null) {
+          clearInterval(timer);
+          timer = null;
+          liveBtn.textContent = "start live updates";
+          return;
+        }
+        timer = setInterval(() => {
+          phase += 0.12;
+          const moving = new Float64Array(n);
+          for (let i = 0; i < n; i++) {
+            moving[i] = envelope[i] * Math.cos(2 * xs[i] + phase);
+          }
+          session1.set_line_data(ax1, 0, xs, moving);
+        }, 100);
+        liveBtn.textContent = "stop live updates";
+      });
+
+      // 2. Scatter: a two-armed spiral galaxy spinning about an out-of-plane
+      // axis — 3D star positions (a thin disk) pushed through the full
+      // rotation matrix M = Rz(precession) · Rx(inclination) · Rz(spin) each
+      // tick and projected to the screen (it keeps turning while zoomed).
+      const stars = 900;
+      const gx = new Float64Array(stars);
+      const gy = new Float64Array(stars);
+      const gz = new Float64Array(stars);
+      const grx = new Float64Array(stars);
+      const gry = new Float64Array(stars);
+      let seed = 0x5eed;
+      const rand = () => {
+        // xorshift — deterministic so reloads look identical.
+        seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+        return ((seed >>> 0) % 10000) / 10000;
+      };
+      for (let i = 0; i < stars; i++) {
+        const arm = i % 2 === 0 ? 0 : Math.PI;
+        const t = 0.4 + 3.4 * (i / stars);
+        const r = 0.22 * t;
+        gx[i] = r * Math.cos(2.1 * t + arm) + (rand() - 0.5) * 0.09;
+        gy[i] = r * Math.sin(2.1 * t + arm) + (rand() - 0.5) * 0.09;
+        // A thin disk, slightly thicker toward the core.
+        gz[i] = ((rand() - 0.5) * 0.08) / (1 + 2.5 * r);
+      }
+      const fig2 = new WasmFigure(4.8, 3.4);
+      const ax2 = fig2.add_subplot(1, 1, 1);
+      fig2.scatter(ax2, gx, gy);
+      fig2.set_title(ax2, "scatter: a tidy little galaxy");
+      fig2.set_xlabel(ax2, "kpc");
+      fig2.set_ylabel(ax2, "kpc");
+      fig2.set_xlim(ax2, -0.95, 0.95);
+      fig2.set_ylim(ax2, -0.95, 0.95);
+      const session2 = fig2.bind("plot-galaxy");
+      hookReadout(session2, "readout-galaxy");
+      const galCa = Math.cos(0.96); // ~55° inclination
+      const galSa = Math.sin(0.96);
+      const spin0 = performance.now();
+      setInterval(() => {
+        const t = (performance.now() - spin0) / 1000;
+        const th = 0.4 * t; // spin about the disk normal
+        const ph = 0.06 * t; // slow precession of the projected axis
+        const c1 = Math.cos(th), s1 = Math.sin(th);
+        const c2 = Math.cos(ph), s2 = Math.sin(ph);
+        // Screen rows of M = Rz(ph) · Rx(a) · Rz(th).
+        const m00 = c2 * c1 - s2 * galCa * s1;
+        const m01 = -c2 * s1 - s2 * galCa * c1;
+        const m02 = s2 * galSa;
+        const m10 = s2 * c1 + c2 * galCa * s1;
+        const m11 = -s2 * s1 + c2 * galCa * c1;
+        const m12 = -c2 * galSa;
+        for (let i = 0; i < stars; i++) {
+          grx[i] = m00 * gx[i] + m01 * gy[i] + m02 * gz[i];
+          gry[i] = m10 * gx[i] + m11 * gy[i] + m12 * gz[i];
+        }
+        session2.set_scatter_offsets(ax2, 0, grx, gry);
+      }, 50);
+
+      // 3. Log-log axes: Zipf's law.
+      const ranks = 240;
+      const zx = new Float64Array(ranks);
+      const zy = new Float64Array(ranks);
+      for (let i = 0; i < ranks; i++) {
+        const r = 1 + (999 * i) / (ranks - 1);
+        zx[i] = r;
+        zy[i] = 1.0e6 / r;
+      }
+      const fig3 = new WasmFigure(4.8, 3.4);
+      const ax3 = fig3.add_subplot(1, 1, 1);
+      fig3.plot(ax3, zx, zy);
+      fig3.set_xscale_log(ax3, 10);
+      fig3.set_yscale_log(ax3, 10);
+      fig3.set_xlim(ax3, 1, 1000);
+      fig3.set_ylim(ax3, 1.0e3, 1.0e6);
+      fig3.set_title(ax3, "loglog: Zipf's law");
+      fig3.set_xlabel(ax3, "word rank");
+      fig3.set_ylabel(ax3, "frequency");
+      hookReadout(fig3.bind("plot-zipf"), "readout-zipf");
+
+      // 4. Subplots (sharex): a random two-tone signal streaming over a
+      // live spectrogram of itself — Hann-windowed DFT columns pushed into
+      // an imshow image via session.set_image_data.
+      const fs = 80; // samples/sec
+      const win = 64; // DFT window
+      const bins = 24; // frequency rows, up to bins*fs/win = 30 Hz
+      const cols = 120; // spectrogram columns (one per tick)
+      const specSpan = cols * 0.05;
+      let sf1 = 8;
+      let sf2 = 22;
+      let sph1 = 0;
+      let sph2 = 0;
+      const sigT = [];
+      const sig = [];
+      const specGrid = new Float64Array(bins * cols);
+      const hann = new Float64Array(win);
+      for (let j = 0; j < win; j++) {
+        hann[j] = 0.5 - 0.5 * Math.cos((2 * Math.PI * j) / (win - 1));
+      }
+      const fig4 = new WasmFigure(4.8, 3.4);
+      const axTop = fig4.add_subplot(2, 1, 1);
+      const axBot = fig4.add_subplot(2, 1, 2);
+      fig4.plot(axTop, new Float64Array(0), new Float64Array(0));
+      fig4.set_title(axTop, "sharex: random signal + live spectrogram");
+      // Fixed trailing window ("seconds before now"): explicit limits keep
+      // the trace and image flush with the frame and the tick labels static.
+      fig4.set_xlim(axTop, -specSpan, 0);
+      fig4.set_ylim(axTop, -2.6, 2.6);
+      fig4.imshow(axBot, specGrid, bins, cols, [-specSpan, 0, 0, 30], "", 0, 1.1);
+      fig4.set_xlabel(axBot, "t − now (s)");
+      fig4.set_ylabel(axBot, "Hz");
+      // Zooming or panning either subplot moves both x ranges together.
+      fig4.sharex(axBot, axTop);
+      const session4 = hookReadout(fig4.bind("plot-subplots"), "readout-subplots");
+      const spec0 = performance.now();
+      let specLast = 0;
+      setInterval(() => {
+        const t = (performance.now() - spec0) / 1000;
+        sf1 = Math.min(14, Math.max(3, sf1 + (rand() - 0.5) * 0.6));
+        sf2 = Math.min(28, Math.max(16, sf2 + (rand() - 0.5) * 0.9));
+        const steps = Math.max(1, Math.min(8, Math.round((t - specLast) * fs)));
+        for (let j = 0; j < steps; j++) {
+          sph1 += (2 * Math.PI * sf1) / fs;
+          sph2 += (2 * Math.PI * sf2) / fs;
+          sig.push(Math.sin(sph1) + 0.8 * Math.sin(sph2) + (rand() - 0.5) * 0.7);
+          sigT.push(t - (steps - 1 - j) / fs);
+        }
+        while (sigT.length > 1 && t - sigT[0] > specSpan) {
+          sigT.shift();
+          sig.shift();
+        }
+        // Data slides through the fixed [-specSpan, 0] window.
+        const rel = new Float64Array(sigT.length);
+        for (let i = 0; i < sigT.length; i++) rel[i] = sigT[i] - t;
+        session4.set_line_data(axTop, 0, rel, Float64Array.from(sig));
+        // Newest column: DFT magnitudes of the last `win` samples, high
+        // frequencies on top (row 0). The flat shift moves every row left;
+        // the freshly-zeroed last column of each row is then overwritten.
+        specGrid.copyWithin(0, 1);
+        for (let r = 0; r < bins; r++) specGrid[(r + 1) * cols - 1] = 0;
+        if (sig.length >= win) {
+          const o = sig.length - win;
+          for (let k = 1; k <= bins; k++) {
+            let re = 0;
+            let im = 0;
+            for (let j = 0; j < win; j++) {
+              const a = (2 * Math.PI * k * j) / win;
+              const s = sig[o + j] * hann[j];
+              re += s * Math.cos(a);
+              im -= s * Math.sin(a);
+            }
+            specGrid[(bins - k + 1) * cols - 1] = Math.hypot(re, im) / (win / 4);
+          }
+        }
+        session4.set_image_data(axBot, 0, specGrid, bins, cols, [-specSpan, 0, 0, 30]);
+        specLast = t;
+      }, 50);
+
+      // 5. Cursor trail, recorded on the Rust side: session.track_cursor
+      //    mirrors pointer positions into the line with no JS in the loop.
+      const fig5 = new WasmFigure(4.8, 3.4);
+      const ax5 = fig5.add_subplot(1, 1, 1);
+      fig5.plot(ax5, new Float64Array(0), new Float64Array(0));
+      fig5.set_xlim(ax5, 0.0, 10.0);
+      fig5.set_ylim(ax5, 0.0, 10.0);
+      fig5.set_title(ax5, "track_cursor: your pointer, plotted from Rust");
+      fig5.set_xlabel(ax5, "x (data units)");
+      fig5.set_ylabel(ax5, "y (data units)");
+      const session5 = hookReadout(fig5.bind("plot-trail"), "readout-trail");
+      session5.track_cursor(ax5, 0, 400);
+
+      // 6. Oscilloscope strips: sparkline-height rows, everything drawn
+      //    inside the frame, streaming a 10 s rolling window at ~30 Hz.
+      //    Wheel/drag works and the strips stay x-linked via sharex.
+      const fig6 = new WasmFigure(4.8, 1.7);
+      // Dark canvas face so the gaps between full-bleed strips stay dark.
+      fig6.set_facecolor("#0a0d0b");
+      const strips = [
+        fig6.add_axes(0.0, 0.68, 1.0, 0.32),
+        fig6.add_axes(0.0, 0.34, 1.0, 0.32),
+        fig6.add_axes(0.0, 0.0, 1.0, 0.32),
+      ];
+      const empty = new Float64Array(0);
+      for (const s of strips) {
+        fig6.oscilloscope(s);
+        fig6.plot(s, empty, empty);
+      }
+      fig6.sharex(strips[1], strips[0]);
+      fig6.sharex(strips[2], strips[0]);
+      const session6 = hookReadout(fig6.bind("plot-scope"), "readout-scope");
+
+      const scopeWindowSecs = 10;
+      const scopeT = [];
+      const scopeChannels = [[], [], []];
+      const scopeT0 = performance.now();
+      let drift = 0;
+      setInterval(() => {
+        const t = (performance.now() - scopeT0) / 1000;
+        drift += (rand() - 0.5) * 0.05;
+        scopeT.push(t);
+        scopeChannels[0].push(Math.sin(t * 2.1) * 0.4 + (rand() - 0.5) * 0.12);
+        scopeChannels[1].push(Math.cos(t * 1.3) * 0.3 + drift + (rand() - 0.5) * 0.12);
+        scopeChannels[2].push(18 + Math.sin(t * 0.7) * 3 + (rand() - 0.5) * 2);
+        while (scopeT.length > 1 && t - scopeT[0] > scopeWindowSecs) {
+          scopeT.shift();
+          for (const ch of scopeChannels) ch.shift();
+        }
+        const ts = Float64Array.from(scopeT);
+        strips.forEach((s, i) => {
+          session6.set_line_data(s, 0, ts, Float64Array.from(scopeChannels[i]));
+        });
+      }, 33);
+
+      // 7. Spinning 3D surface: WasmAxes3D renders full frames (no session
+      // machinery) — set a new view each tick and re-render.
+      const sn = 40;
+      const sx = new Float64Array(sn);
+      for (let i = 0; i < sn; i++) sx[i] = -8 + (16 * i) / (sn - 1);
+      const sz = new Float64Array(sn * sn);
+      for (let j = 0; j < sn; j++) {
+        for (let i = 0; i < sn; i++) {
+          const r = Math.hypot(sx[i], sx[j]);
+          sz[j * sn + i] = r < 1e-9 ? 1 : Math.sin(r) / r;
+        }
+      }
+      const ax7 = new WasmAxes3D(480, 340, 100);
+      ax7.plot_surface(sx, sx, sz);
+      ax7.set_title("plot_surface: sombrero, spinning");
+      const spin3d0 = performance.now();
+      setInterval(() => {
+        const t = (performance.now() - spin3d0) / 1000;
+        ax7.set_view(28, -60 + 12 * t);
+        ax7.render("plot-surface3d");
+      }, 50);
+    </script>
+  </body>
+</html>
