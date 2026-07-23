@@ -1555,39 +1555,9 @@ impl ScalarFormatter {
     /// fewer than two locations the precision falls back to the default.
     pub fn set_locs(&mut self, locs: &[f64]) {
         self.have_format = true;
-        if locs.len() < 2 {
-            // matplotlib augments with the axis view interval here; without an
-            // axis we keep the default precision.
-            return;
+        if let Some(decimals) = spacing_decimals(locs) {
+            self.decimals = decimals;
         }
-        let max = locs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let min = locs.iter().cloned().fold(f64::INFINITY, f64::min);
-        let mut loc_range = max - min;
-        if loc_range == 0.0 {
-            loc_range = locs.iter().map(|x| x.abs()).fold(0.0, f64::max);
-        }
-        if loc_range == 0.0 {
-            loc_range = 1.0;
-        }
-        let loc_range_oom = loc_range.log10().floor() as i32;
-        // First estimate.
-        let mut sigfigs = (3 - loc_range_oom).max(0);
-        // Refined estimate: drop trailing zero digits.
-        let thresh = 1e-3 * 10f64.powi(loc_range_oom);
-        while sigfigs >= 0 {
-            let factor = 10f64.powi(sigfigs);
-            let maxdev = locs
-                .iter()
-                .map(|&x| (x - (x * factor).round() / factor).abs())
-                .fold(0.0, f64::max);
-            if maxdev < thresh {
-                sigfigs -= 1;
-            } else {
-                break;
-            }
-        }
-        sigfigs += 1;
-        self.decimals = sigfigs.max(0) as usize;
     }
 
     /// Return the current number of decimal places.
@@ -1616,6 +1586,65 @@ impl Formatter for ScalarFormatter {
         let v = if value.abs() < 1e-8 { 0.0 } else { value };
         format!("{:.*}", self.decimals, v)
     }
+
+    /// Format a tick vector with precision derived from the ticks themselves.
+    ///
+    /// Matplotlib calls `set_locs` on the formatter each draw, so tick labels
+    /// always carry enough decimals to distinguish the locations (an axis
+    /// spanning millihertz around 500 gets six decimals, not one). The trait
+    /// takes `&self`, so rather than mutate stored state this derives the
+    /// precision statelessly per call; `format` (single values, no context)
+    /// keeps using the stored precision.
+    fn format_ticks(&self, values: &[f64]) -> Vec<String> {
+        let decimals = spacing_decimals(values).unwrap_or(self.decimals);
+        values
+            .iter()
+            .map(|&value| {
+                let v = if value.abs() < 1e-8 { 0.0 } else { value };
+                format!("{v:.decimals$}")
+            })
+            .collect()
+    }
+}
+
+/// Decimal places needed to distinguish the given tick locations.
+///
+/// Port of `ScalarFormatter._set_format` with `offset = 0` and
+/// `orderOfMagnitude = 0` (no offset/sci-notation in this subset). Returns
+/// `None` for fewer than two locations, where matplotlib would fall back to
+/// the axis view interval that is unavailable here.
+fn spacing_decimals(locs: &[f64]) -> Option<usize> {
+    if locs.len() < 2 {
+        return None;
+    }
+    let max = locs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let min = locs.iter().cloned().fold(f64::INFINITY, f64::min);
+    let mut loc_range = max - min;
+    if loc_range == 0.0 {
+        loc_range = locs.iter().map(|x| x.abs()).fold(0.0, f64::max);
+    }
+    if loc_range == 0.0 {
+        loc_range = 1.0;
+    }
+    let loc_range_oom = loc_range.log10().floor() as i32;
+    // First estimate.
+    let mut sigfigs = (3 - loc_range_oom).max(0);
+    // Refined estimate: drop trailing zero digits.
+    let thresh = 1e-3 * 10f64.powi(loc_range_oom);
+    while sigfigs >= 0 {
+        let factor = 10f64.powi(sigfigs);
+        let maxdev = locs
+            .iter()
+            .map(|&x| (x - (x * factor).round() / factor).abs())
+            .fold(0.0, f64::max);
+        if maxdev < thresh {
+            sigfigs -= 1;
+        } else {
+            break;
+        }
+    }
+    sigfigs += 1;
+    Some(sigfigs.max(0) as usize)
 }
 
 /// Format logarithmic major tick values.
@@ -3743,6 +3772,30 @@ mod tests {
         assert_eq!(f.decimals(), 0);
         assert_eq!(f.format(50.0, Some(5)), "50");
         assert_eq!(f.format(0.0, Some(0)), "0");
+    }
+
+    #[test]
+    fn scalar_formatter_format_ticks_derives_precision_from_the_ticks() {
+        // A millihertz-scale span around a large value: per-value formatting at
+        // the default one decimal would render every label as "500.0"; the
+        // tick-vector path must derive enough decimals to tell them apart.
+        let locs = [500.0125, 500.013, 500.0135, 500.014];
+        let f = ScalarFormatter::new();
+        let labels = f.format_ticks(&locs);
+        assert_eq!(labels, ["500.0125", "500.0130", "500.0135", "500.0140"]);
+        // Integer spacing drops the decimals entirely, as matplotlib does.
+        assert_eq!(
+            f.format_ticks(&[0.0, 25.0, 50.0, 75.0]),
+            ["0", "25", "50", "75"]
+        );
+    }
+
+    #[test]
+    fn scalar_formatter_format_ticks_falls_back_on_short_inputs() {
+        let f = ScalarFormatter::with_decimals(2);
+        // Fewer than two ticks cannot define a spacing; use stored precision.
+        assert_eq!(f.format_ticks(&[1.5]), ["1.50"]);
+        assert!(f.format_ticks(&[]).is_empty());
     }
 
     #[test]
