@@ -7,6 +7,18 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.6.2] - 2026-07-23
+
+### Fixed
+- `ScalarFormatter` tick labels now carry enough decimal places to distinguish
+  the tick locations, matching matplotlib's draw-time `set_locs` behavior. An
+  axis spanning a few millihertz around 500 previously rendered every label as
+  `500.0` (the constructor's one-decimal default, since nothing on the axis
+  draw path called `set_locs`); `format_ticks` now derives the precision from
+  the tick vector itself. Integer-spaced ticks correspondingly drop the
+  trailing `.0`, as matplotlib does. Single-value `format` calls keep the
+  stored precision.
+
 ## [1.6.1] - 2026-07-16
 
 ### Fixed
