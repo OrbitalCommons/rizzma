@@ -20,6 +20,20 @@ pub(crate) struct LegendEntry {
     pub(crate) label: String,
 }
 
+/// Corner of an axes in which a legend is placed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LegendLocation {
+    /// Top-right corner (the default).
+    #[default]
+    UpperRight,
+    /// Top-left corner.
+    UpperLeft,
+    /// Bottom-right corner.
+    LowerRight,
+    /// Bottom-left corner.
+    LowerLeft,
+}
+
 /// Geometry constants for legend layout, all in pixels.
 mod layout {
     /// Font size of legend labels.
@@ -81,6 +95,30 @@ impl Axes {
         self
     }
 
+    /// Add a legend at a selected axes corner.
+    ///
+    /// ![legend location](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_legend_colorbar.png)
+    ///
+    /// ```no_run
+    /// use rizzma::{Figure, LegendLocation, core::Rgba};
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// fig.add_subplot(1, 1, 1).legend_at(
+    ///     vec![(Rgba::BLUE, "data".to_owned())],
+    ///     LegendLocation::LowerLeft,
+    /// );
+    /// fig.save_png("legend_location.png")?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn legend_at(
+        &mut self,
+        entries: Vec<(Rgba, String)>,
+        location: LegendLocation,
+    ) -> &mut Self {
+        self.legend(entries);
+        self.legend_location = location;
+        self
+    }
+
     /// Draw the legend box in the upper-right corner of `axes_px`, if any
     /// entries are set.
     pub(crate) fn draw_legend(
@@ -117,11 +155,27 @@ impl Axes {
         let box_w = content_w + 2.0 * pad;
         let box_h = (self.legend.len() as f64 + f64::from(has_title)) * row_height + 2.0 * pad;
 
-        // Position the box just inside the upper-right corner.
-        let x1 = axes_px.xmax() - margin;
-        let y1 = axes_px.ymax() - margin;
-        let x0 = x1 - box_w;
-        let y0 = y1 - box_h;
+        // Position the box just inside the requested corner.
+        let (x0, x1) = match self.legend_location {
+            LegendLocation::UpperRight | LegendLocation::LowerRight => {
+                let x1 = axes_px.xmax() - margin;
+                (x1 - box_w, x1)
+            }
+            LegendLocation::UpperLeft | LegendLocation::LowerLeft => {
+                let x0 = axes_px.xmin() + margin;
+                (x0, x0 + box_w)
+            }
+        };
+        let (y0, y1) = match self.legend_location {
+            LegendLocation::UpperRight | LegendLocation::UpperLeft => {
+                let y1 = axes_px.ymax() - margin;
+                (y1 - box_h, y1)
+            }
+            LegendLocation::LowerRight | LegendLocation::LowerLeft => {
+                let y0 = axes_px.ymin() + margin;
+                (y0, y0 + box_h)
+            }
+        };
         let box_bbox = Bbox::from_extents(x0, y0, x1, y1);
 
         // Background and border colors follow the axes' resolved style.
@@ -192,6 +246,7 @@ fn rect_path(bbox: &Bbox) -> Path {
 
 #[cfg(test)]
 mod tests {
+    use super::LegendLocation;
     use crate::core::color::Rgba;
     use crate::figure::Figure;
     use crate::skia::SkiaRenderer;
@@ -237,5 +292,21 @@ mod tests {
             .legend_with_title(vec![(Rgba::RED, "alpha".to_owned())], "Series");
         assert_eq!(fig.axes()[0].legend_title.as_deref(), Some("Series"));
         assert!(!fig.encode_png().unwrap().is_empty());
+    }
+
+    #[test]
+    fn legend_at_records_each_corner_location() {
+        for location in [
+            LegendLocation::UpperRight,
+            LegendLocation::UpperLeft,
+            LegendLocation::LowerRight,
+            LegendLocation::LowerLeft,
+        ] {
+            let mut fig = Figure::new(2.0, 2.0);
+            fig.add_axes(0.1, 0.1, 0.8, 0.8)
+                .legend_at(vec![(Rgba::RED, "item".to_owned())], location);
+            assert_eq!(fig.axes()[0].legend_location, location);
+            assert!(!fig.encode_png().unwrap().is_empty());
+        }
     }
 }
