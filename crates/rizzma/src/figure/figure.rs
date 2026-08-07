@@ -20,6 +20,7 @@ use crate::text::FontSource;
 
 use crate::figure::axes::Axes;
 use crate::figure::gridspec::GridSpec;
+use crate::figure::richtext::layout_rich_text;
 
 /// The default dots-per-inch for a new [`Figure`].
 const DEFAULT_DPI: f64 = 100.0;
@@ -29,6 +30,8 @@ const DEFAULT_DPI: f64 = 100.0;
 /// `tight_layout(pad=1.08)` at its default 10 pt font:
 /// `1.08 x 10 pt / 72 = 0.15 in` = 15 px at 100 DPI.
 const LAYOUT_PAD: f64 = 15.0;
+const SUPTITLE_SIZE: f64 = 14.0;
+const SUPTITLE_PAD: f64 = 8.0;
 
 /// A figure: a sized canvas holding one or more [`Axes`].
 ///
@@ -51,6 +54,10 @@ pub struct Figure {
     font: FontSource,
     /// The axes owned by this figure, drawn in insertion order.
     axes: Vec<Axes>,
+    /// Optional title centered above the complete subplot grid.
+    suptitle: Option<String>,
+    /// Figure-title ink color, seeded from the active theme.
+    suptitle_color: Rgba,
     /// Colorbars registered on this figure, drawn after the axes (see
     /// [`Figure::colorbar`]).
     pub(crate) colorbars: Vec<crate::figure::colorbar::Colorbar>,
@@ -70,6 +77,8 @@ impl Figure {
             rc,
             font: FontSource::dejavu_sans(),
             axes: Vec::new(),
+            suptitle: None,
+            suptitle_color: Rgba::BLACK,
             colorbars: Vec::new(),
         }
     }
@@ -117,6 +126,7 @@ impl Figure {
     /// canvas, and re-seed every existing axes' style.
     pub fn set_rcparams(&mut self, rc: RcParams) -> &mut Self {
         self.facecolor = rc.figure_facecolor;
+        self.suptitle_color = rc.text_color;
         for ax in &mut self.axes {
             ax.apply_rcparams(&rc);
         }
@@ -128,6 +138,27 @@ impl Figure {
     #[must_use]
     pub fn rcparams(&self) -> &RcParams {
         &self.rc
+    }
+
+    /// Set a title centered above the entire subplot grid.
+    ///
+    /// Tight-layout subplots reserve a top band for the title automatically.
+    /// Math spans use the same `$...$` syntax as axes titles.
+    ///
+    /// ![figure supertitle](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_suptitle.png)
+    ///
+    /// ```no_run
+    /// use rizzma::Figure;
+    /// let mut fig = Figure::new(6.0, 3.0);
+    /// fig.add_subplot(1, 2, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    /// fig.add_subplot(1, 2, 2).plot(&[0.0, 1.0], &[1.0, 0.0]);
+    /// fig.suptitle("Two views");
+    /// fig.save_png("suptitle.png")?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn suptitle(&mut self, title: impl Into<String>) -> &mut Self {
+        self.suptitle = Some(title.into());
+        self
     }
 
     /// The figure size in pixels as `(width, height)` (`size_in * dpi`).
@@ -332,11 +363,18 @@ impl Figure {
         } else {
             pad
         };
-        let pad_top = if envelope.ymax() < 1.0 - EDGE_EPS {
+        let mut pad_top = if envelope.ymax() < 1.0 - EDGE_EPS {
             pad / 2.0
         } else {
             pad
         };
+        if envelope.ymax() >= 1.0 - EDGE_EPS
+            && let Some(title) = &self.suptitle
+            && !title.is_empty()
+        {
+            let rich = layout_rich_text(&self.font, title, SUPTITLE_SIZE * s);
+            pad_top += rich.ascent + rich.descent + SUPTITLE_PAD * 2.0 * s;
+        }
 
         let rect = Bbox::from_extents(
             envelope.xmin() * fig_w + left + pad_left,
@@ -398,6 +436,25 @@ impl Figure {
 
         // Draw figure-level colorbars on top of the axes.
         self.draw_colorbars(renderer, w, h);
+
+        if let Some(title) = &self.suptitle
+            && !title.is_empty()
+        {
+            let s = renderer.decoration_scale();
+            let rich = layout_rich_text(&self.font, title, SUPTITLE_SIZE * s);
+            let shift = crate::core::Affine2D::from_translation(
+                (w - rich.width) / 2.0,
+                h - SUPTITLE_PAD * s - rich.ascent,
+            );
+            for path in &rich.paths {
+                renderer.draw_path(
+                    &crate::render::GraphicsContext::new(),
+                    &path.transformed(&shift),
+                    &crate::core::Affine2D::identity(),
+                    Some(self.suptitle_color),
+                );
+            }
+        }
     }
 
     /// Render the figure to a fresh [`SkiaRenderer`] and return it.
@@ -773,6 +830,29 @@ mod tests {
 
         // (c) PNG encodes to non-empty bytes.
         assert!(!fig.encode_png().expect("encode succeeds").is_empty());
+    }
+
+    #[test]
+    fn suptitle_renders_in_the_top_canvas_band() {
+        let mut fig = Figure::new(3.0, 2.0);
+        fig.add_subplot(1, 1, 1);
+        fig.suptitle("Overview");
+        let rendered = fig.render();
+
+        let has_ink =
+            (5..35).any(|y| (80..220).any(|x| pixel(&rendered, x, y) != [255, 255, 255, 255]));
+        assert!(has_ink, "expected supertitle ink near the top center");
+    }
+
+    #[test]
+    fn suptitle_reserves_space_above_tight_layout_axes() {
+        let mut fig = Figure::new(3.0, 2.0);
+        fig.add_subplot(1, 1, 1);
+        let without = fig.layout_rect_for(0, 300.0, 200.0).unwrap();
+        fig.suptitle("Overview");
+        let with = fig.layout_rect_for(0, 300.0, 200.0).unwrap();
+
+        assert!(with.ymax() < without.ymax());
     }
 
     #[test]

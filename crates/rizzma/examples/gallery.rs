@@ -945,6 +945,17 @@ fn main() {
         fig.save_png("target/gallery_inverted_axes.png").unwrap();
     }
 
+    // Figure supertitle over a two-panel grid.
+    {
+        let mut fig = Figure::new(6.0, 3.0);
+        fig.add_subplot(1, 2, 1)
+            .plot(&[0.0, 1.0, 2.0], &[0.0, 1.0, 0.0]);
+        fig.add_subplot(1, 2, 2)
+            .plot(&[0.0, 1.0, 2.0], &[1.0, 0.0, 1.0]);
+        fig.suptitle("A figure-level supertitle");
+        fig.save_png("target/gallery_suptitle.png").unwrap();
+    }
+
     // 45. tricontour / tricontourf — a wavefront-error map over the same
     // unstructured mesh: filled bands with isolines on top.
     {
