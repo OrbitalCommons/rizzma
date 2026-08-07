@@ -8,7 +8,7 @@ use chrono::NaiveDate;
 use rizzma::artist::Patch;
 use rizzma::axis::dates::date2num;
 use rizzma::core::color::Rgba;
-use rizzma::figure::{Figure, PolarAxes, SkyAxes, SkyProjection};
+use rizzma::figure::{Figure, PolarAxes, SkyAxes, SkyProjection, TextBoxStyle};
 
 /// Render docs/gallery images at publication-friendly resolution. The figure
 /// dimensions stay in inches so layout proportions are unchanged; the DPI is
@@ -926,7 +926,12 @@ fn main() {
         ax.plot(&x, &y);
         ax.set_xlim(0.0, 10.0);
         ax.set_ylim(0.0, 1.2);
-        ax.annotate("resonance at $\\omega_0 = 5$", (4.96, 1.0), (6.0, 1.05));
+        ax.annotate_with_box(
+            "resonance at $\\omega_0 = 5$",
+            (4.96, 1.0),
+            (6.0, 1.05),
+            TextBoxStyle::default(),
+        );
         ax.annotate("half-power point", (5.7, 0.62), (6.9, 0.75));
         ax.text(0.5, 1.1, "driven oscillator response");
         ax.set_title("annotate: callouts with leader arrows");

@@ -141,6 +141,35 @@ struct Annotation {
     color: Rgba,
     /// Font size in pixels.
     size: f64,
+    /// Optional background box drawn behind the label.
+    box_style: Option<TextBoxStyle>,
+}
+
+/// Styling for a rectangular background behind text or an annotation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextBoxStyle {
+    /// Background fill color.
+    pub facecolor: Rgba,
+    /// Border color, or `None` for no border.
+    pub edgecolor: Option<Rgba>,
+    /// Padding around the glyph bounds, in points.
+    pub pad: f64,
+    /// Corner radius in points. Use `0.0` for a plain rectangle.
+    pub corner_radius: f64,
+    /// Border width in points.
+    pub linewidth: f64,
+}
+
+impl Default for TextBoxStyle {
+    fn default() -> Self {
+        Self {
+            facecolor: Rgba::WHITE,
+            edgecolor: Some(Rgba::BLACK),
+            pad: 4.0,
+            corner_radius: 4.0,
+            linewidth: 0.8,
+        }
+    }
 }
 
 impl ScaleSpec {
@@ -836,6 +865,7 @@ impl Axes {
             text_at: None,
             color,
             size: DEFAULT_ANNOTATION_SIZE,
+            box_style: None,
         });
         self
     }
@@ -872,6 +902,60 @@ impl Axes {
             text_at: Some(xytext),
             color: self.annotation_color,
             size: DEFAULT_ANNOTATION_SIZE,
+            box_style: None,
+        });
+        self
+    }
+
+    /// Place text with a styled background box.
+    ///
+    /// A zero corner radius produces a plain rectangle; positive values
+    /// produce rounded corners.
+    pub fn text_with_box(
+        &mut self,
+        x: f64,
+        y: f64,
+        s: impl Into<String>,
+        box_style: TextBoxStyle,
+    ) -> &mut Self {
+        self.annotations.push(Annotation {
+            text: s.into(),
+            xy: (x, y),
+            text_at: None,
+            color: self.annotation_color,
+            size: DEFAULT_ANNOTATION_SIZE,
+            box_style: Some(box_style),
+        });
+        self
+    }
+
+    /// Annotate a point with a leader arrow and styled text background.
+    ///
+    /// ![boxed annotation](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_annotate.png)
+    ///
+    /// ```no_run
+    /// use rizzma::{Figure, TextBoxStyle};
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_subplot(1, 1, 1);
+    /// ax.set_xlim(0.0, 10.0).set_ylim(0.0, 10.0);
+    /// ax.annotate_with_box("peak", (4.0, 8.0), (6.0, 9.0), TextBoxStyle::default());
+    /// fig.save_png("boxed_annotation.png")?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn annotate_with_box(
+        &mut self,
+        s: impl Into<String>,
+        xy: (f64, f64),
+        xytext: (f64, f64),
+        box_style: TextBoxStyle,
+    ) -> &mut Self {
+        self.annotations.push(Annotation {
+            text: s.into(),
+            xy,
+            text_at: Some(xytext),
+            color: self.annotation_color,
+            size: DEFAULT_ANNOTATION_SIZE,
+            box_style: Some(box_style),
         });
         self
     }
@@ -2087,6 +2171,28 @@ impl Axes {
         let s = renderer.decoration_scale();
         let anchor = to_display(ann.text_at.unwrap_or(ann.xy));
         let rich = layout_rich_text(font, &ann.text, ann.size * s);
+        if let Some(style) = ann.box_style {
+            let pad = style.pad.max(0.0) * s;
+            let bbox = Bbox::from_extents(
+                anchor.0 - pad,
+                anchor.1 - rich.descent - pad,
+                anchor.0 + rich.width + pad,
+                anchor.1 + rich.ascent + pad,
+            );
+            let background = rounded_rect_path(&bbox, style.corner_radius.max(0.0) * s);
+            renderer.draw_path(
+                &GraphicsContext::new(),
+                &background,
+                &Affine2D::identity(),
+                Some(style.facecolor),
+            );
+            if let Some(edge) = style.edgecolor {
+                let gc = GraphicsContext::new()
+                    .with_stroke(edge)
+                    .with_line_width(style.linewidth);
+                renderer.draw_path(&gc, &background, &Affine2D::identity(), None);
+            }
+        }
         let shift = Affine2D::from_translation(anchor.0, anchor.1);
         for path in &rich.paths {
             renderer.draw_path(
@@ -2109,6 +2215,33 @@ impl Axes {
             draw_annotation_arrow(renderer, from, target, ann.color, s);
         }
     }
+}
+
+fn rounded_rect_path(bbox: &Bbox, radius: f64) -> Path {
+    let r = radius.min(bbox.width() / 2.0).min(bbox.height() / 2.0);
+    if r <= 0.0 {
+        return Path::from_polyline(&[
+            [bbox.xmin(), bbox.ymin()],
+            [bbox.xmax(), bbox.ymin()],
+            [bbox.xmax(), bbox.ymax()],
+            [bbox.xmin(), bbox.ymax()],
+            [bbox.xmin(), bbox.ymin()],
+        ]);
+    }
+    let mut points = Vec::with_capacity(29);
+    for (cx, cy, start) in [
+        (bbox.xmax() - r, bbox.ymin() + r, -90.0_f64),
+        (bbox.xmax() - r, bbox.ymax() - r, 0.0),
+        (bbox.xmin() + r, bbox.ymax() - r, 90.0),
+        (bbox.xmin() + r, bbox.ymin() + r, 180.0),
+    ] {
+        for i in 0..=7 {
+            let theta = (start + 90.0 * i as f64 / 7.0).to_radians();
+            points.push([cx + r * theta.cos(), cy + r * theta.sin()]);
+        }
+    }
+    points.push(points[0]);
+    Path::from_polyline(&points)
 }
 
 /// Stroke a straight leader arrow from `from` to `to` (display pixels) with a
@@ -2966,6 +3099,21 @@ mod tests {
         let (after_x, after_y) = axes.effective_limits();
         assert_eq!(after_x, (before_x.1, before_x.0));
         assert_eq!(after_y, (before_y.1, before_y.0));
+    }
+
+    #[test]
+    fn boxed_annotations_store_style_and_rounded_geometry() {
+        let mut axes = Axes::new(Bbox::unit());
+        let style = TextBoxStyle {
+            corner_radius: 6.0,
+            ..TextBoxStyle::default()
+        };
+        axes.annotate_with_box("peak", (0.2, 0.3), (0.6, 0.7), style);
+        assert_eq!(axes.annotations[0].box_style, Some(style));
+
+        let path = rounded_rect_path(&Bbox::from_bounds(0.0, 0.0, 20.0, 10.0), 3.0);
+        assert!(path.vertices().len() > 5);
+        assert_eq!(path.vertices().first(), path.vertices().last());
     }
 
     #[test]

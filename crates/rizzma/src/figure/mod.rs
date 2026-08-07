@@ -79,7 +79,7 @@ pub mod richtext;
 pub mod sky;
 mod subplotspec;
 
-pub use axes::Axes;
+pub use axes::{Axes, TextBoxStyle};
 pub use event::{Event, MouseButton};
 pub use figure::Figure;
 pub use gridspec::GridSpec;
