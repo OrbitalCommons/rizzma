@@ -384,6 +384,8 @@ pub struct Axes {
     pub(crate) legend: Vec<crate::figure::legend::LegendEntry>,
     /// Optional heading rendered above legend entries.
     pub(crate) legend_title: Option<String>,
+    /// Corner where the legend box is anchored.
+    pub(crate) legend_location: crate::figure::legend::LegendLocation,
 }
 
 /// Orientation of a full-span reference line or shaded band.
@@ -518,6 +520,7 @@ impl Axes {
             span_rects: Vec::new(),
             legend: Vec::new(),
             legend_title: None,
+            legend_location: crate::figure::legend::LegendLocation::UpperRight,
         }
     }
 

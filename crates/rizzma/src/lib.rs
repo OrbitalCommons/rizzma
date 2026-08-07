@@ -126,7 +126,9 @@ pub mod show;
 pub mod wasm;
 
 pub use core::rcparams::{RcParams, TickDirection};
-pub use figure::{Axes, Figure, GridSpec, PolarAxes, SkyAxes, SkyProjection, SubplotSpec};
+pub use figure::{
+    Axes, Figure, GridSpec, LegendLocation, PolarAxes, SkyAxes, SkyProjection, SubplotSpec,
+};
 
 /// The version of this crate, from `CARGO_PKG_VERSION`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

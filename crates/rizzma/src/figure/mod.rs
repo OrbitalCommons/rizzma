@@ -84,6 +84,7 @@ pub use event::{Event, MouseButton};
 pub use figure::Figure;
 pub use gridspec::GridSpec;
 pub use interact::{Interactor, Outcome};
+pub use legend::LegendLocation;
 pub use polar::PolarAxes;
 pub use sky::{SkyAxes, SkyProjection};
 pub use subplotspec::SubplotSpec;
