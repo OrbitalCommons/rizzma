@@ -170,27 +170,51 @@ impl Axes {
 
     /// Add a full-width horizontal reference line at `y`.
     ///
-    /// The line spans the full resolved x range at draw time (black, `1.0`-point
-    /// width).
+    /// The line spans the full resolved x range at draw time using the axes'
+    /// theme text color and a `1.0`-point width.
     pub fn axhline(&mut self, y: f64) {
+        self.axhline_with(y, self.annotation_color, 1.0);
+    }
+
+    /// Add a styled full-width horizontal reference line at `y`.
+    ///
+    /// The line is resolved against the current x limits at draw time.
+    ///
+    /// ![reference lines](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_reference_lines.png)
+    ///
+    /// ```no_run
+    /// use rizzma::{Figure, core::Rgba};
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// fig.add_subplot(1, 1, 1).axhline_with(0.5, Rgba::RED, 2.0);
+    /// fig.save_png("reference_line.png")?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn axhline_with(&mut self, y: f64, color: Rgba, linewidth: f64) {
         self.span_lines.push(SpanLine {
             orientation: SpanOrientation::Horizontal,
             value: y,
-            color: Rgba::BLACK,
-            linewidth: 1.0,
+            color,
+            linewidth,
         });
     }
 
     /// Add a full-height vertical reference line at `x`.
     ///
-    /// The line spans the full resolved y range at draw time (black, `1.0`-point
-    /// width).
+    /// The line spans the full resolved y range at draw time using the axes'
+    /// theme text color and a `1.0`-point width.
     pub fn axvline(&mut self, x: f64) {
+        self.axvline_with(x, self.annotation_color, 1.0);
+    }
+
+    /// Add a styled full-height vertical reference line at `x`.
+    ///
+    /// The line is resolved against the current y limits at draw time.
+    pub fn axvline_with(&mut self, x: f64, color: Rgba, linewidth: f64) {
         self.span_lines.push(SpanLine {
             orientation: SpanOrientation::Vertical,
             value: x,
-            color: Rgba::BLACK,
-            linewidth: 1.0,
+            color,
+            linewidth,
         });
     }
 
@@ -291,6 +315,23 @@ mod tests {
         ax.axhline(0.5);
         ax.axvline(1.0);
         assert_eq!(ax.span_lines.len(), 2);
+        assert_eq!(ax.span_lines[0].color, Rgba::BLACK);
+        assert_eq!(ax.span_lines[0].linewidth, 1.0);
+    }
+
+    #[test]
+    fn reference_lines_follow_theme_and_accept_explicit_style() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        ax.apply_rcparams(&crate::core::RcParams::dark());
+        ax.axhline(0.5);
+        ax.axvline_with(1.0, Rgba::RED, 3.5);
+
+        assert_eq!(
+            ax.span_lines[0].color,
+            crate::core::RcParams::dark().text_color
+        );
+        assert_eq!(ax.span_lines[1].color, Rgba::RED);
+        assert_eq!(ax.span_lines[1].linewidth, 3.5);
     }
 
     #[test]
