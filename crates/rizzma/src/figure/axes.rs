@@ -746,6 +746,36 @@ impl Axes {
         self
     }
 
+    /// Reverse the direction of the x-axis while preserving its current limits.
+    ///
+    /// Calling this method again restores the previous direction.
+    ///
+    /// ![inverted axes](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_inverted_axes.png)
+    ///
+    /// ```no_run
+    /// use rizzma::Figure;
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_subplot(1, 1, 1);
+    /// ax.plot(&[1.0, 2.0, 3.0], &[1.0, 4.0, 9.0]);
+    /// ax.invert_xaxis();
+    /// fig.save_png("inverted.png")?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn invert_xaxis(&mut self) -> &mut Self {
+        let ((lo, hi), _) = self.effective_limits();
+        self.xlim = Some((hi, lo));
+        self
+    }
+
+    /// Reverse the direction of the y-axis while preserving its current limits.
+    ///
+    /// Calling this method again restores the previous direction.
+    pub fn invert_yaxis(&mut self) -> &mut Self {
+        let (_, (lo, hi)) = self.effective_limits();
+        self.ylim = Some((hi, lo));
+        self
+    }
+
     /// Set the axes title (drawn centered above the axes).
     pub fn set_title(&mut self, title: impl Into<String>) -> &mut Self {
         self.title = Some(title.into());
@@ -2906,6 +2936,30 @@ mod tests {
         let ex = td.transform_point((1.0, 0.0)).0 - td.transform_point((0.0, 0.0)).0;
         let ey = td.transform_point((0.0, 1.0)).1 - td.transform_point((0.0, 0.0)).1;
         approx(ex, -ey);
+    }
+
+    #[test]
+    fn invert_axes_reverse_effective_limits_and_toggle() {
+        let mut axes = Axes::new(Bbox::unit());
+        axes.set_xlim(1.0, 5.0).set_ylim(-2.0, 8.0);
+
+        axes.invert_xaxis().invert_yaxis();
+        assert_eq!(axes.effective_limits(), ((5.0, 1.0), (8.0, -2.0)));
+
+        axes.invert_xaxis().invert_yaxis();
+        assert_eq!(axes.effective_limits(), ((1.0, 5.0), (-2.0, 8.0)));
+    }
+
+    #[test]
+    fn invert_axes_freezes_current_autoscale_range() {
+        let mut axes = Axes::new(Bbox::unit());
+        axes.plot(&[0.0, 10.0], &[2.0, 6.0]);
+        let (before_x, before_y) = axes.effective_limits();
+
+        axes.invert_xaxis().invert_yaxis();
+        let (after_x, after_y) = axes.effective_limits();
+        assert_eq!(after_x, (before_x.1, before_x.0));
+        assert_eq!(after_y, (before_y.1, before_y.0));
     }
 
     #[test]

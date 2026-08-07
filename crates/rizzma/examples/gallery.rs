@@ -935,6 +935,16 @@ fn main() {
         fig.save_png("target/gallery_annotate.png").unwrap();
     }
 
+    // Inverted axes — astronomical magnitude convention.
+    {
+        let mut fig = Figure::new(5.0, 3.5);
+        let ax = fig.add_subplot(1, 1, 1);
+        ax.plot(&[1.0, 2.0, 3.0, 4.0], &[1.0, 4.0, 9.0, 16.0]);
+        ax.invert_yaxis();
+        ax.set_title("inverted y-axis");
+        fig.save_png("target/gallery_inverted_axes.png").unwrap();
+    }
+
     // 45. tricontour / tricontourf — a wavefront-error map over the same
     // unstructured mesh: filled bands with isolines on top.
     {
