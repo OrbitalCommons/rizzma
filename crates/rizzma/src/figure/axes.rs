@@ -363,6 +363,9 @@ pub struct Axes {
     pub(crate) images: Vec<AxesImage>,
     /// Colormapped quad meshes (`pcolormesh`), drawn beneath the other artists.
     pub(crate) meshes: Vec<QuadMesh>,
+    /// Label candidates for the most recently generated line contour set.
+    pub(crate) contour_label_candidates:
+        Vec<crate::figure::plotting_contour::ContourLabelCandidate>,
     /// Extra data extents folded into autoscaling that have no owning artist,
     /// e.g. the grid extent recorded by [`Axes::contour`] so the field is
     /// fitted even when no contour line crosses it.
@@ -532,6 +535,7 @@ impl Axes {
             collections: Vec::new(),
             images: Vec::new(),
             meshes: Vec::new(),
+            contour_label_candidates: Vec::new(),
             extra_data_bbox: None,
             xaxis: Axis::new(AxisSide::Bottom),
             yaxis: Axis::new(AxisSide::Left),
@@ -958,6 +962,22 @@ impl Axes {
             box_style: Some(box_style),
         });
         self
+    }
+
+    pub(crate) fn add_contour_label(&mut self, text: String, position: (f64, f64), color: Rgba) {
+        self.annotations.push(Annotation {
+            text,
+            xy: position,
+            text_at: None,
+            color,
+            size: DEFAULT_ANNOTATION_SIZE,
+            box_style: None,
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn annotation_count(&self) -> usize {
+        self.annotations.len()
     }
 
     /// Reconfigure this axes as a twin sharing another axes' x mapping

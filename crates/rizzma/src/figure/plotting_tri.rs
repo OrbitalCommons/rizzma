@@ -17,6 +17,7 @@ use crate::artist::{Line2D, Patch};
 use crate::core::color::{Colormap, LinearNorm, Normalize, default_colormap};
 
 use crate::figure::Axes;
+use crate::figure::plotting_contour::ContourLabelCandidate;
 
 /// Yield each triangle whose three indices are all in range `0..n`, skipping
 /// any that reference a vertex beyond the supplied coordinates.
@@ -218,6 +219,7 @@ impl Axes {
         values: &[f64],
         n_levels: usize,
     ) -> &mut Self {
+        self.contour_label_candidates.clear();
         let Some((vmin, vmax)) = self.tri_setup(x, y, triangles, values) else {
             return self;
         };
@@ -228,10 +230,15 @@ impl Axes {
         let cmap = default_colormap();
         let span = vmax - vmin;
         let n = x.len();
+        let center = (
+            x.iter().copied().filter(|v| v.is_finite()).sum::<f64>() / n as f64,
+            y.iter().copied().filter(|v| v.is_finite()).sum::<f64>() / n as f64,
+        );
 
         for k in 0..n_levels {
             let level = vmin + (k + 1) as f64 / (n_levels + 1) as f64 * span;
             let color = cmap.sample(norm.normalize(level));
+            let mut segments = Vec::new();
             for t in valid_triangles(triangles, n) {
                 let [a, b, c] = *t;
                 if let Some([p0, p1]) = triangle_level_segment(
@@ -239,9 +246,33 @@ impl Axes {
                     [values[a], values[b], values[c]],
                     level,
                 ) {
-                    self.add_line(
-                        Line2D::new(vec![p0[0], p1[0]], vec![p0[1], p1[1]]).with_color(color),
-                    );
+                    segments.push([p0, p1]);
+                }
+            }
+            let label_segment = segments
+                .iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| {
+                    let distance = |segment: &&[[f64; 2]; 2]| {
+                        let px = (segment[0][0] + segment[1][0]) / 2.0;
+                        let py = (segment[0][1] + segment[1][1]) / 2.0;
+                        (px - center.0).hypot(py - center.1)
+                    };
+                    distance(a).total_cmp(&distance(b))
+                })
+                .map(|(index, _)| index);
+            for (segment_index, [p0, p1]) in segments.into_iter().enumerate() {
+                let line_index = self.lines.len();
+                self.add_line(
+                    Line2D::new(vec![p0[0], p1[0]], vec![p0[1], p1[1]]).with_color(color),
+                );
+                if Some(segment_index) == label_segment {
+                    self.contour_label_candidates.push(ContourLabelCandidate {
+                        line_index,
+                        position: ((p0[0] + p1[0]) / 2.0, (p0[1] + p1[1]) / 2.0),
+                        level,
+                        color,
+                    });
                 }
             }
         }
@@ -612,6 +643,16 @@ mod tests {
                 "unexpected contour x {lx}"
             );
         }
+    }
+
+    #[test]
+    fn clabel_labels_tricontour_levels() {
+        let mut ax = Axes::new(Bbox::unit());
+        let (x, y) = (vec![0.0, 1.0, 1.0, 0.0], vec![0.0, 0.0, 1.0, 1.0]);
+        ax.tricontour_levels(&x, &y, &[[0, 1, 2], [0, 2, 3]], &x, 3);
+        assert_eq!(ax.contour_label_candidates.len(), 3);
+        ax.clabel();
+        assert_eq!(ax.annotation_count(), 3);
     }
 
     #[test]

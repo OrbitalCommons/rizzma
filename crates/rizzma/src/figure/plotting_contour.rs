@@ -16,6 +16,15 @@ use crate::figure::Axes;
 /// Default number of contour levels for [`Axes::contour`].
 const DEFAULT_N_LEVELS: usize = 7;
 
+/// A removable contour segment selected as the label position for one level.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ContourLabelCandidate {
+    pub(crate) line_index: usize,
+    pub(crate) position: (f64, f64),
+    pub(crate) level: f64,
+    pub(crate) color: crate::core::color::Rgba,
+}
+
 /// The finite min and max of `data`, or `(0.0, 1.0)` when there is no finite
 /// value (empty or all-NaN input).
 fn data_min_max(data: &[f64]) -> (f64, f64) {
@@ -207,6 +216,8 @@ impl Axes {
             nrows * ncols
         );
 
+        self.contour_label_candidates.clear();
+
         // Record the grid extent so autoscaling fits it even when no contour
         // crosses (flat field, sub-2x2 grid, or zero levels).
         if ncols >= 1 && nrows >= 1 {
@@ -230,13 +241,83 @@ impl Axes {
         for k in 0..n_levels {
             let level = zmin + (k + 1) as f64 / (n_levels + 1) as f64 * span;
             let color = cmap.sample(norm.normalize(level));
-            for [p0, p1] in level_segments(z, nrows, ncols, level) {
+            let segments = level_segments(z, nrows, ncols, level);
+            let center = ((ncols - 1) as f64 / 2.0, (nrows - 1) as f64 / 2.0);
+            let label_segment = segments
+                .iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| {
+                    let distance = |segment: &&[[f64; 2]; 2]| {
+                        let x = (segment[0][0] + segment[1][0]) / 2.0;
+                        let y = (segment[0][1] + segment[1][1]) / 2.0;
+                        (x - center.0).hypot(y - center.1)
+                    };
+                    distance(a).total_cmp(&distance(b))
+                })
+                .map(|(index, _)| index);
+            for (segment_index, [p0, p1]) in segments.into_iter().enumerate() {
+                let line_index = self.lines.len();
                 self.add_line(
                     Line2D::new(vec![p0[0], p1[0]], vec![p0[1], p1[1]]).with_color(color),
                 );
+                if Some(segment_index) == label_segment {
+                    self.contour_label_candidates.push(ContourLabelCandidate {
+                        line_index,
+                        position: ((p0[0] + p1[0]) / 2.0, (p0[1] + p1[1]) / 2.0),
+                        level,
+                        color,
+                    });
+                }
             }
         }
     }
+
+    /// Label every level in the most recently drawn line contour set.
+    ///
+    /// One short contour segment is removed beneath each label, creating the
+    /// same inline break used by matplotlib. Call this immediately after
+    /// [`contour`](Axes::contour), [`contour_levels`](Axes::contour_levels),
+    /// [`tricontour`](Axes::tricontour), or
+    /// [`tricontour_levels`](Axes::tricontour_levels).
+    ///
+    /// ![contour labels](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_contour.png)
+    ///
+    /// ```no_run
+    /// use rizzma::Figure;
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let z = [0.0, 1.0, 2.0, 0.0, 1.0, 2.0, 0.0, 1.0, 2.0];
+    /// let ax = fig.add_subplot(1, 1, 1);
+    /// ax.contour(&z, 3, 3);
+    /// ax.clabel();
+    /// fig.save_png("contour_labels.png")?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn clabel(&mut self) -> &mut Self {
+        let mut candidates = std::mem::take(&mut self.contour_label_candidates);
+        candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.line_index));
+        for candidate in candidates {
+            if candidate.line_index < self.lines.len() {
+                self.lines.remove(candidate.line_index);
+            }
+            self.add_contour_label(
+                format_contour_level(candidate.level),
+                candidate.position,
+                candidate.color,
+            );
+        }
+        self
+    }
+}
+
+fn format_contour_level(level: f64) -> String {
+    let mut label = format!("{level:.3}");
+    while label.contains('.') && label.ends_with('0') {
+        label.pop();
+    }
+    if label.ends_with('.') {
+        label.pop();
+    }
+    label
 }
 
 #[cfg(test)]
@@ -315,5 +396,25 @@ mod tests {
         ax.contour(&z, 2, 9);
         // 7 levels x 1 crossing each = 7 line segments.
         assert_eq!(ax.lines.len(), 7);
+    }
+
+    #[test]
+    fn clabel_adds_one_label_and_break_per_level() {
+        let mut ax = Axes::new(Bbox::unit());
+        let z: Vec<f64> = (0..2 * 9).map(|i| (i % 9) as f64).collect();
+        ax.contour_levels(&z, 2, 9, 3);
+        let lines_before = ax.lines.len();
+        assert_eq!(ax.contour_label_candidates.len(), 3);
+
+        ax.clabel();
+        assert_eq!(ax.lines.len(), lines_before - 3);
+        assert_eq!(ax.annotation_count(), 3);
+        assert!(ax.contour_label_candidates.is_empty());
+    }
+
+    #[test]
+    fn contour_level_format_is_compact() {
+        assert_eq!(format_contour_level(1.0), "1");
+        assert_eq!(format_contour_level(1.25), "1.25");
     }
 }
