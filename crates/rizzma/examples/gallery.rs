@@ -223,8 +223,8 @@ fn main() {
         ax.set_ylim(0.0, 10.0);
         ax.axhspan(0.0, 1.5); // too-cold band
         ax.axvspan(8.0, 10.0); // over-pressure band
-        ax.axhline(8.5); // temperature ceiling
-        ax.axvline(1.0); // minimum pressure
+        ax.axhline_with(8.5, Rgba::RED, 1.5); // temperature ceiling
+        ax.axvline_with(1.0, Rgba::BLUE, 1.5); // minimum pressure
         ax.hlines(&[5.0], 1.0, 8.0); // nominal temperature
         ax.vlines(&[4.5], 1.5, 8.5); // nominal pressure
         ax.scatter(&[4.6], &[5.2]); // you are here

@@ -342,7 +342,7 @@ pub struct Axes {
     /// [`annotate`](Axes::annotate)); themed from [`RcParams::text_color`]
     /// like the title, overridable per call with
     /// [`text_with_color`](Axes::text_with_color).
-    annotation_color: Rgba,
+    pub(crate) annotation_color: Rgba,
     /// The color cycle successive artists draw from (matplotlib's
     /// `axes.prop_cycle`), resolved from [`RcParams`] and overridable via
     /// [`Axes::set_prop_cycle`].
