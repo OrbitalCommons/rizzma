@@ -180,7 +180,7 @@ impl Axes {
     ///
     /// The line is resolved against the current x limits at draw time.
     ///
-    /// ![reference lines](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_reference_lines.png)
+    /// ![reference lines](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_reflines.png)
     ///
     /// ```no_run
     /// use rizzma::{Figure, core::Rgba};
