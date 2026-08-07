@@ -382,6 +382,8 @@ pub struct Axes {
     /// Legend entries, drawn as a boxed key in the upper-right corner (see
     /// [`Axes::legend`]). Empty means no legend.
     pub(crate) legend: Vec<crate::figure::legend::LegendEntry>,
+    /// Optional heading rendered above legend entries.
+    pub(crate) legend_title: Option<String>,
 }
 
 /// Orientation of a full-span reference line or shaded band.
@@ -515,6 +517,7 @@ impl Axes {
             span_lines: Vec::new(),
             span_rects: Vec::new(),
             legend: Vec::new(),
+            legend_title: None,
         }
     }
 

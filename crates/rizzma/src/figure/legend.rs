@@ -55,6 +55,32 @@ impl Axes {
         self
     }
 
+    /// Add a legend with a heading above its entries.
+    ///
+    /// Calling this replaces both the current entries and title.
+    ///
+    /// ![legend title](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_legend_colorbar.png)
+    ///
+    /// ```no_run
+    /// use rizzma::{Figure, core::Rgba};
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// fig.add_subplot(1, 1, 1).legend_with_title(
+    ///     vec![(Rgba::RED, "signal".to_owned())],
+    ///     "Channels",
+    /// );
+    /// fig.save_png("legend_title.png")?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn legend_with_title(
+        &mut self,
+        entries: Vec<(Rgba, String)>,
+        title: impl Into<String>,
+    ) -> &mut Self {
+        self.legend(entries);
+        self.legend_title = Some(title.into());
+        self
+    }
+
     /// Draw the legend box in the upper-right corner of `axes_px`, if any
     /// entries are set.
     pub(crate) fn draw_legend(
@@ -81,9 +107,15 @@ impl Axes {
             .iter()
             .map(|e| font.measure(&e.label, font_size).width)
             .fold(0.0_f64, f64::max);
-        let content_w = sample_len + sample_gap + label_w;
+        let title_w = self
+            .legend_title
+            .as_deref()
+            .filter(|title| !title.is_empty())
+            .map_or(0.0, |title| font.measure(title, font_size).width);
+        let has_title = title_w > 0.0;
+        let content_w = (sample_len + sample_gap + label_w).max(title_w);
         let box_w = content_w + 2.0 * pad;
-        let box_h = self.legend.len() as f64 * row_height + 2.0 * pad;
+        let box_h = (self.legend.len() as f64 + f64::from(has_title)) * row_height + 2.0 * pad;
 
         // Position the box just inside the upper-right corner.
         let x1 = axes_px.xmax() - margin;
@@ -106,10 +138,26 @@ impl Axes {
             .with_line_width(layout::BORDER_WIDTH);
         renderer.draw_path(&border_gc, &rect, &id, None);
 
+        if let Some(title) = self
+            .legend_title
+            .as_deref()
+            .filter(|title| !title.is_empty())
+        {
+            let ty = y1 - pad - row_height / 2.0 - font_size / 3.0;
+            let text = font.text_to_path(title, font_size, [x0 + pad, ty]);
+            renderer.draw_path(
+                &GraphicsContext::new(),
+                &text,
+                &id,
+                Some(self.legend_labelcolor),
+            );
+        }
+
         // Rows are laid out top-to-bottom; the y-axis is y-up so the first row
         // sits at the largest y.
         for (i, entry) in self.legend.iter().enumerate() {
-            let row_top = y1 - pad - i as f64 * row_height;
+            let title_rows = f64::from(has_title);
+            let row_top = y1 - pad - (i as f64 + title_rows) * row_height;
             let row_mid = row_top - row_height / 2.0;
 
             // Colored line sample.
@@ -180,5 +228,14 @@ mod tests {
             }
         }
         assert!(found, "expected legend ink in the upper-right region");
+    }
+
+    #[test]
+    fn legend_with_title_stores_heading_and_renders() {
+        let mut fig = Figure::new(4.0, 4.0);
+        fig.add_axes(0.1, 0.1, 0.8, 0.8)
+            .legend_with_title(vec![(Rgba::RED, "alpha".to_owned())], "Series");
+        assert_eq!(fig.axes()[0].legend_title.as_deref(), Some("Series"));
+        assert!(!fig.encode_png().unwrap().is_empty());
     }
 }
