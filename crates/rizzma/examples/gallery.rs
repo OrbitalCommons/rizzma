@@ -274,10 +274,10 @@ fn main() {
             let ax = fig.add_axes(0.12, 0.13, 0.72, 0.76);
             ax.plot(&x, &hares);
             ax.plot(&x, &lynxes);
-            ax.legend(vec![
-                (c(0), "hares (k)".into()),
-                (c(1), "lynxes (k)".into()),
-            ]);
+            ax.legend_with_title(
+                vec![(c(0), "hares (k)".into()), (c(1), "lynxes (k)".into())],
+                "Series",
+            );
             ax.set_title("legend + colorbar: predator–prey cycles");
             ax.set_xlabel("year");
             ax.set_ylabel("population");
