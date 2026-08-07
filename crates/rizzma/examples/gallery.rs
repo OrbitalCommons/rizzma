@@ -417,6 +417,7 @@ fn main() {
         }
         let ax = fig.add_subplot(1, 1, 1);
         ax.contour(&z, nr, nc);
+        ax.clabel();
         ax.set_title("contour: two peaks and a saddle");
         fig.save_png("target/gallery_contour.png").unwrap();
     }
