@@ -291,7 +291,9 @@ impl Renderer for SkiaRenderer {
 
         if let Some(stroke_color) = gc.stroke {
             let width = self.points_to_pixels(gc.line_width);
-            if width > 0.0 {
+            let bounds = sk_path.bounds();
+            let has_extent = bounds.width() > 0.0 || bounds.height() > 0.0;
+            if width > 0.0 && has_extent {
                 let mut paint = Paint {
                     anti_alias,
                     ..Paint::default()
@@ -445,6 +447,36 @@ mod tests {
         // The flip maps device y=50 to pixmap row 50 on a 100px canvas.
         let [_, _, _, a] = pixel(&r, 50, 50);
         assert!(a > 0, "stroke should mark the path center, got alpha {a}");
+    }
+
+    #[test]
+    fn degenerate_strokes_are_ignored() {
+        let gc = GraphicsContext::new()
+            .with_stroke(Rgba::BLACK)
+            .with_line_width(4.0);
+
+        for points in [&[[50.0, 50.0]][..], &[[50.0, 50.0], [50.0, 50.0]][..]] {
+            let mut r = SkiaRenderer::new(100, 100, 72.0);
+            r.draw_path(
+                &gc,
+                &Path::from_polyline(points),
+                &Affine2D::identity(),
+                None,
+            );
+            assert_eq!(pixel(&r, 50, 50), [0, 0, 0, 0]);
+        }
+    }
+
+    #[test]
+    fn zero_width_vertical_line_is_not_treated_as_degenerate() {
+        let mut r = SkiaRenderer::new(100, 100, 72.0);
+        let line = Path::from_polyline(&[[50.0, 10.0], [50.0, 90.0]]);
+        let gc = GraphicsContext::new()
+            .with_stroke(Rgba::BLACK)
+            .with_line_width(4.0);
+        r.draw_path(&gc, &line, &Affine2D::identity(), None);
+
+        assert!(pixel(&r, 50, 50)[3] > 0);
     }
 
     #[test]
