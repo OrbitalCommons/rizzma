@@ -1,7 +1,8 @@
 # 10 — Portable figure: a self-describing artifact that renders itself into a canvas
 
-Status: **P0 implemented** (`crate::portable`, feature `portable`, default-on);
-P1–P3 scoped below. Design for
+Status: **P0 implemented** (`crate::portable`, feature `portable`, default-on,
+shipped in 1.7.0); P1–P3 scoped below, revised against an agent-portal host
+review on 2026-08-22 (§7, §4.6, §4.7, §9, §12b). Design for
 [#287](https://github.com/OrbitalCommons/rizzma/issues/287).
 Companion docs: `06-wasm-interactive-plan.md` (charter), `09-show-browser.md` (whose
 Phase 3 "scene transport" this subsumes). Size numbers below are measured on `main`
@@ -58,20 +59,29 @@ chunks:  u32 len | 4-byte tag | payload | pad to 8-byte alignment
 |---|---|---|
 | `JSON` | yes | the spec (§4): figure model, rcparams, accessors, timeline, versions |
 | `BIN ` | if any accessor | one blob of typed arrays, 8-byte aligned |
+| `PSTR` | recommended | a PNG poster of the figure as authored (§4.7) |
 | `FONT` | no | subsetted font face(s) for this artifact (§8) |
 | `WASM` | no | the renderer, inlined |
+
+**Chunk order is guidance, not grammar.** Writers put `JSON` and `PSTR` *before*
+the large `BIN` (and `WASM`) chunks, so a consumer can read the metadata and paint
+a poster from a range request or a partial read instead of pulling megabytes.
+Readers must tolerate any order — the framing is self-describing, and a parser
+that depends on layout is a parser that breaks on the first writer that differs.
+(The tag is `PSTR`, not `POST`: four bytes either way, and one of them reads like
+an HTTP verb.)
 
 The **two profiles are one format**, distinguished only by chunk presence:
 
 | profile | chunks | over the wire | for |
 |---|---|---:|---|
-| **linked** (default) | JSON + BIN | KB per figure; renderer ~370 KB gz fetched once by hash | pages with N figures; hosts with a vetted-renderer policy |
-| **self-contained** | JSON + BIN + FONT + WASM | ~370 KB gz per artifact | email, offline, single static file, zero resolution |
+| **linked** (default) | JSON + BIN + PSTR | KB per figure; renderer ~370 KB gz fetched once by digest | pages with N figures; hosts with a vetted-renderer policy |
+| **self-contained** | + FONT + WASM | ~370 KB gz per artifact | email, offline, single static file, zero resolution |
 
 Both carry `renderer: {version, sha256}` in the JSON; the self-contained profile
-additionally carries the bytes that hash to it. A host may always ignore inlined
-bytes and substitute its own copy of a compatible renderer — that is the security
-story (§7), not an afterthought.
+additionally carries bytes that hash to it. A host should **always** prefer its
+own vetted copy of a compatible renderer and ignore the inlined bytes — the
+digest identifies, it does not authorize (§7).
 
 `Figure::save_html(path)` additionally wraps a self-contained artifact plus the
 loader (§6) in one HTML file — the strongest "just open it" deliverable, and the
@@ -207,6 +217,110 @@ runtime state, and reset/⌂ Home returns to the artifact's values. Auto limits
 (`null`) resolve at import from the same data through the same margin logic, so
 they are equally deterministic.
 
+### 4.6 Metadata a host can read without running anything
+
+A host has decisions to make *before* it fetches 370 KB of renderer: how much
+space to reserve, which runtime to pick, whether it can render this at all, and
+what to show if it cannot. Making it instantiate wasm to answer those is
+backwards, so the artifact keeps them all in the JSON chunk's first level,
+readable by a dependency-free parse of the container framing:
+
+```jsonc
+{
+  "schema": 1,
+  "renderer": { "version": "1.7.0", "sha256": "9f2c…" },
+  "meta": {
+    "width_px": 640, "height_px": 480,   // exact, from width_in × dpi
+    "alt": "Damped oscillation decaying over 20 seconds",
+    "title": "damped oscillation",
+    "poster": { "chunk": "PSTR", "mime": "image/png", "bytes": 18422 },
+    "animated": false
+  }
+}
+```
+
+Exact pixel dimensions, not an aspect-ratio hint: the figure's size in inches and
+its DPI are both authored, so a host can reserve the right box and never reflow.
+
+**rizzma owns the inspector**, as a renderer-free Rust API — not a JS one. The
+first draft assumed hosts would parse the container in TypeScript; agent-portal's
+frontend is Rust/Yew/wasm, and more generally a host should not reimplement the
+container parser just to allocate a card. So:
+
+```rust
+// Feature `portable-inspect`: no tiny-skia, no font stack, no rendering.
+pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<PortableMetadata, PortableError>;
+```
+
+- compiles for `wasm32-unknown-unknown` and pulls in none of the render stack, so
+  a host can link it without linking a rasterizer;
+- returns schema, producer and renderer provenance, size/dpi/aspect, initial
+  viewport, title and alt text, poster location/type/length, and a chunk
+  directory (count, tags, declared lengths, declared total);
+- validates against **host-supplied** `Limits` rather than rizzma's opinion of
+  them, and **never allocates the `BIN` payloads** just to inspect.
+
+The intended shape is: the host's backend validates once on receipt, extracts the
+typed metadata and poster, and persists them; the frontend renders a card from
+that stored metadata; the sandboxed runtime re-validates in full before drawing.
+The container framing (§3) stays documented — a 12-byte header, then `u32 len` +
+4-byte tag + payload padded to 8 — so independent implementations remain possible,
+and a small JS inspector may ship alongside `rizzma-mount.js` for hosts that want
+one. Neither is a privileged path; the Rust `inspect` is the source of truth.
+
+**Budgets belong in the spec, not in each host's implementation.** A trusted
+renderer still parses attacker-influenced data, and memory safety removes a
+corruption class, not parser denial-of-service. So the format states limits a
+conforming loader enforces before allocating: total artifact bytes, chunk count
+and declared lengths (checked against the real buffer, no `tiny JSON, giant BIN`
+surprise), JSON length and nesting depth, accessor counts and total decoded
+points, canvas dimensions × device pixel ratio, and a time budget with
+cancellation. A host cap of **10 MiB** per artifact is the suggested default —
+generous against a typical 35 KB figure, and low enough to be a real bound.
+
+Embedded fonts count as attacker-influenced parser input too, even though they
+are never URLs: `FONT` chunks get their own count and byte budgets, and font
+parsing belongs inside the same sandbox as rendering. Note that today this is
+moot in the best way — P0 artifacts carry no font at all, because text renders
+from the outlines already inside the vetted runtime. Per-artifact subsetting
+(§8) is what would introduce the exposure, which is a reason to keep it to the
+self-contained profile rather than making it the default.
+
+### 4.7 The poster: what shows when the renderer will not run
+
+Every path that cannot execute wasm still has something to show, so the
+recommended profile carries a **PNG poster of the figure as authored**, plus
+`alt` and `title` text. It is nearly free to *add* — encoding and storing a PNG
+costs something, but rizzma already rasterizes, so the poster is a byproduct of a
+figure the exporter is already holding — and it is what makes the format degrade
+gracefully rather than vanish. What it covers:
+
+- scripting disabled, or a host that declines to run wasm at all;
+- a reduced-resource or mobile client;
+- an artifact whose schema no runtime the host has vetted supports (§9);
+- archive and search previews, and share/social surfaces;
+- the card to show *while* the runtime is still downloading.
+
+**What it does not cover: blob expiry.** An earlier draft of this section claimed
+an expired artifact could degrade to "poster plus download", which is wrong and
+quietly rebuilt the very lifetime overclaim §12b exists to correct: if the
+canonical `.riz` expired, the `PSTR` inside it expired with it, and so did the
+bytes any download would serve. Stated correctly:
+
+- `PSTR` handles **runtime, schema, and scripting failure** — cases where the
+  artifact is present but cannot be executed;
+- a host **may** retain an *extracted* poster derivative longer than the
+  interactive blob and then degrade to **poster-only** — not poster + download,
+  because the original is gone;
+- only **durable storage of the original** preserves poster *and* download *and*
+  interactivity. Recovering it from archive is not the expired case; it is the
+  not-actually-expired case.
+
+The poster is optional — a producer may omit it, and a host must not reject an
+artifact for lacking one (show a "load interactive figure" placeholder instead) —
+but the exporter writes one by default, because a figure that cannot render and
+has nothing to show is the one failure mode with no recovery.
+
 ## 5. Animation: a declarative timeline (schema 2)
 
 A host-callback animation cannot be serialized; the demos today are JS
@@ -303,21 +417,35 @@ impl WasmFigure {
 the runtime:
 
 ```js
-import { mount } from "./rizzma-mount.js";
-const fig = await mount(canvasEl, "decay.riz", {
-  // optional; default resolves by hash against the published runtime registry
-  resolveRenderer: async ({ version, sha256 }) => bytesOrUrl,
+import { mount, readMetadata } from "./rizzma-mount.js";
+
+// The host says which renderer to run. This argument is required: there is no
+// default that reaches for a URL, and none that falls back to artifact bytes.
+const fig = await mount(canvasEl, bytes, {
+  renderer: { bytes: vettedWasm, sha256: expectedDigest },
 });
 fig.play(); fig.pause(); fig.seek(2.5); fig.dispose();
 ```
 
-The loader parses the container header, resolves the renderer (WASM chunk if
-present *and* trusted, else `resolveRenderer`, else the default registry URL),
-verifies **sha256 via SubtleCrypto before instantiation** in all cases, calls
-`init()` once per distinct hash (N figures on a page share one module), constructs
+The loader parses the container header, hashes the **host-supplied** renderer
+bytes with SubtleCrypto and refuses to instantiate on a mismatch, calls `init()`
+once per distinct digest **within its realm**, constructs
 `WasmFigure::from_portable`, binds, and starts the clock. `dispose()` frees the
 session (listener teardown already exists via `WasmSession`'s `Drop`,
 `wasm/mod.rs:895`).
+
+"Within its realm" is load-bearing, and an earlier draft got it wrong by claiming
+N figures on a page share one module. Under the recommended isolation (§12b) each
+figure lives in its own opaque-origin iframe, and **a module cache cannot cross
+realms**: the HTTP bytes are cached, but every frame compiles and instantiates
+separately. Keeping only one or two frames live (§12c) is what makes that
+acceptable. If profiling ever shows compilation dominating, the answers are a
+small pool of reusable sandbox frames or a dedicated renderer origin — never
+relaxing isolation to share an in-page module cache.
+
+`readMetadata(bytes)` returns the §4.6 metadata without instantiating anything,
+so a host can size the layout, pick a renderer, and decide supported-vs-poster
+before it fetches 370 KB.
 
 ## 7. Renderer identity, publishing, and the trust model
 
@@ -331,12 +459,30 @@ so it is published once per release, addressed by content:
   `gallery.yml:48` with no hash — that stays for the demos; the runtime registry
   is the hashed, versioned sibling.
 
-The hash earns its place beyond dedup: **a host executes only renderers it already
-trusts.** agent-portal serves uploaded SVG under a sandboxing CSP deliberately,
-because agent-supplied media is attacker-influenced. A hash-addressed renderer
-lets such a host accept portable figures without weakening that posture — verify
-inlined bytes against an allowlist, or ignore them and use its own vetted copy of
-that version. Complementing that:
+### The hash is an identity, not an authority
+
+This is worth stating flatly, because an earlier draft of §6 got it wrong and the
+wrong version is the tempting one: **a digest an artifact carries about itself
+proves nothing.** A malicious artifact can inline malicious wasm and honestly
+report its hash. Verifying artifact bytes against the artifact's own claim is
+circular and buys exactly nothing. (Correction owed to the agent-portal review,
+2026-08-22.)
+
+So the rule, in the order a host should apply it:
+
+1. **Keep a host-owned allowlist** mapping schema (and optionally rizzma version)
+   → the digest of a renderer *you* vetted, and serve your own immutable copy.
+2. **Ignore the artifact's `WASM` chunk for execution.** Its `renderer.sha256` is
+   a *lookup key* and a *mismatch alarm* — never an authorization.
+3. **Treat the self-contained profile as a download/offline convenience**, not an
+   execution source. For a multi-tenant host, "run our pinned copy, ignore the
+   inlined bytes" is simpler than byte-comparing them and strictly no weaker.
+
+That is what lets a host with a real security posture accept portable figures
+without loosening it: agent-portal serves uploaded SVG under a sandboxing CSP
+deliberately, because agent-supplied media is attacker-influenced. A figure whose
+renderer the host chose is a different proposition from a document that brings
+its own code. Complementing that:
 
 - the JSON spec is **data only** — no field is ever interpreted as code, no URL in
   an artifact is ever fetched by the loader (renderer resolution is the host's
@@ -385,8 +531,26 @@ Three independent versions, three independent jobs:
 **The compatibility rule:** each rizzma build supports a contiguous schema range
 `SCHEMA_MIN..=SCHEMA_CURRENT`. Newer artifact → hard error naming both versions
 ("artifact is schema 3; this runtime supports 1–2 — rendering it would drop
-content"). The renderer hash is provenance and a dedup/trust key, *not* a
-requirement — any renderer whose range covers the artifact's schema may render it.
+content").
+
+**Renderer selection is the host's, in this order** (tightened at the
+agent-portal review's suggestion — the first clause is the part I had missing):
+
+1. the **exact digest the artifact declares**, if that digest is in the host's
+   vetted registry *and* its range covers the artifact's schema;
+2. otherwise the host's **canonical vetted renderer for that schema**;
+3. otherwise **poster + download** (§4.7).
+
+Rule 1 exists for fidelity, not trust: rendering an archived figure through the
+renderer it was authored against reproduces the pixels it was authored with.
+Falling forward to a newer runtime (rule 2) is genuinely valuable for old
+artifacts, but a renderer fix can move pixels, so **a host that fell forward
+should say so in its selection metadata** rather than let it be an invisible
+substitution. Retaining old vetted runtimes is cheap — ~370 KB compressed each —
+so rule 1 should hit more often than not.
+
+Note what is *not* in that list: bytes the artifact brought with it. The digest
+is a lookup key into the host's registry (§7), never an authorization.
 
 **Unknown elements: fail loudly, don't skip.** Best-effort forward compatibility
 is right for most formats and wrong for figures: silently dropping an artist a
@@ -448,12 +612,27 @@ Actions, kept out of the artifact-format work so each lands independently:
 | phase | delivers | schema |
 |---|---|---|
 | **P0** ✅ | `crate::portable` wire model + container + native `to/from_portable` + golden identity & rejection tests | 1 |
-| **P1** | `WasmFigure::from_portable`, `rizzma-mount.js`, hashed runtime publishing; linked profile end-to-end (agent-portal, docs) | 1 |
+| **P1** | the four host prerequisites below, then `WasmFigure::from_portable` + `rizzma-mount.js`; linked profile end-to-end (agent-portal, docs) | 1 |
 | **P2** | self-contained profile (`WASM` chunk), `save_html`, size program (§11) | 1 |
 | **P3** | timeline + shared clock/scrub UI; font subsetting with alphabet closure + `FONT` chunk | 2 |
 
 P0 is pure native Rust — no browser, no JS — and already proves the hard 80%:
 the wire model, strictness, and pixel-identity.
+
+**P1's four prerequisites**, as agreed with the agent-portal review — these are
+what a host needs *before* the mount API is useful to it, and they are ordered so
+each is independently checkable:
+
+1. a **published hash-addressed runtime** and a stable mount API (§6, §7);
+2. **`inspect()`**: renderer-free, wasm-safe metadata and validation (§4.6);
+3. the **poster** plus intrinsic sizing and accessibility metadata (§4.7);
+4. an explicit **runtime compatibility and selection policy** (§9).
+
+Ship the **linked profile only** first; the self-contained file is offered as a
+download, never as an execution source. And before calling P1 "integrated",
+benchmark **pan latency at `devicePixelRatio` 2 *and* 3**, on a midrange phone,
+against the retained-card counts in §12c — `putImageData` is the plausible
+bottleneck, not the 370 KB download.
 
 ### What P0 shipped, and where it deviated
 
@@ -484,6 +663,88 @@ dependency cleanup cannot quietly drop it. The lesson generalizes: JSON is safe
 for *structure*, and every number that must be exact — not only the bulk arrays
 §4.4 already moved — depends on the codec being correctly rounded.
 
+## 12b. Where rizzma stops and a host begins
+
+The agent-portal review (2026-08-22) settled this line, and writing it down keeps
+both sides from building half of the other's job:
+
+| rizzma owns | the host owns |
+|---|---|
+| the artifact bytes and their framing | the trust registry of vetted renderers |
+| the poster and metadata (§4.6, §4.7) | renderer selection (§9) and isolation |
+| `inspect()` validation against host limits | authorization and durable storage |
+| schema/runtime compatibility declarations | extracted-poster cache, lifecycle, scheduling |
+| publishing the pinned runtime artifacts | resource budgets and their enforcement |
+
+Two consequences worth stating outright:
+
+**No identity in the artifact.** It was tempting to mint a content-addressed
+artifact id inside `.riz` so hosts get dedup and archive keying for free. That is
+the wrong layer: a globally exposed content address is a cross-tenant correlation
+and existence oracle, and it drags refcount-and-deletion complexity into a file
+format. A host mints its own opaque id, computes its own digest over the bytes it
+received, and keys authorization on `(id → owner → bytes)`. A self-digest in the
+artifact would be circular anyway, for exactly the reason §7 gives about the
+renderer hash. rizzma may offer `portable_sha256(bytes)` as a convenience; a
+backend must still compute its own.
+
+**Isolation is the host's call, and P0 does not deliver "interactive later" by
+itself.** The reviewed posture for a multi-tenant host is a sandboxed iframe with
+`allow-scripts` and deliberately *without* `allow-same-origin`, fed the artifact
+bytes by `postMessage` from a parent that did the authenticated fetch, under a
+tight CSP, with raster work on a worker/`OffscreenCanvas` where available (a jank
+boundary, not a security one) and `wasm-unsafe-eval` scoped to that document if
+the loader needs it. Just as important: agent-portal's live media is TTL-bounded
+today (an hour by default) with durability only through archive write-through, so
+"an agent makes a figure and a human reads it later, still interactive" is a
+promise **durable artifact storage** has to keep — not something the format
+delivers on its own, and not something the poster rescues: an embedded `PSTR`
+expires with the blob that contains it (§4.7). A host that extracts the poster to
+a separately retained derivative can degrade to poster-only; everything else about
+"later" depends on retaining the original. That should be stated honestly
+wherever this format is pitched.
+
+> **When this caveat may be removed:** only once a host's durable-artifact path
+> is merged *and* the deployed default — not when it is designed, and not when it
+> is available behind a flag. Until then this paragraph describes current
+> behavior, and deleting it early would make the doc describe an intention rather
+> than a system.
+
+## 12c. The workload this has to survive
+
+Real numbers from the agent-portal review, because sizing the runtime against a
+developer laptop is how this ships broken:
+
+| dimension | reality |
+|---|---|
+| messages retained per session view | 100 (`MAX_MESSAGES_PER_SESSION`) — adversarially, all 100 are figures |
+| sessions kept mounted | **every activated session stays mounted and is merely CSS-hidden**; heavy users run dozens, so ~2,000 retained figure cards is reachable |
+| genuinely visible at once | 1 on a phone, 2–4 on desktop, 6–8 with pathologically small cards |
+| low-end target | midrange 4 GB Android and mobile Safari, **DPR 3 is common** |
+| frame cost | 640×480 at DPR 2 ≈ **4.9 MB per RGBA frame**; at DPR 3 ≈ **11 MB**. At 60 Hz that is hundreds of MB/s through `putImageData` alone |
+
+The consequence is that **poster-first is the architecture, not a fallback**. Of
+2,000 retained cards, ~1,998 must be metadata plus an `<img>` — no iframe, no
+worker, no module. Concretely:
+
+1. do not create the sandbox frame until near-viewport or explicit activation;
+2. **dispose on unfocus** — an ancestor going `display:none` must tear the figure
+   down. Do not rely on unmount or an `IntersectionObserver` alone: the session
+   view stays mounted, so nothing else will tell you;
+3. pause animation whenever not intersecting or the document is hidden;
+4. cap **active renderers at 2 and active animations at 1** for v1, LRU as
+   figures are activated;
+5. cap backing store around **2 megapixels** and effective DPR at **2 during
+   interaction**, with an optional full-quality redraw once pan/zoom settles;
+6. prefer `OffscreenCanvas` in the worker so RGBA does not take a second
+   main-thread hop; feature-detect, and drop resolution or frame rate on the
+   fallback path.
+
+Points 4 and 5 are the ones that touch rizzma rather than the host: a
+"reduced-resolution while interacting, full quality when settled" mode is a
+renderer capability, and it is the concrete deliverable behind §12's pan-latency
+benchmark.
+
 ## 13. Explicit non-goals
 
 - **A Canvas2D/WebGL renderer.** Settled by the charter; the raster backend *is*
@@ -510,5 +771,30 @@ for *structure*, and every number that must be exact — not only the bulk array
    shipping needs a Rust path (e.g. the `subsetter` crate) or a build-time step.
 4. **`show()` integration** — a toolbar "⬇ .riz" button beside PNG/SVG/PDF falls
    out nearly free once P0 lands, and is the natural dogfood.
-5. **Registry fallback** — whether `resolveRenderer`'s default should try release
-   assets when gh-pages is unreachable, or stay single-source.
+5. **Registry publication** — where the vetted runtime index lives and how a host
+   bootstraps trust in it the first time. Since selection is host-owned (§9),
+   this is a distribution question, not a security one, but it still needs an
+   answer before P1 ships.
+6. **Poster cost when it is never shown.** Every artifact pays PNG bytes even
+   when a host renders live immediately. Cheap in absolute terms and worth it for
+   graceful degradation, but if artifacts get large or numerous, an
+   exporter-level "poster: off" is the escape hatch.
+
+### Settled by the agent-portal review (2026-08-22)
+
+- Poster lives **inside** the artifact as the canonical copy; a host may extract
+  a sibling cache for fast `<img>` paint and should retain the original.
+- A poster-less artifact is **not** rejected — it degrades to a "load interactive
+  figure" placeholder.
+- The inspector is **Rust**, not TypeScript (§4.6); a JS one may ship for other
+  hosts but is not the source of truth.
+- Renderer selection is **exact vetted digest first**, then canonical-for-schema,
+  then poster (§9).
+- Durable artifact identity and storage stay **host-side**; the format carries no
+  artifact id and no self-digest (§12b).
+- The poster covers **execution** failure, not **expiry** — an embedded `PSTR`
+  dies with its blob (§4.7).
+- A wasm module cache **cannot cross iframe realms**, so per-figure sandboxing
+  means per-figure compilation; the fix is fewer live frames, never weaker
+  isolation (§6, §12c).
+- Chunk tag is **`PSTR`**, confirmed over `POST`.
