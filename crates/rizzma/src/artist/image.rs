@@ -333,6 +333,59 @@ impl Artist for AxesImage {
     }
 }
 
+#[cfg(feature = "portable")]
+impl AxesImage {
+    /// Flatten this image into its wire form, banking the samples as an
+    /// accessor.
+    pub(crate) fn to_portable(
+        &self,
+        bank: &mut crate::portable::data::BankWriter,
+    ) -> crate::portable::spec::ImageSpec {
+        crate::portable::spec::ImageSpec {
+            data: bank.push_f64(&self.data),
+            nrows: self.nrows,
+            ncols: self.ncols,
+            extent: self.extent,
+            vmin: self.vmin,
+            vmax: self.vmax,
+            cmap: self.cmap_name.clone(),
+            origin_upper: self.origin_upper,
+            zorder: self.zorder,
+            visible: self.visible,
+            label: None,
+        }
+    }
+
+    /// Reconstruct an image from its wire form during portable-figure import.
+    pub(crate) fn from_portable(
+        spec: &crate::portable::spec::ImageSpec,
+        reader: &crate::portable::data::BankReader<'_>,
+    ) -> Result<AxesImage, crate::portable::PortableError> {
+        let data = reader.f64s(&spec.data)?;
+        let cells = spec.nrows.checked_mul(spec.ncols);
+        if cells != Some(data.len()) {
+            return Err(crate::portable::PortableError::Malformed(format!(
+                "image declares {}x{} cells but carries {} samples",
+                spec.nrows,
+                spec.ncols,
+                data.len()
+            )));
+        }
+        Ok(AxesImage {
+            data,
+            nrows: spec.nrows,
+            ncols: spec.ncols,
+            extent: spec.extent,
+            vmin: spec.vmin,
+            vmax: spec.vmax,
+            cmap_name: spec.cmap.clone(),
+            origin_upper: spec.origin_upper,
+            zorder: spec.zorder,
+            visible: spec.visible,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

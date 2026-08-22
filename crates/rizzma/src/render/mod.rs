@@ -15,7 +15,8 @@ pub use crate::core::{Affine2D, Bbox, Path, color::Rgba};
 /// How the ends of an open stroked subpath are drawn.
 ///
 /// Mirrors matplotlib's `_capstyle` values.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CapStyle {
     /// Stroke ends exactly at the endpoint with a flat edge.
     #[default]
@@ -29,7 +30,8 @@ pub enum CapStyle {
 /// How two connected stroked segments are joined at a corner.
 ///
 /// Mirrors matplotlib's `_joinstyle` values.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum JoinStyle {
     /// Outer edges are extended to meet at a sharp point.
     #[default]

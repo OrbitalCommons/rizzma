@@ -9,6 +9,8 @@
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike};
 
 use crate::axis::ticker::{Formatter, Locator};
+use crate::portable::spec::{FormatterSpec, LocatorSpec};
+use crate::portable::{PortableFormatter, PortableLocator};
 
 const SECONDS_PER_DAY: f64 = 86_400.0;
 const NANOS_PER_DAY: f64 = SECONDS_PER_DAY * 1_000_000_000.0;
@@ -144,6 +146,12 @@ impl Default for AutoDateLocator {
 }
 
 impl Locator for AutoDateLocator {
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::AutoDate {
+            maxticks: self.maxticks,
+        }))
+    }
+
     fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
         if !vmin.is_finite() || !vmax.is_finite() {
             return Vec::new();
@@ -223,6 +231,12 @@ impl Default for AutoDateMinorLocator {
 }
 
 impl Locator for AutoDateMinorLocator {
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::AutoDateMinor {
+            maxticks: self.major.maxticks,
+        }))
+    }
+
     fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
         if !vmin.is_finite() || !vmax.is_finite() {
             return Vec::new();
@@ -277,6 +291,12 @@ impl DateFormatter {
 }
 
 impl Formatter for DateFormatter {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::Date {
+            fmt: self.fmt.clone(),
+        }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         num2date(value).format(&self.fmt).to_string()
     }
@@ -306,6 +326,10 @@ impl ConciseDateFormatter {
 }
 
 impl Formatter for ConciseDateFormatter {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::ConciseDate))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         let dt = num2date(value);
         if dt.time().num_seconds_from_midnight() == 0 {

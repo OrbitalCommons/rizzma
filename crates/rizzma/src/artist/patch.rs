@@ -284,6 +284,47 @@ impl Artist for Patch {
     }
 }
 
+#[cfg(feature = "portable")]
+impl Patch {
+    /// Flatten this patch into its wire form, banking the outline as
+    /// accessors.
+    pub(crate) fn to_portable(
+        &self,
+        bank: &mut crate::portable::data::BankWriter,
+    ) -> crate::portable::spec::PatchSpec {
+        crate::portable::spec::PatchSpec {
+            path: self.path.to_portable(bank),
+            facecolor: self.facecolor,
+            edgecolor: self.edgecolor,
+            linewidth: self.linewidth,
+            dashes: self.dashes.clone(),
+            cap: self.cap,
+            join: self.join,
+            visible: self.visible,
+            zorder: self.zorder,
+            label: None,
+        }
+    }
+
+    /// Reconstruct a patch from its wire form during portable-figure import.
+    pub(crate) fn from_portable(
+        spec: &crate::portable::spec::PatchSpec,
+        reader: &crate::portable::data::BankReader<'_>,
+    ) -> Result<Patch, crate::portable::PortableError> {
+        Ok(Patch {
+            path: Path::from_portable(&spec.path, reader)?,
+            facecolor: spec.facecolor,
+            edgecolor: spec.edgecolor,
+            linewidth: spec.linewidth,
+            dashes: spec.dashes.clone(),
+            cap: spec.cap,
+            join: spec.join,
+            visible: spec.visible,
+            zorder: spec.zorder,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

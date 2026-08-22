@@ -24,10 +24,13 @@ crate-type = ["cdylib", "rlib"]
 workspace = true
 
 [features]
-default = ["plot3d", "pyplot", "wasm", "show"]
+default = ["plot3d", "portable", "pyplot", "wasm", "show"]
 # Native-only: `Figure::show()` / `pyplot::show()` local browser viewer.
 show = []
 plot3d = []
+# `Figure::to_portable()` / `from_portable()`: the `.riz` self-describing
+# artifact (see `design/10-portable-figure.md`). Pulls in a JSON codec.
+portable = ["dep:serde_json"]
 pyplot = []
 wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys"]
 
@@ -37,6 +40,12 @@ chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 js-sys = { version = "0.3", optional = true }
 png = "0.18.1"
 serde = { version = "1.0.228", features = ["derive"] }
+# `float_roundtrip` is load-bearing, not a nicety: without it serde_json parses
+# f64 back one ULP off, so a re-exported portable figure differs from its
+# original. See `portable::tests::json_scalars_round_trip_bit_exactly`.
+serde_json = { version = "1.0.150", features = [
+    "float_roundtrip",
+], optional = true }
 tiny-skia = "0.12.0"
 ttf-parser = "0.25.1"
 wasm-bindgen = { version = "0.2.126", optional = true }
@@ -59,7 +68,6 @@ web-sys = { version = "0.3.103", optional = true, features = [
 
 [dev-dependencies]
 resvg = { version = "0.47.0", default-features = false, features = ["raster-images"] }
-serde_json = "1.0.150"
 
 # Browser-only integration tests (`wasm-pack test --headless --chrome`); the
 # extra web-sys features here are for synthesizing DOM events in those tests.

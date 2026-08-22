@@ -45,6 +45,7 @@ fn default_prop_cycle() -> Vec<Rgba> {
 /// and override individual fields as needed. Use [`RcParams::merge`] to layer a
 /// set of overrides on top of an existing configuration.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RcParams {
     // --- figure ---
     /// Default figure size in inches, as `(width, height)` (`figure.figsize`).

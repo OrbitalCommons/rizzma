@@ -7,6 +7,9 @@
 //!
 //! Ported from matplotlib's `lib/matplotlib/scale.py`.
 
+use crate::portable::PortableScale;
+use crate::portable::spec::ScaleWire;
+
 /// A separable transformation acting on a single axis dimension.
 ///
 /// Implementations map data coordinates to scaled coordinates via
@@ -29,6 +32,16 @@ pub trait Scale: Send + Sync {
     fn limit_range_for_scale(&self, vmin: f64, vmax: f64, _minpos: f64) -> (f64, f64) {
         (vmin, vmax)
     }
+
+    /// The closed wire form of this scale for portable-figure export, or
+    /// `None` when the scale has no wire representation (in which case export
+    /// fails loudly rather than substitute a different scale).
+    ///
+    /// Only rizzma's built-in scales can construct a [`PortableScale`], so
+    /// the default — correct for any third-party implementation — is `None`.
+    fn portable_spec(&self) -> Option<PortableScale> {
+        None
+    }
 }
 
 /// The default linear scale: an identity transform.
@@ -49,6 +62,10 @@ impl Scale for LinearScale {
 
     fn inverse(&self, x: f64) -> f64 {
         x
+    }
+
+    fn portable_spec(&self) -> Option<PortableScale> {
+        Some(PortableScale(ScaleWire::Linear))
     }
 }
 
@@ -72,6 +89,10 @@ impl LogScale {
 }
 
 impl Scale for LogScale {
+    fn portable_spec(&self) -> Option<PortableScale> {
+        Some(PortableScale(ScaleWire::Log { base: self.base }))
+    }
+
     fn transform(&self, x: f64) -> f64 {
         if self.base == 10.0 {
             x.log10()
@@ -135,6 +156,14 @@ impl SymlogScale {
 }
 
 impl Scale for SymlogScale {
+    fn portable_spec(&self) -> Option<PortableScale> {
+        Some(PortableScale(ScaleWire::Symlog {
+            base: self.base,
+            linthresh: self.linthresh,
+            linscale: self.linscale,
+        }))
+    }
+
     fn transform(&self, x: f64) -> f64 {
         let linscale_adj = self.linscale_adj();
         let abs_x = x.abs();
@@ -201,6 +230,12 @@ impl Scale for AsinhScale {
     fn inverse(&self, x: f64) -> f64 {
         self.linear_width * x.sinh()
     }
+
+    fn portable_spec(&self) -> Option<PortableScale> {
+        Some(PortableScale(ScaleWire::Asinh {
+            linear_width: self.linear_width,
+        }))
+    }
 }
 
 /// The logit scale for probabilities in the open interval `(0, 1)`.
@@ -218,6 +253,10 @@ impl LogitScale {
 }
 
 impl Scale for LogitScale {
+    fn portable_spec(&self) -> Option<PortableScale> {
+        Some(PortableScale(ScaleWire::Logit))
+    }
+
     fn transform(&self, x: f64) -> f64 {
         (x / (1.0 - x)).ln()
     }
@@ -234,6 +273,24 @@ impl Scale for LogitScale {
             if vmin <= 0.0 { minpos } else { vmin },
             if vmax >= 1.0 { 1.0 - minpos } else { vmax },
         )
+    }
+}
+
+#[cfg(feature = "portable")]
+impl ScaleWire {
+    /// Reconstruct the boxed [`Scale`] this wire form describes.
+    pub(crate) fn into_scale(self) -> Box<dyn Scale> {
+        match self {
+            ScaleWire::Linear => Box::new(LinearScale::new()),
+            ScaleWire::Log { base } => Box::new(LogScale::new(base)),
+            ScaleWire::Symlog {
+                base,
+                linthresh,
+                linscale,
+            } => Box::new(SymlogScale::new(base, linthresh, linscale)),
+            ScaleWire::Logit => Box::new(LogitScale::new()),
+            ScaleWire::Asinh { linear_width } => Box::new(AsinhScale::new(linear_width)),
+        }
     }
 }
 

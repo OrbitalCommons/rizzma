@@ -117,8 +117,9 @@ fn format_scope_value(v: f64) -> String {
 }
 
 /// A secondary (top) x axis: an affine unit conversion of the primary x.
-#[derive(Debug, Clone)]
-struct SecondaryXAxis {
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SecondaryXAxis {
     /// Conversion slope: `secondary = scale * x + offset`.
     scale: f64,
     /// Conversion intercept.
@@ -128,8 +129,9 @@ struct SecondaryXAxis {
 }
 
 /// A text annotation in data coordinates, optionally with a leader arrow.
-#[derive(Debug, Clone)]
-struct Annotation {
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Annotation {
     /// The label; `$...$` spans render as mathtext.
     text: String,
     /// The annotated data point (the arrow's target when `text_at` is set).
@@ -146,7 +148,8 @@ struct Annotation {
 }
 
 /// Styling for a rectangular background behind text or an annotation.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TextBoxStyle {
     /// Background fill color.
     pub facecolor: Rgba,
@@ -421,7 +424,8 @@ pub struct Axes {
 }
 
 /// Orientation of a full-span reference line or shaded band.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum SpanOrientation {
     /// Constant value along the y-axis, spanning the full x range.
     Horizontal,
@@ -431,7 +435,8 @@ pub(crate) enum SpanOrientation {
 
 /// A full-span reference line at a constant data value, drawn spanning the
 /// resolved effective limits of the opposite axis.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SpanLine {
     /// Whether the line is horizontal (`y == value`) or vertical (`x == value`).
     pub(crate) orientation: SpanOrientation,
@@ -445,7 +450,8 @@ pub(crate) struct SpanLine {
 
 /// A full-span shaded band between two data values, drawn spanning the resolved
 /// effective limits of the opposite axis.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SpanRect {
     /// Whether the band runs across x (horizontal) or across y (vertical).
     pub(crate) orientation: SpanOrientation,
@@ -2465,6 +2471,171 @@ fn guard_logit_range((a, b): (f64, f64), minpos: f64) -> (f64, f64) {
     }
 
     if reversed { (hi, lo) } else { (lo, hi) }
+}
+
+#[cfg(feature = "portable")]
+impl ScaleSpec {
+    /// The wire form of this axes-level scale state.
+    ///
+    /// The axes-level scale always evaluates with a unit `linscale` (see
+    /// [`ScaleSpec::transform`]), so that is what the wire form records.
+    pub(crate) fn to_portable(self) -> crate::portable::spec::ScaleWire {
+        use crate::portable::spec::ScaleWire as W;
+        match self {
+            ScaleSpec::Linear => W::Linear,
+            ScaleSpec::Log { base } => W::Log { base },
+            ScaleSpec::Symlog { base, linthresh } => W::Symlog {
+                base,
+                linthresh,
+                linscale: 1.0,
+            },
+            ScaleSpec::Logit => W::Logit,
+            ScaleSpec::Asinh { linear_width } => W::Asinh { linear_width },
+        }
+    }
+
+    /// Reconstruct the axes-level scale state from its wire form.
+    pub(crate) fn from_portable(wire: crate::portable::spec::ScaleWire) -> Self {
+        use crate::portable::spec::ScaleWire as W;
+        match wire {
+            W::Linear => ScaleSpec::Linear,
+            W::Log { base } => ScaleSpec::Log { base },
+            W::Symlog {
+                base, linthresh, ..
+            } => ScaleSpec::Symlog { base, linthresh },
+            W::Logit => ScaleSpec::Logit,
+            W::Asinh { linear_width } => ScaleSpec::Asinh { linear_width },
+        }
+    }
+}
+
+#[cfg(feature = "portable")]
+impl Axes {
+    /// Flatten this axes into its wire form, banking artist data as accessors.
+    pub(crate) fn to_portable(
+        &self,
+        bank: &mut crate::portable::data::BankWriter,
+    ) -> Result<crate::portable::spec::AxesSpec, crate::portable::PortableError> {
+        Ok(crate::portable::spec::AxesSpec {
+            position: self.position,
+            layout_envelope: self.layout_envelope,
+            sticky_x: self.sticky_x.clone(),
+            sticky_y: self.sticky_y.clone(),
+            xlim: self.xlim,
+            ylim: self.ylim,
+            margins: self.margins,
+            xscale: self.xscale.to_portable(),
+            yscale: self.yscale.to_portable(),
+            facecolor: self.facecolor,
+            edgecolor: self.edgecolor,
+            linewidth: self.linewidth,
+            title_color: self.title_color,
+            prop_cycle: self.prop_cycle.clone(),
+            prop_cycle_index: self.prop_cycle_index,
+            legend_facecolor: self.legend_facecolor,
+            legend_edgecolor: self.legend_edgecolor,
+            legend_labelcolor: self.legend_labelcolor,
+            legend_title: self.legend_title.clone(),
+            legend_location: self.legend_location,
+            lines: self.lines.iter().map(|l| l.to_portable(bank)).collect(),
+            patches: self.patches.iter().map(|p| p.to_portable(bank)).collect(),
+            collections: self
+                .collections
+                .iter()
+                .map(|c| c.to_portable(bank))
+                .collect(),
+            images: self.images.iter().map(|i| i.to_portable(bank)).collect(),
+            meshes: self.meshes.iter().map(|m| m.to_portable(bank)).collect(),
+            extra_data_bbox: self.extra_data_bbox,
+            xaxis: self.xaxis.to_portable()?,
+            yaxis: self.yaxis.to_portable()?,
+            xaxis_hidden: self.xaxis_hidden,
+            xlim_link: self.xlim_link,
+            secondary_x: self.secondary_x.clone(),
+            title: self.title.clone(),
+            annotations: self.annotations.clone(),
+            annotation_color: self.annotation_color,
+            contour_label_candidates: self.contour_label_candidates.clone(),
+            frame: self.frame,
+            aspect_equal: self.aspect_equal,
+            axis_visible: self.axis_visible,
+            scope: self.scope,
+            span_lines: self.span_lines.clone(),
+            span_rects: self.span_rects.clone(),
+            legend: self.legend.clone(),
+        })
+    }
+
+    /// Reconstruct an axes from its wire form during portable-figure import.
+    pub(crate) fn from_portable(
+        spec: &crate::portable::spec::AxesSpec,
+        reader: &crate::portable::data::BankReader<'_>,
+    ) -> Result<Axes, crate::portable::PortableError> {
+        Ok(Axes {
+            position: spec.position,
+            layout_envelope: spec.layout_envelope,
+            sticky_x: spec.sticky_x.clone(),
+            sticky_y: spec.sticky_y.clone(),
+            xlim: spec.xlim,
+            ylim: spec.ylim,
+            margins: spec.margins,
+            xscale: ScaleSpec::from_portable(spec.xscale),
+            yscale: ScaleSpec::from_portable(spec.yscale),
+            facecolor: spec.facecolor,
+            edgecolor: spec.edgecolor,
+            linewidth: spec.linewidth,
+            title_color: spec.title_color,
+            annotation_color: spec.annotation_color,
+            prop_cycle: spec.prop_cycle.clone(),
+            legend_facecolor: spec.legend_facecolor,
+            legend_edgecolor: spec.legend_edgecolor,
+            legend_labelcolor: spec.legend_labelcolor,
+            lines: spec
+                .lines
+                .iter()
+                .map(|l| Line2D::from_portable(l, reader))
+                .collect::<Result<_, _>>()?,
+            patches: spec
+                .patches
+                .iter()
+                .map(|p| Patch::from_portable(p, reader))
+                .collect::<Result<_, _>>()?,
+            collections: spec
+                .collections
+                .iter()
+                .map(|c| Collection::from_portable(c, reader))
+                .collect::<Result<_, _>>()?,
+            images: spec
+                .images
+                .iter()
+                .map(|i| AxesImage::from_portable(i, reader))
+                .collect::<Result<_, _>>()?,
+            meshes: spec
+                .meshes
+                .iter()
+                .map(|m| QuadMesh::from_portable(m, reader))
+                .collect::<Result<_, _>>()?,
+            contour_label_candidates: spec.contour_label_candidates.clone(),
+            extra_data_bbox: spec.extra_data_bbox,
+            xaxis: Axis::from_portable(&spec.xaxis)?,
+            yaxis: Axis::from_portable(&spec.yaxis)?,
+            xaxis_hidden: spec.xaxis_hidden,
+            xlim_link: spec.xlim_link,
+            secondary_x: spec.secondary_x.clone(),
+            title: spec.title.clone(),
+            annotations: spec.annotations.clone(),
+            frame: spec.frame,
+            aspect_equal: spec.aspect_equal,
+            axis_visible: spec.axis_visible,
+            scope: spec.scope,
+            prop_cycle_index: spec.prop_cycle_index,
+            span_lines: spec.span_lines.clone(),
+            span_rects: spec.span_rects.clone(),
+            legend: spec.legend.clone(),
+            legend_title: spec.legend_title.clone(),
+            legend_location: spec.legend_location,
+        })
+    }
 }
 
 #[cfg(test)]

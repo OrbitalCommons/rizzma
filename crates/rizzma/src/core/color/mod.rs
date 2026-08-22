@@ -199,24 +199,41 @@ impl Rgba {
 }
 
 impl serde::Serialize for Rgba {
-    /// Serialize as an `#rrggbbaa` hex string (see [`Rgba::to_hex`]).
+    /// Serialize as an `#rrggbbaa` hex string (see [`Rgba::to_hex`]) when the
+    /// channels survive 8-bit quantization exactly, and as an `[r, g, b, a]`
+    /// float array otherwise — so colors sampled from a colormap round-trip
+    /// losslessly instead of being snapped to the nearest hex value.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_hex())
+        let hex = self.to_hex();
+        if Rgba::from_hex(&hex) == Some(*self) {
+            serializer.serialize_str(&hex)
+        } else {
+            [self.r, self.g, self.b, self.a].serialize(serializer)
+        }
     }
 }
 
 impl<'de> serde::Deserialize<'de> for Rgba {
-    /// Deserialize from any hex form accepted by [`Rgba::from_hex`].
+    /// Deserialize from any hex form accepted by [`Rgba::from_hex`], or from
+    /// an `[r, g, b, a]` float array.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
-        Rgba::from_hex(&s)
-            .ok_or_else(|| serde::de::Error::custom(format!("invalid hex color: {s:?}")))
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Hex(String),
+            Channels([f64; 4]),
+        }
+        match Repr::deserialize(deserializer)? {
+            Repr::Hex(s) => Rgba::from_hex(&s)
+                .ok_or_else(|| serde::de::Error::custom(format!("invalid hex color: {s:?}"))),
+            Repr::Channels([r, g, b, a]) => Ok(Rgba { r, g, b, a }),
+        }
     }
 }
 

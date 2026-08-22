@@ -198,6 +198,46 @@ impl Artist for Line2D {
     }
 }
 
+#[cfg(feature = "portable")]
+impl Line2D {
+    /// Flatten this line into its wire form, banking the data as accessors.
+    pub(crate) fn to_portable(
+        &self,
+        bank: &mut crate::portable::data::BankWriter,
+    ) -> crate::portable::spec::LineSpec {
+        crate::portable::spec::LineSpec {
+            x: bank.push_f64(&self.xdata),
+            y: bank.push_f64(&self.ydata),
+            color: self.color,
+            linewidth: self.linewidth,
+            dashes: self.dashes.clone(),
+            cap: self.cap,
+            join: self.join,
+            visible: self.visible,
+            zorder: self.zorder,
+            label: None,
+        }
+    }
+
+    /// Reconstruct a line from its wire form during portable-figure import.
+    pub(crate) fn from_portable(
+        spec: &crate::portable::spec::LineSpec,
+        reader: &crate::portable::data::BankReader<'_>,
+    ) -> Result<Line2D, crate::portable::PortableError> {
+        Ok(Line2D {
+            xdata: reader.f64s(&spec.x)?,
+            ydata: reader.f64s(&spec.y)?,
+            color: spec.color,
+            linewidth: spec.linewidth,
+            dashes: spec.dashes.clone(),
+            cap: spec.cap,
+            join: spec.join,
+            visible: spec.visible,
+            zorder: spec.zorder,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

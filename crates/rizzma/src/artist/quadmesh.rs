@@ -356,6 +356,76 @@ impl Artist for QuadMesh {
     }
 }
 
+#[cfg(feature = "portable")]
+impl QuadMesh {
+    /// Flatten this mesh into its wire form, banking the grid corners as an
+    /// accessor.
+    pub(crate) fn to_portable(
+        &self,
+        bank: &mut crate::portable::data::BankWriter,
+    ) -> crate::portable::spec::QuadMeshSpec {
+        crate::portable::spec::QuadMeshSpec {
+            nrows: self.nrows,
+            ncols: self.ncols,
+            coordinates: bank.push_pairs(&self.coordinates),
+            facecolors: self.facecolors.clone(),
+            vertex_colors: self.vertex_colors.clone(),
+            edgecolor: self.edgecolor,
+            linewidth: self.linewidth,
+            zorder: self.zorder,
+            visible: self.visible,
+            label: None,
+        }
+    }
+
+    /// Reconstruct a mesh from its wire form during portable-figure import.
+    pub(crate) fn from_portable(
+        spec: &crate::portable::spec::QuadMeshSpec,
+        reader: &crate::portable::data::BankReader<'_>,
+    ) -> Result<QuadMesh, crate::portable::PortableError> {
+        let coordinates = reader.pairs(&spec.coordinates)?;
+        let corners = spec
+            .nrows
+            .checked_add(1)
+            .and_then(|r| spec.ncols.checked_add(1).and_then(|c| r.checked_mul(c)));
+        if corners != Some(coordinates.len()) {
+            return Err(crate::portable::PortableError::Malformed(format!(
+                "mesh declares {}x{} cells but carries {} corner points",
+                spec.nrows,
+                spec.ncols,
+                coordinates.len()
+            )));
+        }
+        let cells = spec.nrows * spec.ncols;
+        if spec.facecolors.len() != cells {
+            return Err(crate::portable::PortableError::Malformed(format!(
+                "mesh declares {cells} cells but carries {} face colors",
+                spec.facecolors.len()
+            )));
+        }
+        if let Some(vertex_colors) = &spec.vertex_colors
+            && vertex_colors.len() != coordinates.len()
+        {
+            return Err(crate::portable::PortableError::Malformed(format!(
+                "mesh has {} corners but {} vertex colors",
+                coordinates.len(),
+                vertex_colors.len()
+            )));
+        }
+        Ok(QuadMesh {
+            nrows: spec.nrows,
+            ncols: spec.ncols,
+            coordinates,
+            facecolors: spec.facecolors.clone(),
+            vertex_colors: spec.vertex_colors.clone(),
+            edgecolor: spec.edgecolor,
+            linewidth: spec.linewidth,
+            zorder: spec.zorder,
+            visible: spec.visible,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -48,18 +48,18 @@
 //!
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
-mod axes;
-mod colorbar;
+pub(crate) mod axes;
+pub(crate) mod colorbar;
 pub mod event;
 #[allow(clippy::module_inception)]
 mod figure;
 mod gridspec;
 pub(crate) mod interact;
-mod legend;
+pub(crate) mod legend;
 mod plotting;
 mod plotting_area;
 mod plotting_box;
-mod plotting_contour;
+pub(crate) mod plotting_contour;
 mod plotting_contourf;
 mod plotting_grouped_bar;
 mod plotting_hexbin;
