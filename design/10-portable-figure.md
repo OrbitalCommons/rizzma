@@ -704,6 +704,12 @@ a separately retained derivative can degrade to poster-only; everything else abo
 "later" depends on retaining the original. That should be stated honestly
 wherever this format is pitched.
 
+> **When this caveat may be removed:** only once a host's durable-artifact path
+> is merged *and* the deployed default — not when it is designed, and not when it
+> is available behind a flag. Until then this paragraph describes current
+> behavior, and deleting it early would make the doc describe an intention rather
+> than a system.
+
 ## 12c. The workload this has to survive
 
 Real numbers from the agent-portal review, because sizing the runtime against a
