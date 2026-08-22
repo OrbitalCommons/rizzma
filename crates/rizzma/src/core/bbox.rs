@@ -201,6 +201,27 @@ impl Bbox {
     }
 }
 
+impl serde::Serialize for Bbox {
+    /// Serialize as the corner array `[x0, y0, x1, y1]`.
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        [self.x0, self.y0, self.x1, self.y1].serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Bbox {
+    /// Deserialize from the corner array `[x0, y0, x1, y1]`.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let [x0, y0, x1, y1] = <[f64; 4]>::deserialize(deserializer)?;
+        Ok(Bbox::from_extents(x0, y0, x1, y1))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

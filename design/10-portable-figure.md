@@ -1,6 +1,8 @@
 # 10 — Portable figure: a self-describing artifact that renders itself into a canvas
 
-Status: **proposed** — design for [#287](https://github.com/OrbitalCommons/rizzma/issues/287).
+Status: **P0 implemented** (`crate::portable`, feature `portable`, default-on);
+P1–P3 scoped below. Design for
+[#287](https://github.com/OrbitalCommons/rizzma/issues/287).
 Companion docs: `06-wasm-interactive-plan.md` (charter), `09-show-browser.md` (whose
 Phase 3 "scene transport" this subsumes). Size numbers below are measured on `main`
 (1.6.2); method in the issue's size-breakdown comment.
@@ -264,14 +266,22 @@ existing rAF-coalesced redraw underneath. The mount handle (§6) exposes
 
 ```rust
 impl Figure {
-    pub fn to_portable(&self, cfg: &PortableConfig) -> Result<Vec<u8>, PortableError>;
-    pub fn save_portable(&self, path: impl AsRef<Path>, cfg: &PortableConfig) -> …;
+    // P0, shipped — the linked profile is the only profile, so no config yet.
+    pub fn to_portable(&self) -> Result<Vec<u8>, PortableError>;
+    pub fn save_portable(&self, path: impl AsRef<Path>) -> Result<(), PortableError>;
     pub fn from_portable(bytes: &[u8]) -> Result<Figure, PortableError>;
+
+    // P2, when there is a second profile to choose and a reason to tune.
+    pub fn to_portable_with(&self, cfg: &PortableConfig) -> Result<Vec<u8>, PortableError>;
     pub fn save_html(&self, path: impl AsRef<Path>) -> …;  // self-contained + loader
 }
 pub struct PortableConfig { profile: Profile /* Linked | SelfContained */,
                             quantize_f32: bool, /* … */ }
 ```
+
+Deferring `PortableConfig` to P2 keeps the P0 surface honest: a config struct
+whose every field is a no-op is worse documentation than no config at all, and
+adding the argument later as `to_portable_with` leaves the common call untouched.
 
 `from_portable` on native is not decoration: it makes the whole format testable
 without a browser, the same native-testable-core discipline `wasm/mod.rs` already
@@ -437,13 +447,42 @@ Actions, kept out of the artifact-format work so each lands independently:
 
 | phase | delivers | schema |
 |---|---|---|
-| **P0** | `crate::portable` wire model + container + native `to/from_portable` + golden identity & rejection tests | 1 |
+| **P0** ✅ | `crate::portable` wire model + container + native `to/from_portable` + golden identity & rejection tests | 1 |
 | **P1** | `WasmFigure::from_portable`, `rizzma-mount.js`, hashed runtime publishing; linked profile end-to-end (agent-portal, docs) | 1 |
 | **P2** | self-contained profile (`WASM` chunk), `save_html`, size program (§11) | 1 |
 | **P3** | timeline + shared clock/scrub UI; font subsetting with alphabet closure + `FONT` chunk | 2 |
 
 P0 is pure native Rust — no browser, no JS — and already proves the hard 80%:
 the wire model, strictness, and pixel-identity.
+
+### What P0 shipped, and where it deviated
+
+- `Figure::to_portable` / `save_portable` / `from_portable` behind the default-on
+  `portable` feature, with `PortableError` re-exported at the crate root.
+- The wire model lives in `portable::spec`, kept **private**. The public
+  `Scale`/`Locator`/`Formatter` traits gained a `portable_spec()` hook returning
+  an opaque `PortableScale`/`PortableLocator`/`PortableFormatter` newtype that
+  only rizzma's built-ins can construct. A third-party implementation returns
+  the default `None` and export fails loudly — the same rule as `FuncFormatter`,
+  now enforced by the type system rather than by convention. This keeps the
+  schema free to change through P1–P3 instead of freezing it as public API.
+- **Golden identity runs over a purpose-built fixture set** (one figure per
+  artist, scale, and decoration) rather than the gallery: `examples/gallery.rs`
+  is a `main()` that writes PNGs, not a reusable figure library. If the gallery
+  is ever refactored into named builders, point the test at it instead.
+- The `f32` quantization option (§14.2) is not implemented; every accessor is
+  `f64` (plus `u8` for path codes). Nothing in the format prevents adding it.
+
+### One finding worth carrying forward
+
+`serde_json` does not round-trip `f64` by default: `0.10999999999999999`
+serializes and parses back one ULP off, so a re-exported artifact silently
+differed from its original. Its `float_roundtrip` feature is therefore
+**load-bearing** for the §10 determinism guarantee, and
+`portable::tests::json_scalars_round_trip_bit_exactly` pins it so a future
+dependency cleanup cannot quietly drop it. The lesson generalizes: JSON is safe
+for *structure*, and every number that must be exact — not only the bulk arrays
+§4.4 already moved — depends on the codec being correctly rounded.
 
 ## 13. Explicit non-goals
 

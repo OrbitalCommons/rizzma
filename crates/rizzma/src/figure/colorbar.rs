@@ -30,6 +30,8 @@ const TICK_LEN: f64 = 4.0;
 const TICK_GAP: f64 = 3.0;
 
 /// A registered colorbar: a colormap mapped over a data range.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Colorbar {
     /// The name of the colormap to sample (e.g. `"viridis"`).
     cmap_name: String,

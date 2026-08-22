@@ -17,7 +17,8 @@ use crate::figure::Axes;
 const DEFAULT_N_LEVELS: usize = 7;
 
 /// A removable contour segment selected as the label position for one level.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ContourLabelCandidate {
     pub(crate) line_index: usize,
     pub(crate) position: (f64, f64),

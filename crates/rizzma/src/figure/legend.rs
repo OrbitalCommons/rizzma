@@ -12,7 +12,8 @@ use crate::text::FontSource;
 use crate::figure::axes::Axes;
 
 /// A single legend row: a color swatch paired with a label.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct LegendEntry {
     /// The color of the line sample drawn beside the label.
     pub(crate) color: Rgba,
@@ -21,7 +22,8 @@ pub(crate) struct LegendEntry {
 }
 
 /// Corner of an axes in which a legend is placed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LegendLocation {
     /// Top-right corner (the default).
     #[default]

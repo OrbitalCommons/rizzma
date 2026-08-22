@@ -517,6 +517,82 @@ fn point_line_distance(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
     cross.abs() / len2.sqrt()
 }
 
+/// The wire byte for a [`PathCode`], matching matplotlib's `Path` code values
+/// (`MOVETO = 1` … `CLOSEPOLY = 79`).
+#[cfg(feature = "portable")]
+fn code_to_u8(code: PathCode) -> u8 {
+    match code {
+        PathCode::MoveTo => 1,
+        PathCode::LineTo => 2,
+        PathCode::CurveTo3 => 3,
+        PathCode::CurveTo4 => 4,
+        PathCode::ClosePoly => 79,
+    }
+}
+
+/// Inverse of [`code_to_u8`]; unknown bytes are a malformed artifact.
+#[cfg(feature = "portable")]
+fn u8_to_code(byte: u8) -> Result<PathCode, crate::portable::PortableError> {
+    Ok(match byte {
+        1 => PathCode::MoveTo,
+        2 => PathCode::LineTo,
+        3 => PathCode::CurveTo3,
+        4 => PathCode::CurveTo4,
+        79 => PathCode::ClosePoly,
+        other => {
+            return Err(crate::portable::PortableError::Malformed(format!(
+                "unknown path code byte {other}"
+            )));
+        }
+    })
+}
+
+#[cfg(feature = "portable")]
+impl Path {
+    /// Flatten this path into its wire form, banking vertices (and codes) as
+    /// binary accessors.
+    pub(crate) fn to_portable(
+        &self,
+        bank: &mut crate::portable::data::BankWriter,
+    ) -> crate::portable::spec::PathSpec {
+        crate::portable::spec::PathSpec {
+            verts: bank.push_pairs(&self.vertices),
+            codes: self.codes.as_ref().map(|codes| {
+                let bytes: Vec<u8> = codes.iter().map(|&c| code_to_u8(c)).collect();
+                bank.push_u8(&bytes)
+            }),
+        }
+    }
+
+    /// Reconstruct a path from its wire form during portable-figure import.
+    pub(crate) fn from_portable(
+        spec: &crate::portable::spec::PathSpec,
+        reader: &crate::portable::data::BankReader<'_>,
+    ) -> Result<Path, crate::portable::PortableError> {
+        let vertices = reader.pairs(&spec.verts)?;
+        let codes = match &spec.codes {
+            None => None,
+            Some(arr) => {
+                let bytes = reader.u8s(arr)?;
+                if bytes.len() != vertices.len() {
+                    return Err(crate::portable::PortableError::Malformed(format!(
+                        "path has {} vertices but {} codes",
+                        vertices.len(),
+                        bytes.len()
+                    )));
+                }
+                Some(
+                    bytes
+                        .into_iter()
+                        .map(u8_to_code)
+                        .collect::<Result<Vec<_>, _>>()?,
+                )
+            }
+        };
+        Ok(Path { vertices, codes })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

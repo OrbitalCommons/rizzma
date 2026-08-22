@@ -244,6 +244,46 @@ impl Artist for Collection {
     }
 }
 
+#[cfg(feature = "portable")]
+impl Collection {
+    /// Flatten this collection into its wire form, banking bulk data as
+    /// accessors.
+    pub(crate) fn to_portable(
+        &self,
+        bank: &mut crate::portable::data::BankWriter,
+    ) -> crate::portable::spec::CollectionSpec {
+        crate::portable::spec::CollectionSpec {
+            offsets: bank.push_pairs(&self.offsets),
+            marker: self.marker.to_portable(bank),
+            sizes: bank.push_f64(&self.sizes),
+            facecolors: self.facecolors.clone(),
+            edgecolors: self.edgecolors.clone(),
+            linewidth: self.linewidth,
+            visible: self.visible,
+            zorder: self.zorder,
+            label: None,
+        }
+    }
+
+    /// Reconstruct a collection from its wire form during portable-figure
+    /// import.
+    pub(crate) fn from_portable(
+        spec: &crate::portable::spec::CollectionSpec,
+        reader: &crate::portable::data::BankReader<'_>,
+    ) -> Result<Collection, crate::portable::PortableError> {
+        Ok(Collection {
+            offsets: reader.pairs(&spec.offsets)?,
+            marker: Path::from_portable(&spec.marker, reader)?,
+            sizes: reader.f64s(&spec.sizes)?,
+            facecolors: spec.facecolors.clone(),
+            edgecolors: spec.edgecolors.clone(),
+            linewidth: spec.linewidth,
+            visible: spec.visible,
+            zorder: spec.zorder,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

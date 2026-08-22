@@ -54,6 +54,9 @@
 //! - [`FormatStrFormatter`] — a `%`-style numeric format string.
 //! - [`StrMethodFormatter`] — a `{x}`/`{pos}` template string.
 
+use crate::portable::spec::{FormatterSpec, LocatorSpec};
+use crate::portable::{PortableFormatter, PortableLocator};
+
 /// Determine tick locations for an axis.
 ///
 /// This is the Rust analogue of matplotlib's `Locator` base class. The core
@@ -71,6 +74,16 @@ pub trait Locator: Send + Sync {
     /// The default implementation returns the range unchanged.
     fn view_limits(&self, vmin: f64, vmax: f64) -> (f64, f64) {
         (vmin, vmax)
+    }
+
+    /// The closed wire form of this locator for portable-figure export, or
+    /// `None` when the locator has no wire representation (in which case
+    /// export fails loudly rather than substitute a different locator).
+    ///
+    /// Only rizzma's built-in locators can construct a [`PortableLocator`], so
+    /// the default — correct for any third-party implementation — is `None`.
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        None
     }
 }
 
@@ -94,6 +107,18 @@ pub trait Formatter: Send + Sync {
             .enumerate()
             .map(|(i, &value)| self.format(value, Some(i)))
             .collect()
+    }
+
+    /// The closed wire form of this formatter for portable-figure export, or
+    /// `None` when the formatter cannot be represented on the wire (a
+    /// [`FuncFormatter`] closure), in which case export fails loudly rather
+    /// than substitute a formatter that labels ticks differently.
+    ///
+    /// Only rizzma's built-in formatters can construct a
+    /// [`PortableFormatter`], so the default — correct for any third-party
+    /// implementation — is `None`.
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        None
     }
 }
 
@@ -243,7 +268,8 @@ pub enum NBins {
 /// This mirrors matplotlib's `prune` option: when an edge tick lands exactly on
 /// the view limit, it can be suppressed to avoid duplicate labels on stacked or
 /// shared axes.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TickPrune {
     /// Keep all ticks.
     #[default]
@@ -502,6 +528,20 @@ impl MaxNLocator {
 }
 
 impl Locator for MaxNLocator {
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::MaxN {
+            nbins: match self.nbins {
+                NBins::Auto => None,
+                NBins::Fixed(n) => Some(n),
+            },
+            extended_steps: self.extended_steps.clone(),
+            integer: self.integer,
+            symmetric: self.symmetric,
+            min_n_ticks: self.min_n_ticks,
+            prune: self.prune,
+        }))
+    }
+
     fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
         let (mut vmin, mut vmax) = (vmin, vmax);
         if self.symmetric {
@@ -561,6 +601,10 @@ impl Default for AutoLocator {
 }
 
 impl Locator for AutoLocator {
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::Auto))
+    }
+
     fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
         self.inner.tick_values(vmin, vmax)
     }
@@ -678,6 +722,12 @@ impl Default for AutoMinorLocator {
 }
 
 impl Locator for AutoMinorLocator {
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::AutoMinor {
+            subdivisions: self.subdivisions,
+        }))
+    }
+
     fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
         let (lo, hi) = if vmax < vmin {
             (vmax, vmin)
@@ -754,6 +804,13 @@ impl Default for MultipleLocator {
 }
 
 impl Locator for MultipleLocator {
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::Multiple {
+            step: self.edge.step,
+            offset: self.offset,
+        }))
+    }
+
     fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
         let (mut vmin, mut vmax) = (vmin, vmax);
         if vmax < vmin {
@@ -806,6 +863,12 @@ impl Default for LinearLocator {
 }
 
 impl Locator for LinearLocator {
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::LinearN {
+            numticks: self.numticks,
+        }))
+    }
+
     fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
         let (vmin, vmax) = nonsingular(vmin, vmax, 0.05, 1e-15, true);
         if self.numticks == 0 {
@@ -878,6 +941,13 @@ impl FixedLocator {
 }
 
 impl Locator for FixedLocator {
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::Fixed {
+            locs: self.locs.clone(),
+            nbins: self.nbins,
+        }))
+    }
+
     fn tick_values(&self, _vmin: f64, _vmax: f64) -> Vec<f64> {
         let nbins = match self.nbins {
             None => return self.locs.clone(),
@@ -982,6 +1052,13 @@ impl Default for LogLocator {
 }
 
 impl Locator for LogLocator {
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::Log {
+            base: self.base,
+            subs: self.subs.clone(),
+        }))
+    }
+
     fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
         if !vmin.is_finite() || !vmax.is_finite() || vmin <= 0.0 || vmax <= 0.0 {
             return Vec::new();
@@ -1105,6 +1182,14 @@ impl Default for SymlogLocator {
 }
 
 impl Locator for SymlogLocator {
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::Symlog {
+            base: self.base,
+            linthresh: self.linthresh,
+            linear_ticks: self.linear_ticks,
+        }))
+    }
+
     fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
         if !vmin.is_finite() || !vmax.is_finite() {
             return Vec::new();
@@ -1249,6 +1334,14 @@ impl Default for AsinhLocator {
 }
 
 impl Locator for AsinhLocator {
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::Asinh {
+            base: self.base,
+            linear_width: self.linear_width,
+            linear_ticks: self.linear_ticks,
+        }))
+    }
+
     fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
         if !vmin.is_finite() || !vmax.is_finite() {
             return Vec::new();
@@ -1367,6 +1460,12 @@ impl Default for LogitLocator {
 }
 
 impl Locator for LogitLocator {
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::Logit {
+            max_exponent: self.max_exponent,
+        }))
+    }
+
     fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
         if !vmin.is_finite() || !vmax.is_finite() || vmin <= 0.0 || vmax >= 1.0 {
             return Vec::new();
@@ -1462,6 +1561,13 @@ impl IndexLocator {
 }
 
 impl Locator for IndexLocator {
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::Index {
+            base: self.base,
+            offset: self.offset,
+        }))
+    }
+
     fn tick_values(&self, vmin: f64, vmax: f64) -> Vec<f64> {
         if !vmin.is_finite() || !vmax.is_finite() {
             return Vec::new();
@@ -1502,6 +1608,10 @@ pub struct NullLocator;
 impl Locator for NullLocator {
     fn tick_values(&self, _vmin: f64, _vmax: f64) -> Vec<f64> {
         Vec::new()
+    }
+
+    fn portable_spec(&self) -> Option<PortableLocator> {
+        Some(PortableLocator(LocatorSpec::Null))
     }
 }
 
@@ -1581,6 +1691,12 @@ impl Default for ScalarFormatter {
 }
 
 impl Formatter for ScalarFormatter {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::Scalar {
+            decimals: self.have_format.then_some(self.decimals),
+        }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         // Matplotlib rounds tiny values to exactly zero before formatting.
         let v = if value.abs() < 1e-8 { 0.0 } else { value };
@@ -1714,6 +1830,10 @@ impl Default for LogFormatter {
 }
 
 impl Formatter for LogFormatter {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::Log { base: self.base }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         let Some(exponent) = self.exponent(value) else {
             return String::new();
@@ -1758,6 +1878,12 @@ impl Default for LogFormatterMathtext {
 }
 
 impl Formatter for LogFormatterMathtext {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::LogMathtext {
+            base: self.inner.base,
+        }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         let Some(exponent) = self.inner.exponent(value) else {
             return String::new();
@@ -1832,6 +1958,13 @@ impl Default for SymlogFormatter {
 }
 
 impl Formatter for SymlogFormatter {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::Symlog {
+            base: self.base,
+            linthresh: self.linthresh,
+        }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         if !value.is_finite() {
             return String::new();
@@ -1896,6 +2029,13 @@ impl Default for SymlogFormatterMathtext {
 }
 
 impl Formatter for SymlogFormatterMathtext {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::SymlogMathtext {
+            base: self.inner.base,
+            linthresh: self.inner.linthresh,
+        }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         if !value.is_finite() {
             return String::new();
@@ -1987,6 +2127,13 @@ impl Default for AsinhFormatter {
 }
 
 impl Formatter for AsinhFormatter {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::Asinh {
+            base: self.base,
+            linear_width: self.linear_width,
+        }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         if !value.is_finite() {
             return String::new();
@@ -2052,6 +2199,13 @@ impl Default for AsinhFormatterMathtext {
 }
 
 impl Formatter for AsinhFormatterMathtext {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::AsinhMathtext {
+            base: self.inner.base,
+            linear_width: self.inner.linear_width,
+        }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         if !value.is_finite() {
             return String::new();
@@ -2151,6 +2305,12 @@ impl Default for LogitFormatter {
 }
 
 impl Formatter for LogitFormatter {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::Logit {
+            max_exponent: self.max_exponent,
+        }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         if !value.is_finite() {
             return String::new();
@@ -2216,6 +2376,12 @@ impl Default for LogitFormatterMathtext {
 }
 
 impl Formatter for LogitFormatterMathtext {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::LogitMathtext {
+            max_exponent: self.inner.max_exponent,
+        }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         if !value.is_finite() {
             return String::new();
@@ -2333,6 +2499,14 @@ impl Default for EngFormatter {
 }
 
 impl Formatter for EngFormatter {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::Eng {
+            unit: self.unit.clone(),
+            places: self.places,
+            separator: self.separator.clone(),
+        }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         if !value.is_finite() {
             return String::new();
@@ -2442,6 +2616,14 @@ impl Default for PercentFormatter {
 }
 
 impl Formatter for PercentFormatter {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::Percent {
+            xmax: self.xmax,
+            decimals: self.decimals,
+            symbol: self.symbol.clone(),
+        }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         if !value.is_finite() {
             return String::new();
@@ -2475,6 +2657,10 @@ pub struct NullFormatter;
 impl Formatter for NullFormatter {
     fn format(&self, _value: f64, _pos: Option<usize>) -> String {
         String::new()
+    }
+
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::Null))
     }
 }
 
@@ -2512,6 +2698,12 @@ impl FixedFormatter {
 }
 
 impl Formatter for FixedFormatter {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::Fixed {
+            seq: self.seq.clone(),
+        }))
+    }
+
     fn format(&self, _value: f64, pos: Option<usize>) -> String {
         match pos {
             Some(p) if p < self.seq.len() => self.seq[p].clone(),
@@ -2556,6 +2748,12 @@ impl IndexFormatter {
 }
 
 impl Formatter for IndexFormatter {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::Index {
+            labels: self.labels.clone(),
+        }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         if !value.is_finite() {
             return String::new();
@@ -2630,6 +2828,12 @@ impl Default for FormatStrFormatter {
 }
 
 impl Formatter for FormatStrFormatter {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::FormatStr {
+            fmt: self.fmt.clone(),
+        }))
+    }
+
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
         format_percent_template(&self.fmt, value)
     }
@@ -2856,6 +3060,12 @@ impl Default for StrMethodFormatter {
 }
 
 impl Formatter for StrMethodFormatter {
+    fn portable_spec(&self) -> Option<PortableFormatter> {
+        Some(PortableFormatter(FormatterSpec::StrMethod {
+            fmt: self.fmt.clone(),
+        }))
+    }
+
     fn format(&self, value: f64, pos: Option<usize>) -> String {
         format_str_method_template(&self.fmt, value, pos)
     }
@@ -2955,6 +3165,157 @@ fn format_brace_integer(value: usize, spec: &str) -> Option<String> {
             Some(format_percent_value(value as f64, percent))
         }
         _ => None,
+    }
+}
+
+#[cfg(feature = "portable")]
+impl crate::portable::spec::LocatorSpec {
+    /// Reconstruct the boxed [`Locator`] this wire form describes.
+    ///
+    /// Values that would trip a constructor assertion (a non-positive multiple
+    /// step, a log base of one) are rejected as
+    /// [`Malformed`](crate::portable::PortableError::Malformed) so a hostile
+    /// artifact cannot panic the importer.
+    pub(crate) fn into_locator(self) -> Result<Box<dyn Locator>, crate::portable::PortableError> {
+        use crate::portable::PortableError;
+        use crate::portable::spec::LocatorSpec as L;
+        Ok(match self {
+            L::MaxN {
+                nbins,
+                extended_steps,
+                integer,
+                symmetric,
+                min_n_ticks,
+                prune,
+            } => Box::new(MaxNLocator {
+                nbins: nbins.map_or(NBins::Auto, NBins::Fixed),
+                extended_steps,
+                integer,
+                symmetric,
+                min_n_ticks: min_n_ticks.max(1),
+                prune,
+            }),
+            L::Auto => Box::new(AutoLocator::new()),
+            L::AutoMinor { subdivisions } => Box::new(AutoMinorLocator { subdivisions }),
+            L::Multiple { step, offset } => {
+                if !(step.is_finite() && step > 0.0) {
+                    return Err(PortableError::Malformed(
+                        "multiple locator step must be finite and > 0".to_string(),
+                    ));
+                }
+                Box::new(MultipleLocator::with_offset(step, offset))
+            }
+            L::LinearN { numticks } => Box::new(LinearLocator::new(numticks)),
+            L::Fixed { locs, nbins } => Box::new(FixedLocator { locs, nbins }),
+            L::Log { base, subs } => {
+                if !(base.is_finite() && base > 1.0) {
+                    return Err(PortableError::Malformed(
+                        "log locator base must be finite and > 1".to_string(),
+                    ));
+                }
+                Box::new(LogLocator::with_subs(base, subs))
+            }
+            L::Symlog {
+                base,
+                linthresh,
+                linear_ticks,
+            } => {
+                if !(base.is_finite() && base > 1.0 && linthresh.is_finite() && linthresh > 0.0) {
+                    return Err(PortableError::Malformed(
+                        "symlog locator needs base > 1 and linthresh > 0".to_string(),
+                    ));
+                }
+                Box::new(SymlogLocator::with_linear_ticks(
+                    base,
+                    linthresh,
+                    linear_ticks,
+                ))
+            }
+            L::Asinh {
+                base,
+                linear_width,
+                linear_ticks,
+            } => {
+                if !(base.is_finite()
+                    && base > 1.0
+                    && linear_width.is_finite()
+                    && linear_width > 0.0)
+                {
+                    return Err(PortableError::Malformed(
+                        "asinh locator needs base > 1 and linear_width > 0".to_string(),
+                    ));
+                }
+                Box::new(AsinhLocator::with_linear_ticks(
+                    base,
+                    linear_width,
+                    linear_ticks,
+                ))
+            }
+            L::Logit { max_exponent } => Box::new(LogitLocator::with_max_exponent(max_exponent)),
+            L::Index { base, offset } => Box::new(IndexLocator::new(base, offset)),
+            L::Null => Box::new(NullLocator),
+            L::AutoDate { maxticks } => {
+                Box::new(crate::axis::dates::AutoDateLocator::with_maxticks(maxticks))
+            }
+            L::AutoDateMinor { maxticks } => Box::new(
+                crate::axis::dates::AutoDateMinorLocator::with_maxticks(maxticks),
+            ),
+        })
+    }
+}
+
+#[cfg(feature = "portable")]
+impl crate::portable::spec::FormatterSpec {
+    /// Reconstruct the boxed [`Formatter`] this wire form describes.
+    pub(crate) fn into_formatter(self) -> Box<dyn Formatter> {
+        use crate::portable::spec::FormatterSpec as F;
+        match self {
+            F::Scalar { decimals } => Box::new(match decimals {
+                Some(decimals) => ScalarFormatter::with_decimals(decimals),
+                None => ScalarFormatter::new(),
+            }),
+            F::Log { base } => Box::new(LogFormatter { base }),
+            F::LogMathtext { base } => Box::new(LogFormatterMathtext {
+                inner: LogFormatter { base },
+            }),
+            F::Symlog { base, linthresh } => Box::new(SymlogFormatter { base, linthresh }),
+            F::SymlogMathtext { base, linthresh } => Box::new(SymlogFormatterMathtext {
+                inner: SymlogFormatter { base, linthresh },
+            }),
+            F::Asinh { base, linear_width } => Box::new(AsinhFormatter { base, linear_width }),
+            F::AsinhMathtext { base, linear_width } => Box::new(AsinhFormatterMathtext {
+                inner: AsinhFormatter { base, linear_width },
+            }),
+            F::Logit { max_exponent } => Box::new(LogitFormatter { max_exponent }),
+            F::LogitMathtext { max_exponent } => Box::new(LogitFormatterMathtext {
+                inner: LogitFormatter { max_exponent },
+            }),
+            F::Eng {
+                unit,
+                places,
+                separator,
+            } => Box::new(EngFormatter {
+                unit,
+                places,
+                separator,
+            }),
+            F::Percent {
+                xmax,
+                decimals,
+                symbol,
+            } => Box::new(PercentFormatter {
+                xmax,
+                decimals,
+                symbol,
+            }),
+            F::Null => Box::new(NullFormatter),
+            F::Fixed { seq } => Box::new(FixedFormatter { seq }),
+            F::Index { labels } => Box::new(IndexFormatter { labels }),
+            F::FormatStr { fmt } => Box::new(FormatStrFormatter { fmt }),
+            F::StrMethod { fmt } => Box::new(StrMethodFormatter { fmt }),
+            F::Date { fmt } => Box::new(crate::axis::dates::DateFormatter::new(fmt)),
+            F::ConciseDate => Box::new(crate::axis::dates::ConciseDateFormatter::new()),
+        }
     }
 }
 

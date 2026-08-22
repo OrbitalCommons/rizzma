@@ -14,6 +14,8 @@
 
 use crate::core::rcparams::RcParams;
 use crate::core::{Bbox, color::Rgba};
+#[cfg(feature = "portable")]
+use crate::portable::PortableError;
 use crate::render::Renderer;
 use crate::skia::{PngError, SkiaRenderer};
 use crate::text::FontSource;
@@ -548,6 +550,131 @@ impl Figure {
     /// Returns an [`std::io::Error`] if writing the file fails.
     pub fn save_pdf<P: AsRef<std::path::Path>>(&self, path: P) -> std::io::Result<()> {
         std::fs::write(path, self.to_pdf())
+    }
+
+    /// Serialize this figure to a **portable figure** (`.riz`): the semantic
+    /// model — axes, artists, data, and rcparams — in a chunked binary
+    /// container, from which [`Figure::from_portable`] reconstructs an
+    /// identical figure.
+    ///
+    /// Unlike PNG/SVG/PDF export, which flattens the figure to geometry, this
+    /// carries the *data*, so a consumer can re-run layout and rasterization
+    /// from it — the prerequisite for pan, zoom, and resolution independence
+    /// away from the process that built the figure. See
+    /// `design/10-portable-figure.md`.
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    ///
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0, 2.0], &[0.0, 1.0, 4.0]);
+    ///
+    /// let bytes = fig.to_portable()?;
+    /// let restored = Figure::from_portable(&bytes)?;
+    /// // The round trip is pixel-exact, not merely similar.
+    /// assert_eq!(restored.encode_png()?, fig.encode_png()?);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PortableError::Unsupported`] if the figure holds state with
+    /// no wire form — today, only a
+    /// [`FuncFormatter`](crate::axis::ticker::FuncFormatter) on an axis, whose
+    /// tick labels come from a Rust closure. Export refuses rather than
+    /// silently substitute a formatter that labels ticks differently.
+    #[cfg(feature = "portable")]
+    pub fn to_portable(&self) -> Result<Vec<u8>, PortableError> {
+        let mut bank = crate::portable::data::BankWriter::new();
+        let axes = self
+            .axes
+            .iter()
+            .map(|ax| ax.to_portable(&mut bank))
+            .collect::<Result<Vec<_>, _>>()?;
+        let spec = crate::portable::spec::PortableSpec {
+            schema: crate::portable::SCHEMA_VERSION,
+            generator: crate::portable::spec::GeneratorSpec {
+                rizzma: env!("CARGO_PKG_VERSION").to_string(),
+            },
+            renderer: crate::portable::spec::RendererSpec {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                sha256: None,
+            },
+            figure: crate::portable::spec::FigureSpec {
+                width_in: self.width_in,
+                height_in: self.height_in,
+                dpi: self.dpi,
+                facecolor: self.facecolor,
+                rc: self.rc.clone(),
+                suptitle: self.suptitle.clone(),
+                suptitle_color: self.suptitle_color,
+                axes,
+                colorbars: self.colorbars.clone(),
+            },
+            accessors: bank.accessors.clone(),
+        };
+        let json = serde_json::to_vec(&spec)?;
+        Ok(crate::portable::container::write(&json, &bank.bytes))
+    }
+
+    /// Write this figure to `path` as a portable figure (`.riz`).
+    ///
+    /// # Errors
+    ///
+    /// As [`Figure::to_portable`], plus [`PortableError::Io`] if writing the
+    /// file fails.
+    #[cfg(feature = "portable")]
+    pub fn save_portable<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), PortableError> {
+        std::fs::write(path, self.to_portable()?)?;
+        Ok(())
+    }
+
+    /// Reconstruct a figure from portable-figure bytes produced by
+    /// [`Figure::to_portable`].
+    ///
+    /// Import is strict: unknown fields, unknown enum variants, a schema
+    /// version this build does not support, malformed chunks, out-of-bounds
+    /// accessors, and inconsistent array lengths are all errors. A figure that
+    /// silently dropped an artist would be a scientifically wrong figure, so
+    /// nothing is skipped or best-guessed.
+    ///
+    /// # Errors
+    ///
+    /// [`PortableError::Malformed`], [`PortableError::Schema`], or
+    /// [`PortableError::Json`] depending on how the artifact is invalid.
+    #[cfg(feature = "portable")]
+    pub fn from_portable(bytes: &[u8]) -> Result<Figure, PortableError> {
+        let (json, bin) = crate::portable::container::read(bytes)?;
+        let spec: crate::portable::spec::PortableSpec = serde_json::from_slice(json)?;
+        if spec.schema < crate::portable::SCHEMA_MIN
+            || spec.schema > crate::portable::SCHEMA_VERSION
+        {
+            return Err(PortableError::Schema {
+                found: spec.schema,
+                min: crate::portable::SCHEMA_MIN,
+                max: crate::portable::SCHEMA_VERSION,
+            });
+        }
+        let reader = crate::portable::data::BankReader::new(bin, &spec.accessors);
+        let fig = spec.figure;
+        Ok(Figure {
+            width_in: fig.width_in,
+            height_in: fig.height_in,
+            dpi: fig.dpi,
+            facecolor: fig.facecolor,
+            rc: fig.rc,
+            // Text renders from the embedded face on every target; carrying a
+            // subsetted font in the artifact is phase P3 of design/10.
+            font: FontSource::dejavu_sans(),
+            axes: fig
+                .axes
+                .iter()
+                .map(|ax| Axes::from_portable(ax, &reader))
+                .collect::<Result<_, _>>()?,
+            suptitle: fig.suptitle,
+            suptitle_color: fig.suptitle_color,
+            colorbars: fig.colorbars,
+        })
     }
 
     /// Open this figure in the system browser as an interactive viewer

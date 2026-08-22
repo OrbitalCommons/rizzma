@@ -111,6 +111,7 @@ pub mod core;
 pub mod figure;
 pub mod mathtext;
 pub mod pdf;
+pub mod portable;
 pub mod render;
 pub mod skia;
 pub mod svg;
@@ -130,6 +131,7 @@ pub use figure::{
     Axes, Figure, GridSpec, LegendLocation, PolarAxes, SkyAxes, SkyProjection, SubplotSpec,
     TextBoxStyle,
 };
+pub use portable::PortableError;
 
 /// The version of this crate, from `CARGO_PKG_VERSION`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

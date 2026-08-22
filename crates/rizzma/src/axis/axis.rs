@@ -26,7 +26,8 @@ use crate::axis::scale::{LinearScale, Scale};
 use crate::axis::ticker::{AutoLocator, Formatter, Locator, ScalarFormatter};
 
 /// Which edge of the axes rectangle an [`Axis`] is drawn along.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AxisSide {
     /// The bottom edge: spine at `y = ymin`, ticks point downward.
     Bottom,
@@ -682,6 +683,88 @@ impl Axis {
                 Some(self.color),
             );
         }
+    }
+}
+
+#[cfg(feature = "portable")]
+impl Axis {
+    /// Flatten this axis into its wire form for portable-figure export.
+    ///
+    /// Fails loudly when the scale, locator, or formatter has no wire
+    /// representation (a [`FuncFormatter`](crate::axis::ticker::FuncFormatter)
+    /// closure, or a third-party trait implementation).
+    pub(crate) fn to_portable(
+        &self,
+    ) -> Result<crate::portable::spec::AxisSpec, crate::portable::PortableError> {
+        use crate::portable::PortableError;
+        Ok(crate::portable::spec::AxisSpec {
+            side: self.side,
+            scale: self
+                .scale
+                .portable_spec()
+                .ok_or_else(|| {
+                    PortableError::Unsupported("axis scale has no portable wire form".to_string())
+                })?
+                .0,
+            locator: self
+                .locator
+                .portable_spec()
+                .ok_or_else(|| {
+                    PortableError::Unsupported("axis locator has no portable wire form".to_string())
+                })?
+                .0,
+            formatter: self
+                .formatter
+                .portable_spec()
+                .ok_or_else(|| {
+                    PortableError::Unsupported(
+                        "axis formatter has no portable wire form (FuncFormatter closures \
+                         cannot be exported)"
+                            .to_string(),
+                    )
+                })?
+                .0,
+            label: self.label.clone(),
+            color: self.color,
+            tick_length: self.tick_length,
+            tick_width: self.tick_width,
+            tick_label_size: self.tick_label_size,
+            axis_label_size: self.axis_label_size,
+            tick_label_pad: self.tick_label_pad,
+            axis_label_pad: self.axis_label_pad,
+            grid: self.grid,
+            grid_color: self.grid_color,
+            grid_linewidth: self.grid_linewidth,
+            grid_alpha: self.grid_alpha,
+            tick_direction: self.tick_direction,
+            tick_labels_visible: self.tick_labels_visible,
+        })
+    }
+
+    /// Reconstruct an axis from its wire form during portable-figure import.
+    pub(crate) fn from_portable(
+        spec: &crate::portable::spec::AxisSpec,
+    ) -> Result<Axis, crate::portable::PortableError> {
+        Ok(Axis {
+            side: spec.side,
+            scale: spec.scale.into_scale(),
+            locator: spec.locator.clone().into_locator()?,
+            formatter: spec.formatter.clone().into_formatter(),
+            label: spec.label.clone(),
+            color: spec.color,
+            tick_length: spec.tick_length,
+            tick_width: spec.tick_width,
+            tick_label_size: spec.tick_label_size,
+            axis_label_size: spec.axis_label_size,
+            tick_label_pad: spec.tick_label_pad,
+            axis_label_pad: spec.axis_label_pad,
+            grid: spec.grid,
+            grid_color: spec.grid_color,
+            grid_linewidth: spec.grid_linewidth,
+            grid_alpha: spec.grid_alpha,
+            tick_direction: spec.tick_direction,
+            tick_labels_visible: spec.tick_labels_visible,
+        })
     }
 }
 
