@@ -290,9 +290,10 @@ self-contained profile rather than making it the default.
 
 Every path that cannot execute wasm still has something to show, so the
 recommended profile carries a **PNG poster of the figure as authored**, plus
-`alt` and `title` text. It costs the exporter nothing — rizzma already
-rasterizes to produce PNG, so the poster is a byproduct of a figure it already
-holds — and it is what makes the format degrade gracefully rather than vanish:
+`alt` and `title` text. It is nearly free to *add* — encoding and storing a PNG
+costs something, but rizzma already rasterizes, so the poster is a byproduct of a
+figure the exporter is already holding — and it is what makes the format degrade
+gracefully rather than vanish. What it covers:
 
 - scripting disabled, or a host that declines to run wasm at all;
 - a reduced-resource or mobile client;
@@ -300,11 +301,25 @@ holds — and it is what makes the format degrade gracefully rather than vanish:
 - archive and search previews, and share/social surfaces;
 - the card to show *while* the runtime is still downloading.
 
-It is also the honest answer to expiry: a host whose live-media retention has
-lapsed can degrade a figure to poster-plus-download instead of a broken tile.
-The poster is optional — a producer may omit it — but the exporter writes one by
-default, because a figure that cannot render and has nothing to show is the one
-failure mode with no recovery.
+**What it does not cover: blob expiry.** An earlier draft of this section claimed
+an expired artifact could degrade to "poster plus download", which is wrong and
+quietly rebuilt the very lifetime overclaim §12b exists to correct: if the
+canonical `.riz` expired, the `PSTR` inside it expired with it, and so did the
+bytes any download would serve. Stated correctly:
+
+- `PSTR` handles **runtime, schema, and scripting failure** — cases where the
+  artifact is present but cannot be executed;
+- a host **may** retain an *extracted* poster derivative longer than the
+  interactive blob and then degrade to **poster-only** — not poster + download,
+  because the original is gone;
+- only **durable storage of the original** preserves poster *and* download *and*
+  interactivity. Recovering it from archive is not the expired case; it is the
+  not-actually-expired case.
+
+The poster is optional — a producer may omit it, and a host must not reject an
+artifact for lacking one (show a "load interactive figure" placeholder instead) —
+but the exporter writes one by default, because a figure that cannot render and
+has nothing to show is the one failure mode with no recovery.
 
 ## 5. Animation: a declarative timeline (schema 2)
 
@@ -414,10 +429,19 @@ fig.play(); fig.pause(); fig.seek(2.5); fig.dispose();
 
 The loader parses the container header, hashes the **host-supplied** renderer
 bytes with SubtleCrypto and refuses to instantiate on a mismatch, calls `init()`
-once per distinct digest (N figures on a page share one module), constructs
+once per distinct digest **within its realm**, constructs
 `WasmFigure::from_portable`, binds, and starts the clock. `dispose()` frees the
 session (listener teardown already exists via `WasmSession`'s `Drop`,
 `wasm/mod.rs:895`).
+
+"Within its realm" is load-bearing, and an earlier draft got it wrong by claiming
+N figures on a page share one module. Under the recommended isolation (§12b) each
+figure lives in its own opaque-origin iframe, and **a module cache cannot cross
+realms**: the HTTP bytes are cached, but every frame compiles and instantiates
+separately. Keeping only one or two frames live (§12c) is what makes that
+acceptable. If profiling ever shows compilation dominating, the answers are a
+small pool of reusable sandbox frames or a dedicated renderer origin — never
+relaxing isolation to share an in-page module cache.
 
 `readMetadata(bytes)` returns the §4.6 metadata without instantiating anything,
 so a host can size the layout, pick a renderer, and decide supported-vs-poster
@@ -606,10 +630,9 @@ each is independently checkable:
 
 Ship the **linked profile only** first; the self-contained file is offered as a
 download, never as an execution source. And before calling P1 "integrated",
-benchmark **pan latency at `devicePixelRatio` 2 and a long scrolling transcript**:
-`putImageData` is the plausible bottleneck, not the 370 KB download, and many live
-figures in one transcript must not all stay hot — mount near-viewport, pause
-offscreen, cap canvas pixels, and tear down when a figure leaves the window.
+benchmark **pan latency at `devicePixelRatio` 2 *and* 3**, on a midrange phone,
+against the retained-card counts in §12c — `putImageData` is the plausible
+bottleneck, not the 370 KB download.
 
 ### What P0 shipped, and where it deviated
 
@@ -675,8 +698,46 @@ the loader needs it. Just as important: agent-portal's live media is TTL-bounded
 today (an hour by default) with durability only through archive write-through, so
 "an agent makes a figure and a human reads it later, still interactive" is a
 promise **durable artifact storage** has to keep — not something the format
-delivers on its own. The poster makes the failure graceful; it does not make the
-promise true. That should be stated honestly wherever this format is pitched.
+delivers on its own, and not something the poster rescues: an embedded `PSTR`
+expires with the blob that contains it (§4.7). A host that extracts the poster to
+a separately retained derivative can degrade to poster-only; everything else about
+"later" depends on retaining the original. That should be stated honestly
+wherever this format is pitched.
+
+## 12c. The workload this has to survive
+
+Real numbers from the agent-portal review, because sizing the runtime against a
+developer laptop is how this ships broken:
+
+| dimension | reality |
+|---|---|
+| messages retained per session view | 100 (`MAX_MESSAGES_PER_SESSION`) — adversarially, all 100 are figures |
+| sessions kept mounted | **every activated session stays mounted and is merely CSS-hidden**; heavy users run dozens, so ~2,000 retained figure cards is reachable |
+| genuinely visible at once | 1 on a phone, 2–4 on desktop, 6–8 with pathologically small cards |
+| low-end target | midrange 4 GB Android and mobile Safari, **DPR 3 is common** |
+| frame cost | 640×480 at DPR 2 ≈ **4.9 MB per RGBA frame**; at DPR 3 ≈ **11 MB**. At 60 Hz that is hundreds of MB/s through `putImageData` alone |
+
+The consequence is that **poster-first is the architecture, not a fallback**. Of
+2,000 retained cards, ~1,998 must be metadata plus an `<img>` — no iframe, no
+worker, no module. Concretely:
+
+1. do not create the sandbox frame until near-viewport or explicit activation;
+2. **dispose on unfocus** — an ancestor going `display:none` must tear the figure
+   down. Do not rely on unmount or an `IntersectionObserver` alone: the session
+   view stays mounted, so nothing else will tell you;
+3. pause animation whenever not intersecting or the document is hidden;
+4. cap **active renderers at 2 and active animations at 1** for v1, LRU as
+   figures are activated;
+5. cap backing store around **2 megapixels** and effective DPR at **2 during
+   interaction**, with an optional full-quality redraw once pan/zoom settles;
+6. prefer `OffscreenCanvas` in the worker so RGBA does not take a second
+   main-thread hop; feature-detect, and drop resolution or frame rate on the
+   fallback path.
+
+Points 4 and 5 are the ones that touch rizzma rather than the host: a
+"reduced-resolution while interacting, full quality when settled" mode is a
+renderer capability, and it is the concrete deliverable behind §12's pan-latency
+benchmark.
 
 ## 13. Explicit non-goals
 
@@ -725,3 +786,9 @@ promise true. That should be stated honestly wherever this format is pitched.
   then poster (§9).
 - Durable artifact identity and storage stay **host-side**; the format carries no
   artifact id and no self-digest (§12b).
+- The poster covers **execution** failure, not **expiry** — an embedded `PSTR`
+  dies with its blob (§4.7).
+- A wasm module cache **cannot cross iframe realms**, so per-figure sandboxing
+  means per-figure compilation; the fix is fewer live frames, never weaker
+  isolation (§6, §12c).
+- Chunk tag is **`PSTR`**, confirmed over `POST`.
