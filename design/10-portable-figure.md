@@ -43,7 +43,7 @@ from bytes instead of imperative JS calls.
 
 ## 3. The artifact: one container, two profiles
 
-A single chunked binary container, extension **`.rzf`**, MIME
+A single chunked binary container, extension **`.riz`**, MIME
 `application/vnd.rizzma.figure`. Layout borrows deliberately from glTF's GLB, which
 solved the same problem (JSON scene + binary buffers + optional embedded payloads):
 
@@ -294,7 +294,7 @@ the runtime:
 
 ```js
 import { mount } from "./rizzma-mount.js";
-const fig = await mount(canvasEl, "decay.rzf", {
+const fig = await mount(canvasEl, "decay.riz", {
   // optional; default resolves by hash against the published runtime registry
   resolveRenderer: async ({ version, sha256 }) => bytesOrUrl,
 });
@@ -469,7 +469,7 @@ the wire model, strictness, and pixel-identity.
    anyway), but it breaks `data_at` bit-exactness for hover readouts.
 3. **Rust font subsetter** for P3 — the measurement used Python `fontTools`;
    shipping needs a Rust path (e.g. the `subsetter` crate) or a build-time step.
-4. **`show()` integration** — a toolbar "⬇ .rzf" button beside PNG/SVG/PDF falls
+4. **`show()` integration** — a toolbar "⬇ .riz" button beside PNG/SVG/PDF falls
    out nearly free once P0 lands, and is the natural dogfood.
 5. **Registry fallback** — whether `resolveRenderer`'s default should try release
    assets when gh-pages is unreachable, or stay single-source.
