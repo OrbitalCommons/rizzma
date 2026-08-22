@@ -7,6 +7,41 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.7.0] - 2026-08-22
+
+### Added
+- **Portable figures (`.riz`)**: `Figure::to_portable`, `save_portable`, and
+  `from_portable` serialize the semantic figure — axes, artists, data, and
+  rcparams — into a chunked binary container and rebuild an identical figure
+  from it. Unlike PNG/SVG/PDF export, which flattens a figure to geometry, the
+  artifact carries the *data*, so a consumer can re-run layout and
+  rasterization from it: the prerequisite for pan, zoom, and resolution
+  independence away from the process that built the figure. The round trip is
+  pixel-exact, and bulk arrays travel as typed binary accessors rather than
+  JSON floats. Behind the default-on `portable` feature. See
+  `design/10-portable-figure.md` and #287.
+- `Axes::clabel` draws inline contour labels: one central segment per level is
+  removed to make room and the level is drawn in the contour's own color, for
+  both regular and triangular contours.
+- `Figure::suptitle` sets a title centered above the whole subplot grid, with
+  theme-aware rich text and automatic top-space reservation under tight layout.
+- `Axes::legend_with_title` adds a heading above the legend entries, and
+  `Axes::legend_at` (with the new public `LegendLocation`) places the box in any
+  of the four corners; upper-right remains the default.
+- `Axes::text_with_box` and `annotate_with_box` draw a background behind text,
+  configured by the new public `TextBoxStyle` (fill, edge, padding, corner
+  radius, line width), with plain or rounded corners.
+- `Axes::invert_xaxis` and `invert_yaxis` reverse an axis while preserving its
+  current explicit or autoscaled range; calling either again restores the
+  original direction.
+- `Axes::axhline_with` and `axvline_with` take an explicit color and line width;
+  the plain `axhline`/`axvline` now inherit the axes theme's text color.
+
+### Fixed
+- Zero-extent paths are no longer handed to tiny-skia's stroker, which dropped
+  them; single-point and coincident-point paths are skipped while genuine
+  horizontal and vertical strokes still render.
+
 ## [1.6.2] - 2026-07-23
 
 ### Fixed
