@@ -9,7 +9,7 @@
 //! byte-for-byte the same PNG as `fig` itself.
 //!
 //! The container framing, the host-facing metadata, and the renderer-free
-//! [`inspect`](rizzma_portable::inspect) entry point live in the companion
+//! [`rizzma_portable::inspect`] entry point live in the companion
 //! [`rizzma_portable`] crate, which links no rasterizer: a host that only needs
 //! to size a card and show a poster should not have to compile a font stack.
 //! This module is the half that needs the renderer.

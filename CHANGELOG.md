@@ -41,6 +41,13 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   the poster.
 
 ### Changed
+- The wasm build now has **two size budgets**, because it produces two
+  deliverables. The demo bundle that docs.rs pages and the gallery load builds
+  figures imperatively and no longer carries the portable-figure importer or a
+  JSON codec — about 590 KiB every reader would otherwise download unused, so
+  it stays at its previous size. The runtime bundle that renders `.riz` pays
+  that cost, is fetched once per host rather than per figure, and is not
+  fetched at all by a host that only shows posters.
 - Portable figures are now **schema 2**: the artifact carries a `meta` block
   (exact pixel size, title, alt text, poster reference) alongside the figure.
   Schema 1 artifacts written by 1.7.x still load — `meta` is optional for as

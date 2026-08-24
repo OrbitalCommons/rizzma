@@ -11,3 +11,4 @@ repository = "https://github.com/OrbitalCommons/rizzma"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+

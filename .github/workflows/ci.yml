@@ -13,10 +13,20 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
-  # 2.625 MiB. Raised from 2.5 MiB for the 1.3.0 wasm surface growth
-  # (WasmAxes3D, imshow + live image updates, live scatter offsets — each
-  # export carries wasm-bindgen glue); still a tripwire for accidental bloat.
+  # Two wasm artifacts are built from this crate, and they are sized
+  # separately because they are different deliverables.
+  #
+  # The *demo* bundle is what docs.rs pages and the gallery demo load. Those
+  # build figures imperatively, so they carry no portable-figure importer and
+  # no JSON codec. 2.625 MiB, raised from 2.5 MiB for the 1.3.0 wasm surface
+  # growth (WasmAxes3D, imshow + live image updates, live scatter offsets —
+  # each export carries wasm-bindgen glue); still a tripwire for bloat.
   WASM_SIZE_MAX_BYTES: 2752512
+  # The *runtime* bundle additionally renders `.riz` artifacts, which pulls in
+  # serde_json and the wire model's derives — about 590 KiB. It is fetched once
+  # per host and cached, never per figure, and a host that only shows posters
+  # never fetches it at all (that is what `rizzma-portable` is for). 3.15 MiB.
+  WASM_RUNTIME_SIZE_MAX_BYTES: 3303014
 
 jobs:
   test:
@@ -84,10 +94,18 @@ jobs:
       - name: Add wasm target
         run: rustup target add wasm32-unknown-unknown
 
-      - name: Check wasm size budget
+      - name: Check demo bundle size budget
+        run: |
+          cargo build -p rizzma --no-default-features --features wasm,plot3d \
+            --target wasm32-unknown-unknown --release
+          cargo xtask wasm-size target/wasm32-unknown-unknown/release/rizzma.wasm \
+            --max-bytes "$WASM_SIZE_MAX_BYTES"
+
+      - name: Check portable-runtime bundle size budget
         run: |
           cargo build -p rizzma --features wasm --target wasm32-unknown-unknown --release
-          cargo xtask wasm-size target/wasm32-unknown-unknown/release/rizzma.wasm --max-bytes "$WASM_SIZE_MAX_BYTES"
+          cargo xtask wasm-size target/wasm32-unknown-unknown/release/rizzma.wasm \
+            --max-bytes "$WASM_RUNTIME_SIZE_MAX_BYTES"
 
   # Proves the wasm-bindgen boundary end-to-end in a real (headless) browser:
   # build through the JS surface, render into a <canvas>, read pixels back,
