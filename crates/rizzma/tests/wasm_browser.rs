@@ -528,3 +528,102 @@ fn live_scatter_updates_repaint_and_preserve_the_view() {
     // Bad indices surface as errors, not panics.
     assert!(session.set_scatter_offsets(0, 9, &[0.0], &[0.0]).is_err());
 }
+
+/// A portable artifact of a figure with known limits, built natively-in-wasm
+/// through the same exporter a host would use.
+#[cfg(feature = "portable")]
+fn sample_artifact() -> Vec<u8> {
+    let mut fig = rizzma::Figure::new(3.0, 2.0);
+    let ax = fig.add_axes(0.15, 0.15, 0.7, 0.7);
+    ax.plot(&[0.0, 5.0, 10.0], &[0.0, 5.0, 10.0]);
+    ax.set_xlim(0.0, 10.0);
+    ax.set_ylim(0.0, 10.0);
+    ax.set_title("portable");
+    fig.to_portable().expect("export")
+}
+
+#[cfg(feature = "portable")]
+#[wasm_bindgen_test]
+fn a_portable_artifact_mounts_and_draws() {
+    // The browser end of the format: bytes in, ink on a real canvas, with no
+    // imperative plotting calls on the JS side at all.
+    let canvas = make_canvas("portable-target");
+    let bytes = sample_artifact();
+    let fig = WasmFigure::from_portable(&bytes, 0).expect("mount");
+    fig.render("portable-target").expect("render");
+
+    let (w, h) = (canvas.width(), canvas.height());
+    assert!(w > 0 && h > 0, "render() must size the canvas");
+    let context: CanvasRenderingContext2d = canvas
+        .get_context("2d")
+        .unwrap()
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    let data = context
+        .get_image_data(0.0, 0.0, f64::from(w), f64::from(h))
+        .unwrap()
+        .data();
+    assert!(
+        data.chunks_exact(4)
+            .any(|px| px != [255, 255, 255, 255] && px[3] != 0),
+        "a mounted artifact must draw ink"
+    );
+}
+
+#[cfg(feature = "portable")]
+#[wasm_bindgen_test]
+fn a_mounted_artifact_is_interactive() {
+    // Carrying data rather than geometry is only worth it if the result still
+    // zooms: wheel over a mounted artifact must shrink its limits.
+    make_canvas("portable-zoom");
+    let bytes = sample_artifact();
+    let fig = WasmFigure::from_portable(&bytes, 0).expect("mount");
+    let session = fig.bind("portable-zoom").expect("bind");
+    let before = limits(&session);
+
+    let canvas: HtmlCanvasElement = web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .get_element_by_id("portable-zoom")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    let init = WheelEventInit::new();
+    init.set_client_x(150);
+    init.set_client_y(100);
+    init.set_delta_y(-120.0);
+    init.set_delta_mode(WheelEvent::DOM_DELTA_PIXEL);
+    init.set_cancelable(true);
+    init.set_bubbles(true);
+    let ev = WheelEvent::new_with_event_init_dict("wheel", &init).unwrap();
+    canvas.dispatch_event(&ev).unwrap();
+
+    let after = limits(&session);
+    assert!(
+        (after[1] - after[0]) < (before[1] - before[0]),
+        "wheel zoom must narrow the x range: {before:?} -> {after:?}"
+    );
+}
+
+#[cfg(feature = "portable")]
+#[wasm_bindgen_test]
+fn an_oversized_artifact_is_refused_not_drawn() {
+    // The host's budget is enforced inside the boundary too, so a hostile
+    // artifact cannot spend memory just by being handed over.
+    let bytes = sample_artifact();
+    let msg = match WasmFigure::from_portable(&bytes, 64) {
+        Ok(_) => panic!("a 64-byte budget must refuse a real artifact"),
+        Err(err) => err.as_string().unwrap_or_default(),
+    };
+    assert!(msg.contains("64"), "error should name the budget: {msg}");
+}
+
+#[cfg(feature = "portable")]
+#[wasm_bindgen_test]
+fn the_schema_range_is_exposed_for_loaders() {
+    let range = WasmFigure::schema_range();
+    assert_eq!(range.len(), 2);
+    assert!(range[0] <= range[1], "min must not exceed max");
+}

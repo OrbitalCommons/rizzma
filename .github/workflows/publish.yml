@@ -75,6 +75,37 @@ jobs:
             exit 1
           fi
 
+      # `rizzma` depends on `rizzma-portable`, so that has to exist on crates.io
+      # first. Its version moves independently and usually will not have
+      # changed, hence the same already-published check.
+      - name: Publish rizzma-portable to crates.io
+        if: steps.check.outputs.published == 'false'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::warning::CARGO_REGISTRY_TOKEN is not set — skipping publish."
+            exit 0
+          fi
+          dep_version=$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.name == "rizzma-portable") | .version')
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "User-Agent: rizzma-publish-ci (https://github.com/OrbitalCommons/rizzma)" \
+            "https://crates.io/api/v1/crates/rizzma-portable/${dep_version}")
+          if [ "$code" = "200" ]; then
+            echo "rizzma-portable ${dep_version} is already on crates.io — skipping."
+            exit 0
+          fi
+          cargo publish -p rizzma-portable
+          # crates.io needs a moment to index before a dependent can resolve it.
+          for _ in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "User-Agent: rizzma-publish-ci (https://github.com/OrbitalCommons/rizzma)" \
+              "https://crates.io/api/v1/crates/rizzma-portable/${dep_version}")
+            [ "$code" = "200" ] && break
+            sleep 10
+          done
+
       - name: Publish to crates.io
         if: steps.check.outputs.published == 'false'
         env:
@@ -85,3 +116,95 @@ jobs:
             exit 0
           fi
           cargo publish -p rizzma
+
+  # The wasm renderer that draws portable figures (`.riz`) in a browser.
+  #
+  # Published as *immutable GitHub release assets* rather than to gh-pages,
+  # because the gallery deploy replaces that branch wholesale (`force_orphan`)
+  # and a host needs to be able to fetch the exact renderer an archived figure
+  # was authored against — see `design/10-portable-figure.md` section 9.
+  #
+  # A host is expected to vet a runtime once and serve its own copy. The digest
+  # here identifies which bytes those are; it never authorizes anything.
+  runtime:
+    name: publish the portable-figure runtime
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Read crate version
+        id: ver
+        run: |
+          version=$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.name == "rizzma") | .version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Skip when this release already exists
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "v${{ steps.ver.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "release v${{ steps.ver.outputs.version }} already exists — skipping."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install wasm-pack
+        if: steps.gate.outputs.exists == 'false'
+        run: |
+          target=x86_64-unknown-linux-musl
+          curl -sL -o /tmp/wasm-pack.tgz "https://github.com/rustwasm/wasm-pack/releases/download/v${WASM_PACK_VERSION}/wasm-pack-v${WASM_PACK_VERSION}-${target}.tar.gz"
+          tar xzf /tmp/wasm-pack.tgz -C /tmp
+          sudo mv "/tmp/wasm-pack-v${WASM_PACK_VERSION}-${target}/wasm-pack" /usr/local/bin/
+        env:
+          WASM_PACK_VERSION: 0.15.0
+
+      - name: Build and address the runtime by content
+        if: steps.gate.outputs.exists == 'false'
+        id: build
+        run: |
+          wasm-pack build --target web --out-dir www/pkg crates/rizzma --features wasm
+          mkdir -p runtime-out
+          cp crates/rizzma/www/pkg/rizzma_bg.wasm crates/rizzma/www/pkg/rizzma.js runtime-out/
+          cp crates/rizzma/www/rizzma-mount.js runtime-out/
+          sha=$(sha256sum runtime-out/rizzma_bg.wasm | cut -d' ' -f1)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          cargo run -q -p xtask -- runtime-manifest \
+            --version "${{ steps.ver.outputs.version }}" --sha256 "$sha" \
+            > runtime-out/runtime.json
+          cat runtime-out/runtime.json
+
+      - name: Publish the release
+        if: steps.gate.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          SHA: ${{ steps.build.outputs.sha }}
+        run: |
+          {
+            echo "Portable-figure runtime for rizzma ${VERSION}."
+            echo
+            echo '| file | purpose |'
+            echo '|---|---|'
+            echo '| `rizzma_bg.wasm` | the renderer |'
+            echo '| `rizzma.js` | wasm-bindgen glue |'
+            echo '| `rizzma-mount.js` | loader: mount a `.riz` into a canvas |'
+            echo '| `runtime.json` | version, digest, and the schema range it renders |'
+            echo
+            echo "\`rizzma_bg.wasm\` sha256: \`${SHA}\`"
+            echo
+            echo 'Vet these bytes once, serve your own copy, and resolve renderers'
+            echo 'through your own allowlist. A digest an artifact carries about'
+            echo 'itself identifies bytes — it never authorizes running them.'
+          } > notes.md
+          gh release create "v${VERSION}" \
+            --title "rizzma ${VERSION}" --notes-file notes.md \
+            runtime-out/rizzma_bg.wasm runtime-out/rizzma.js \
+            runtime-out/rizzma-mount.js runtime-out/runtime.json

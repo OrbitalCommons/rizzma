@@ -821,6 +821,12 @@ impl Axes {
         self
     }
 
+    /// This axes' title, if one was set.
+    #[must_use]
+    pub fn title_text(&self) -> Option<String> {
+        self.title.clone()
+    }
+
     /// Set the axes title (drawn centered above the axes).
     pub fn set_title(&mut self, title: impl Into<String>) -> &mut Self {
         self.title = Some(title.into());

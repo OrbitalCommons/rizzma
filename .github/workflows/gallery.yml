@@ -47,8 +47,14 @@ jobs:
       # The interactive demo site — and the wasm pkg that the docs.rs live
       # demos import (see crates/rizzma/docs-header.html) — publish to
       # gh-pages under /demo/.
+      # The demo pages build figures imperatively, so this bundle deliberately
+      # excludes the portable-figure importer and its JSON codec — about
+      # 590 KiB that every docs.rs reader would otherwise download unused. The
+      # bundle that *renders* `.riz` ships as a release asset from publish.yml.
       - name: Build wasm demo bundle
-        run: wasm-pack build --target web --out-dir www/pkg crates/rizzma --features wasm
+        run: |
+          wasm-pack build --target web --out-dir www/pkg crates/rizzma \
+            --no-default-features --features wasm,plot3d
 
       - name: Assemble site
         run: |

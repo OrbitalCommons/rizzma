@@ -54,36 +54,22 @@ pub(crate) struct PortableSpec {
     /// Wire-format schema version (see [`SCHEMA_VERSION`](super::SCHEMA_VERSION)).
     pub(crate) schema: u32,
     /// Provenance of the exporter.
-    pub(crate) generator: GeneratorSpec,
-    /// The renderer this artifact was authored against.
-    pub(crate) renderer: RendererSpec,
+    pub(crate) generator: rizzma_portable::GeneratorRef,
+    /// The renderer this artifact was authored against. The digest is
+    /// provenance and a lookup key for a host's own registry — never an
+    /// authorization; see the [`rizzma_portable`] crate docs.
+    pub(crate) renderer: rizzma_portable::RendererRef,
+    /// Layout, accessibility, and poster metadata a host can read without
+    /// instantiating a renderer. Absent in schema 1 artifacts, which predate
+    /// it, so it stays optional for as long as [`SCHEMA_MIN`] is 1.
+    ///
+    /// [`SCHEMA_MIN`]: super::SCHEMA_MIN
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) meta: Option<rizzma_portable::Meta>,
     /// The figure itself.
     pub(crate) figure: FigureSpec,
     /// Typed views into the binary chunk.
     pub(crate) accessors: Vec<Accessor>,
-}
-
-/// Exporter provenance.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg(feature = "portable")]
-pub(crate) struct GeneratorSpec {
-    /// The rizzma crate version that wrote the artifact.
-    pub(crate) rizzma: String,
-}
-
-/// The renderer the artifact was authored against. The hash is provenance and
-/// a dedup/trust key for hosts that resolve renderers by content; it is not a
-/// requirement — any renderer whose supported schema range covers
-/// [`PortableSpec::schema`] may render the artifact.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg(feature = "portable")]
-pub(crate) struct RendererSpec {
-    /// rizzma version of the authoring renderer.
-    pub(crate) version: String,
-    /// SHA-256 of the published wasm renderer for that version, when known.
-    pub(crate) sha256: Option<String>,
 }
 
 /// Wire mirror of [`Figure`](crate::figure::Figure).

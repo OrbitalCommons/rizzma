@@ -119,7 +119,10 @@ fn print_usage() {
          wasm-size <artifact.wasm> [--max-bytes <N>]\n        \
          Report a wasm artifact size and optionally fail when it exceeds N bytes.\n    \
          serve-www [--port <u16>] [--dir <path>]\n        \
-         Serve the interactive wasm demo site (default crates/rizzma/www) over HTTP."
+         Serve the interactive wasm demo site (default crates/rizzma/www) over HTTP.\n    \
+         runtime-manifest --version <v> [--sha256 <hex>]\n        \
+         Print the JSON compatibility manifest published beside a wasm runtime:\n        \
+         which portable-figure schema range that runtime can render."
     );
 }
 
@@ -662,6 +665,48 @@ fn run_serve_www(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// Print the JSON compatibility manifest that ships beside a published wasm
+/// runtime.
+///
+/// A host resolving a renderer needs to know, without running it, which
+/// portable-figure schemas it can render. The range is read from
+/// `rizzma-portable` so the manifest cannot drift from the code.
+fn run_runtime_manifest(args: &[String]) -> ExitCode {
+    let mut version = None;
+    let mut sha256 = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--version" if i + 1 < args.len() => {
+                version = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--sha256" if i + 1 < args.len() => {
+                sha256 = Some(args[i + 1].clone());
+                i += 2;
+            }
+            other => {
+                eprintln!("error: unexpected argument: {other}");
+                return ExitCode::from(2);
+            }
+        }
+    }
+    let Some(version) = version else {
+        eprintln!("error: runtime-manifest requires --version <v>");
+        return ExitCode::from(2);
+    };
+    let sha = match &sha256 {
+        Some(s) => format!("\"{s}\""),
+        None => "null".to_string(),
+    };
+    println!(
+        "{{\n  \"version\": \"{version}\",\n  \"sha256\": {sha},\n  \"schema_min\": {},\n  \"schema_max\": {}\n}}",
+        rizzma_portable::SCHEMA_MIN,
+        rizzma_portable::SCHEMA_VERSION
+    );
+    ExitCode::SUCCESS
+}
+
 /// CLI dispatch.
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -670,6 +715,7 @@ fn main() -> ExitCode {
         Some("check-gallery-links") => run_check_gallery_links(&args[1..]),
         Some("wasm-size") => run_wasm_size(&args[1..]),
         Some("serve-www") => run_serve_www(&args[1..]),
+        Some("runtime-manifest") => run_runtime_manifest(&args[1..]),
         Some("-h") | Some("--help") | None => {
             print_usage();
             ExitCode::SUCCESS

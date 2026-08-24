@@ -8,31 +8,61 @@
 //! **pixel identity**: `Figure::from_portable(fig.to_portable()?)` renders
 //! byte-for-byte the same PNG as `fig` itself.
 //!
+//! The container framing, the host-facing metadata, and the renderer-free
+//! [`rizzma_portable::inspect`] entry point live in the companion
+//! [`rizzma_portable`] crate, which links no rasterizer: a host that only needs
+//! to size a card and show a poster should not have to compile a font stack.
+//! This module is the half that needs the renderer.
+//!
 //! - `spec` — the wire model: plain serde mirrors of the live types, every
 //!   struct `deny_unknown_fields`, every enum closed. Unknown content is a hard
 //!   error, never silently dropped: a figure missing an artist is a
 //!   scientifically wrong figure.
 //! - `data` — typed binary accessors: bulk arrays live in one binary chunk,
 //!   referenced by index from the JSON spec.
-//! - `container` — the `RZFG` chunked container framing JSON + binary.
 //!
 //! The public entry points live on `Figure`:
 //! [`to_portable`](crate::figure::Figure::to_portable),
+//! [`to_portable_with`](crate::figure::Figure::to_portable_with),
 //! [`save_portable`](crate::figure::Figure::save_portable), and
 //! [`from_portable`](crate::figure::Figure::from_portable).
 
-// The wire types (`spec`, and the accessor descriptors in `data`) are always
-// compiled: the `Scale`/`Locator`/`Formatter` hooks on the public axis traits
-// name them regardless of feature. The machinery that *uses* them — container
-// framing and the data bank — is feature-gated along with the JSON codec.
-#[cfg(feature = "portable")]
-pub(crate) mod container;
 #[cfg(feature = "portable")]
 pub(crate) mod data;
 pub(crate) mod spec;
 
 #[cfg(all(test, feature = "portable"))]
 mod tests;
+
+#[cfg(feature = "portable")]
+pub use rizzma_portable::{
+    ChunkRef, GeneratorRef, Limits, Meta, Metadata, PortableError, PosterRef, RendererRef,
+    SCHEMA_MIN, SCHEMA_VERSION, inspect,
+};
+
+// Without the `portable` feature the artifact machinery is absent, but the
+// public `Scale`/`Locator`/`Formatter` traits still name the wire forms below,
+// so those stay compiled either way.
+#[cfg(not(feature = "portable"))]
+pub use no_portable::PortableError;
+
+#[cfg(not(feature = "portable"))]
+mod no_portable {
+    /// Placeholder for the error type of the disabled `portable` feature.
+    ///
+    /// Enable the feature to get the real
+    /// [`rizzma_portable::PortableError`](https://docs.rs/rizzma-portable).
+    #[derive(Debug)]
+    pub enum PortableError {}
+
+    impl std::fmt::Display for PortableError {
+        fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match *self {}
+        }
+    }
+
+    impl std::error::Error for PortableError {}
+}
 
 /// The portable wire form of a built-in [`Scale`](crate::axis::scale::Scale).
 ///
@@ -55,88 +85,59 @@ pub struct PortableLocator(pub(crate) spec::LocatorSpec);
 /// Opaque by design; see [`PortableScale`]. Notably
 /// [`FuncFormatter`](crate::axis::ticker::FuncFormatter) has none — a Rust
 /// closure cannot cross the wire — so exporting an axis that uses one fails
-/// with [`PortableError::Unsupported`].
+/// with `PortableError::Unsupported`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PortableFormatter(pub(crate) spec::FormatterSpec);
 
-/// Wire-format schema version written into every artifact.
+/// How [`Figure::to_portable_with`](crate::figure::Figure::to_portable_with)
+/// writes an artifact.
 ///
-/// Bumped whenever anything changes that would alter how an existing artifact
-/// renders. Loaders support the contiguous range
-/// [`SCHEMA_MIN`]`..=`[`SCHEMA_VERSION`] and reject anything newer with a hard
-/// error rather than render a figure with content missing.
-pub const SCHEMA_VERSION: u32 = 1;
-
-/// Oldest schema version this build can still load.
-pub const SCHEMA_MIN: u32 = 1;
-
-/// Errors from portable-figure export and import.
-///
-/// The import path is strict by design: malformed containers, out-of-bounds
-/// accessors, unknown fields or enum variants, and future schema versions all
-/// fail loudly instead of best-effort rendering.
-#[derive(Debug)]
-pub enum PortableError {
-    /// The figure holds state the wire format cannot represent (for example a
-    /// [`FuncFormatter`](crate::axis::ticker::FuncFormatter) closure or a
-    /// custom registered font face). Exporting it would change how the figure
-    /// renders, so export refuses instead.
-    Unsupported(String),
-    /// The artifact bytes are structurally invalid: bad magic, truncated or
-    /// duplicate chunks, out-of-bounds accessors, inconsistent array lengths.
-    Malformed(String),
-    /// The artifact's schema version is outside this build's supported range.
-    Schema {
-        /// The version the artifact declares.
-        found: u32,
-        /// Oldest version this build supports.
-        min: u32,
-        /// Newest version this build supports.
-        max: u32,
-    },
-    /// The JSON spec chunk failed to serialize or deserialize (including
-    /// unknown fields and unknown enum variants, which are rejected).
-    Json(String),
-    /// Filesystem I/O failed in [`save_portable`](crate::figure::Figure::save_portable).
-    Io(std::io::Error),
+/// [`PortableConfig::default`] writes a poster, because a figure that cannot
+/// render and has nothing to show is the one failure mode with no recovery.
+#[cfg(feature = "portable")]
+#[derive(Debug, Clone, PartialEq)]
+pub struct PortableConfig {
+    /// Embed a PNG poster of the figure as authored (see [`PosterRef`]).
+    ///
+    /// Turn this off only when the consumer is known to always render live and
+    /// the bytes matter; every non-rendering path — scripting disabled,
+    /// unsupported schema, archive preview, the card shown while a runtime
+    /// downloads — has nothing to display without it.
+    pub poster: bool,
+    /// Text description of the figure for assistive technology, carried in
+    /// [`Meta::alt`].
+    pub alt: Option<String>,
 }
 
-impl std::fmt::Display for PortableError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PortableError::Unsupported(msg) => {
-                write!(f, "figure cannot be exported portably: {msg}")
-            }
-            PortableError::Malformed(msg) => write!(f, "malformed portable figure: {msg}"),
-            PortableError::Schema { found, min, max } => write!(
-                f,
-                "artifact is schema {found}; this build supports {min}..={max} — \
-                 rendering it would drop content"
-            ),
-            PortableError::Json(msg) => write!(f, "portable figure spec error: {msg}"),
-            PortableError::Io(err) => write!(f, "portable figure i/o error: {err}"),
+#[cfg(feature = "portable")]
+impl PortableConfig {
+    /// The defaults: a poster, and no alt text beyond the figure's own title.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            poster: true,
+            alt: None,
         }
     }
-}
 
-impl std::error::Error for PortableError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            PortableError::Io(err) => Some(err),
-            _ => None,
-        }
+    /// Set whether a poster is embedded, returning `self` for chaining.
+    #[must_use]
+    pub fn with_poster(mut self, poster: bool) -> Self {
+        self.poster = poster;
+        self
     }
-}
 
-impl From<std::io::Error> for PortableError {
-    fn from(err: std::io::Error) -> Self {
-        PortableError::Io(err)
+    /// Set the alt text, returning `self` for chaining.
+    #[must_use]
+    pub fn with_alt(mut self, alt: impl Into<String>) -> Self {
+        self.alt = Some(alt.into());
+        self
     }
 }
 
 #[cfg(feature = "portable")]
-impl From<serde_json::Error> for PortableError {
-    fn from(err: serde_json::Error) -> Self {
-        PortableError::Json(err.to_string())
+impl Default for PortableConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }
