@@ -1,6 +1,6 @@
 [package]
 name = "rizzma"
-version = "1.7.1"
+version = "1.8.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -30,7 +30,7 @@ show = []
 plot3d = []
 # `Figure::to_portable()` / `from_portable()`: the `.riz` self-describing
 # artifact (see `design/10-portable-figure.md`). Pulls in a JSON codec.
-portable = ["dep:serde_json"]
+portable = ["dep:serde_json", "dep:rizzma-portable"]
 pyplot = []
 wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys"]
 
@@ -39,6 +39,7 @@ base64 = "0.22.1"
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 js-sys = { version = "0.3", optional = true }
 png = "0.18.1"
+rizzma-portable = { version = "0.1.0", path = "../rizzma-portable", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 # `float_roundtrip` is load-bearing, not a nicety: without it serde_json parses
 # f64 back one ULP off, so a re-exported portable figure differs from its

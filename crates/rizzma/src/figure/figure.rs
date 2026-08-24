@@ -592,21 +592,78 @@ impl Figure {
     /// silently substitute a formatter that labels ticks differently.
     #[cfg(feature = "portable")]
     pub fn to_portable(&self) -> Result<Vec<u8>, PortableError> {
+        self.to_portable_with(&crate::portable::PortableConfig::default())
+    }
+
+    /// Serialize this figure to a portable figure with explicit options.
+    ///
+    /// The default ([`Figure::to_portable`]) embeds a PNG poster, which is
+    /// what every non-rendering path shows: scripting disabled, a schema no
+    /// runtime on hand supports, an archive preview, or the card displayed
+    /// while a renderer downloads. Turn it off only when the consumer is known
+    /// to always render live.
+    ///
+    /// # Errors
+    ///
+    /// As [`Figure::to_portable`], plus a
+    /// [`PortableError::Unsupported`](crate::portable::PortableError::Unsupported)
+    /// if the poster fails to encode.
+    #[cfg(feature = "portable")]
+    pub fn to_portable_with(
+        &self,
+        cfg: &crate::portable::PortableConfig,
+    ) -> Result<Vec<u8>, PortableError> {
         let mut bank = crate::portable::data::BankWriter::new();
         let axes = self
             .axes
             .iter()
             .map(|ax| ax.to_portable(&mut bank))
             .collect::<Result<Vec<_>, _>>()?;
+
+        // The poster is a byproduct of a figure the exporter is already
+        // holding: it renders through the ordinary pipeline, so it is exactly
+        // what a live renderer would draw at authoring size.
+        let poster = if cfg.poster {
+            Some(self.encode_png().map_err(|e| {
+                crate::portable::PortableError::Unsupported(format!(
+                    "figure poster failed to encode: {e}"
+                ))
+            })?)
+        } else {
+            None
+        };
+
+        let (w, h) = self.size_px();
+        // The figure's own title if it has one, else the first axes' title —
+        // for a single-panel figure that is the name a reader would give it.
+        let title = self
+            .suptitle
+            .clone()
+            .or_else(|| self.axes.first().and_then(Axes::title_text));
+        let meta = rizzma_portable::Meta {
+            width_px: w.max(0.0).round() as u32,
+            height_px: h.max(0.0).round() as u32,
+            alt: cfg.alt.clone(),
+            title,
+            poster: poster.as_ref().map(|p| rizzma_portable::PosterRef {
+                chunk: "PSTR".to_string(),
+                mime: "image/png".to_string(),
+                bytes: p.len(),
+            }),
+            // Schema 2 has no timeline; animation lands with schema 3.
+            animated: false,
+        };
+
         let spec = crate::portable::spec::PortableSpec {
             schema: crate::portable::SCHEMA_VERSION,
-            generator: crate::portable::spec::GeneratorSpec {
+            generator: rizzma_portable::GeneratorRef {
                 rizzma: env!("CARGO_PKG_VERSION").to_string(),
             },
-            renderer: crate::portable::spec::RendererSpec {
+            renderer: rizzma_portable::RendererRef {
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 sha256: None,
             },
+            meta: Some(meta),
             figure: crate::portable::spec::FigureSpec {
                 width_in: self.width_in,
                 height_in: self.height_in,
@@ -621,7 +678,15 @@ impl Figure {
             accessors: bank.accessors.clone(),
         };
         let json = serde_json::to_vec(&spec)?;
-        Ok(crate::portable::container::write(&json, &bank.bytes))
+
+        // JSON and the poster precede the bulk payload so a consumer can paint
+        // a card from a partial read.
+        let mut chunks: Vec<([u8; 4], &[u8])> = vec![(rizzma_portable::container::TAG_JSON, &json)];
+        if let Some(poster) = &poster {
+            chunks.push((rizzma_portable::container::TAG_PSTR, poster));
+        }
+        chunks.push((rizzma_portable::container::TAG_BIN, &bank.bytes));
+        Ok(rizzma_portable::container::write(&chunks))
     }
 
     /// Write this figure to `path` as a portable figure (`.riz`).
@@ -651,7 +716,47 @@ impl Figure {
     /// [`PortableError::Json`] depending on how the artifact is invalid.
     #[cfg(feature = "portable")]
     pub fn from_portable(bytes: &[u8]) -> Result<Figure, PortableError> {
-        let (json, bin) = crate::portable::container::read(bytes)?;
+        Figure::from_portable_limited(bytes, &crate::portable::Limits::default())
+    }
+
+    /// Reconstruct a figure, enforcing caller-supplied budgets.
+    ///
+    /// Use this for artifacts from an untrusted source: a trusted renderer
+    /// still parses attacker-influenced data, and memory safety removes a
+    /// corruption class rather than parser denial-of-service.
+    ///
+    /// # Errors
+    ///
+    /// As [`Figure::from_portable`], plus
+    /// [`PortableError::Budget`](crate::portable::PortableError::Budget) when
+    /// `limits` are exceeded.
+    #[cfg(feature = "portable")]
+    pub fn from_portable_limited(
+        bytes: &[u8],
+        limits: &crate::portable::Limits,
+    ) -> Result<Figure, PortableError> {
+        use rizzma_portable::container;
+
+        let dir = container::directory(bytes, limits)?;
+        let json = container::chunk(bytes, &dir, container::TAG_JSON)
+            .expect("directory guarantees a JSON chunk");
+        if json.len() > limits.max_json_bytes {
+            return Err(PortableError::Budget(format!(
+                "JSON chunk is {} bytes, over the {} byte limit",
+                json.len(),
+                limits.max_json_bytes
+            )));
+        }
+        for tag in [container::TAG_FONT, container::TAG_WASM] {
+            if container::chunk(bytes, &dir, tag).is_some() {
+                return Err(PortableError::Malformed(format!(
+                    "chunk {:?} (self-contained profile) is not supported by this build",
+                    container::tag_name(tag)
+                )));
+            }
+        }
+        let bin = container::chunk(bytes, &dir, container::TAG_BIN).unwrap_or(&[]);
+
         let spec: crate::portable::spec::PortableSpec = serde_json::from_slice(json)?;
         if spec.schema < crate::portable::SCHEMA_MIN
             || spec.schema > crate::portable::SCHEMA_VERSION

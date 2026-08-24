@@ -12,3 +12,4 @@ workspace = true
 
 [dependencies]
 image = "0.25.10"
+rizzma-portable = { version = "0.1.0", path = "../crates/rizzma-portable" }

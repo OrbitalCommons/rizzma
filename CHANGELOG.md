@@ -7,6 +7,42 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.8.0] - 2026-08-24
+
+### Added
+- **`rizzma-portable`**, a companion crate holding the `.riz` container framing
+  and a renderer-free `inspect(bytes, &Limits)`. It depends only on serde and a
+  JSON codec — no rasterizer, no font stack — so a host can read what an
+  artifact *is* (exact pixel size, title, alt text, poster, provenance, and
+  whether it can render that schema) without linking the machinery to draw it.
+  That is the common case: a transcript holding hundreds of figures paints a
+  card for nearly all of them and renders one or two.
+- **Posters.** Artifacts now embed a PNG of the figure as authored, so every
+  path that cannot execute a renderer still has something to show: scripting
+  disabled, an unsupported schema, an archive preview, or the card displayed
+  while a runtime downloads. It is a byproduct of a figure the exporter already
+  holds, and it is byte-identical to that figure's own `encode_png()`.
+- `Figure::to_portable_with(&PortableConfig)` to set alt text or omit the
+  poster, and `Figure::from_portable_limited(bytes, &Limits)` to enforce
+  caller-supplied budgets on untrusted input.
+- Each release now publishes its wasm renderer as immutable GitHub release
+  assets (`rizzma_bg.wasm`, `rizzma.js`, and a `runtime.json` declaring the
+  schema range it renders), so a host can vet a runtime once and fetch the
+  exact one an archived figure was authored against.
+- `cargo xtask runtime-manifest` prints that compatibility manifest, reading the
+  schema range from `rizzma-portable` so the two cannot drift.
+
+### Changed
+- Portable figures are now **schema 2**: the artifact carries a `meta` block
+  (exact pixel size, title, alt text, poster reference) alongside the figure.
+  Schema 1 artifacts written by 1.7.x still load — `meta` is optional for as
+  long as the supported range starts at 1 — and schema 2 artifacts are *not*
+  readable by 1.7.x, which is what the version signals.
+- A renderer digest an artifact carries about itself is documented throughout as
+  an identity and a lookup key, never an authorization: a hostile artifact can
+  inline a hostile renderer and honestly report its hash. Hosts keep their own
+  allowlist and ignore the inlined bytes for execution.
+
 ## [1.7.1] - 2026-08-23
 
 ### Fixed

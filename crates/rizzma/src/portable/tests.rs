@@ -19,7 +19,7 @@ use crate::axis::ticker::{
 use crate::core::color::Rgba;
 use crate::core::{Bbox, Path, RcParams};
 use crate::figure::{Axes, Event, Figure, Interactor, MouseButton};
-use crate::portable::{PortableError, SCHEMA_VERSION};
+use crate::portable::{Limits, PortableConfig, PortableError, SCHEMA_VERSION};
 
 /// Deterministic pseudo-random values in `0.0..1.0` (no rand dependency).
 fn rng(seed: u64) -> impl FnMut() -> f64 {
@@ -258,7 +258,7 @@ fn bulk_data_travels_in_the_binary_chunk() {
     fig.add_subplot(1, 1, 1).plot(&x, &x);
 
     let bytes = fig.to_portable().unwrap();
-    let (json, bin) = super::container::read(&bytes).unwrap();
+    let (json, bin) = split(&bytes);
     assert!(
         bin.len() >= 20_000 * 2 * 8,
         "expected both coordinate arrays in the binary chunk, got {} bytes",
@@ -330,10 +330,131 @@ fn func_formatter_fails_export_loudly() {
     }
 }
 
+/// The `JSON` and `BIN ` payloads of an artifact, for tests that rewrite one
+/// and reframe the other unchanged.
+fn split(bytes: &[u8]) -> (&[u8], &[u8]) {
+    use rizzma_portable::container;
+    let dir = container::directory(bytes, &Limits::default()).expect("valid container");
+    (
+        container::chunk(bytes, &dir, container::TAG_JSON).expect("json chunk"),
+        container::chunk(bytes, &dir, container::TAG_BIN).unwrap_or(&[]),
+    )
+}
+
+/// Reframe a (possibly doctored) spec and binary payload into an artifact.
+fn reframe(json: &[u8], bin: &[u8]) -> Vec<u8> {
+    use rizzma_portable::container;
+    container::write(&[(container::TAG_JSON, json), (container::TAG_BIN, bin)])
+}
+
 /// Import `bytes` and discard the figure, so a wrongly-accepted artifact
 /// formats in a panic message (`Figure` is deliberately not `Debug`).
 fn import(bytes: &[u8]) -> Result<(), PortableError> {
     Figure::from_portable(bytes).map(|_| ())
+}
+
+#[test]
+fn the_poster_is_what_the_renderer_would_draw() {
+    // The poster is a byproduct of a figure the exporter already holds, so it
+    // must be exactly the PNG that figure renders — not an approximation.
+    let mut fig = Figure::new(5.0, 3.0);
+    let ax = fig.add_subplot(1, 1, 1);
+    ax.plot(&linspace(0.0, 6.0, 50), &linspace(0.0, 1.0, 50));
+    ax.set_title("decay");
+
+    let bytes = fig.to_portable().expect("export");
+    let info = rizzma_portable::inspect(&bytes, &Limits::default()).expect("inspect");
+    let poster = info.poster(&bytes).expect("a poster by default");
+
+    assert_eq!(&poster[..8], b"\x89PNG\r\n\x1a\n", "poster must be a PNG");
+    assert!(
+        poster == fig.encode_png().expect("png").as_slice(),
+        "poster differs from the figure's own render"
+    );
+    let meta = info.meta.expect("schema 2 carries meta");
+    assert_eq!(meta.poster.expect("poster ref").bytes, poster.len());
+}
+
+#[test]
+fn inspect_sizes_a_card_without_a_renderer() {
+    // What a host reads before deciding to fetch 370 KB of wasm: the exact box
+    // to reserve, the text to announce, and something to show meanwhile.
+    let mut fig = Figure::new(6.4, 4.8).with_dpi(100.0);
+    let ax = fig.add_subplot(1, 1, 1);
+    ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
+    ax.set_title("step response");
+
+    let cfg = PortableConfig::default().with_alt("step response rising to one");
+    let bytes = fig.to_portable_with(&cfg).expect("export");
+    let info = rizzma_portable::inspect(&bytes, &Limits::default()).expect("inspect");
+
+    assert!(info.renderable(), "this build must render its own schema");
+    let meta = info.meta.expect("meta");
+    assert_eq!((meta.width_px, meta.height_px), (640, 480));
+    assert_eq!(meta.alt.as_deref(), Some("step response rising to one"));
+    assert_eq!(meta.title.as_deref(), Some("step response"));
+    assert!(!meta.animated);
+    assert_eq!(info.generator.rizzma, env!("CARGO_PKG_VERSION"));
+}
+
+#[test]
+fn the_poster_can_be_turned_off() {
+    let mut fig = Figure::new(4.0, 3.0);
+    fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[1.0, 0.0]);
+
+    let with = fig.to_portable().expect("export");
+    let without = fig
+        .to_portable_with(&PortableConfig::default().with_poster(false))
+        .expect("export");
+    assert!(
+        without.len() < with.len(),
+        "dropping the poster should shrink the artifact"
+    );
+
+    let info = rizzma_portable::inspect(&without, &Limits::default()).expect("inspect");
+    assert!(info.poster(&without).is_none());
+    assert!(info.meta.expect("meta").poster.is_none());
+    // Still a complete figure: the poster is a fallback, not the content.
+    let restored = Figure::from_portable(&without).expect("import");
+    assert!(restored.encode_png().unwrap() == fig.encode_png().unwrap());
+}
+
+#[test]
+fn schema_1_artifacts_still_load() {
+    // Artifacts written by 1.7.x carry no `meta` and no poster. Refusing them
+    // would break every figure already archived, so the field is optional for
+    // as long as SCHEMA_MIN is 1.
+    let mut fig = Figure::new(4.0, 3.0);
+    fig.add_subplot(1, 1, 1)
+        .plot(&[0.0, 1.0, 2.0], &[0.0, 1.0, 4.0]);
+    let current = fig.to_portable().expect("export");
+
+    // Rewrite it as a schema-1 document: drop `meta` and the poster chunk.
+    let (json, bin) = split(&current);
+    let mut spec: serde_json::Value = serde_json::from_slice(json).expect("json");
+    spec["schema"] = serde_json::json!(1);
+    spec.as_object_mut().expect("object").remove("meta");
+    let legacy = reframe(spec.to_string().as_bytes(), bin);
+
+    let info = rizzma_portable::inspect(&legacy, &Limits::default()).expect("inspect");
+    assert_eq!(info.schema, 1);
+    assert!(info.schema_supported, "1 is still within the range");
+    assert!(info.meta.is_none());
+
+    let restored = Figure::from_portable(&legacy).expect("schema 1 must still import");
+    assert!(restored.encode_png().unwrap() == fig.encode_png().unwrap());
+}
+
+#[test]
+fn import_enforces_caller_budgets() {
+    let bytes = sample_bytes();
+    let tight = Limits::default().with_max_total_bytes(128);
+    match Figure::from_portable_limited(&bytes, &tight).map(|_| ()) {
+        Err(PortableError::Budget(msg)) => assert!(msg.contains("128"), "{msg}"),
+        other => panic!("expected Budget, got {other:?}"),
+    }
+    // The default budget admits an ordinary figure.
+    assert!(Figure::from_portable_limited(&bytes, &Limits::default()).is_ok());
 }
 
 /// A valid artifact to mutate in the rejection tests below.
@@ -346,13 +467,13 @@ fn sample_bytes() -> Vec<u8> {
 
 /// Re-frame `spec_json` into a container with an empty binary chunk.
 fn container_with_json(json: &str) -> Vec<u8> {
-    super::container::write(json.as_bytes(), &[])
+    reframe(json.as_bytes(), &[])
 }
 
 /// The artifact's spec JSON as a mutable `serde_json` value.
 fn sample_spec() -> serde_json::Value {
     let bytes = sample_bytes();
-    let (json, _) = super::container::read(&bytes).unwrap();
+    let (json, _) = split(&bytes);
     serde_json::from_slice(json).unwrap()
 }
 
@@ -420,9 +541,9 @@ fn rejects_out_of_bounds_accessors() {
     let mut spec = sample_spec();
     spec["accessors"][0]["count"] = serde_json::json!(1_000_000);
     let bytes = sample_bytes();
-    let (_, bin) = super::container::read(&bytes).unwrap();
+    let (_, bin) = split(&bytes);
     let bin = bin.to_vec();
-    let reframed = super::container::write(spec.to_string().as_bytes(), &bin);
+    let reframed = reframe(spec.to_string().as_bytes(), &bin);
     match import(&reframed) {
         Err(PortableError::Malformed(msg)) => assert!(msg.contains("accessor"), "{msg}"),
         other => panic!("expected Malformed, got {other:?}"),
@@ -434,8 +555,8 @@ fn rejects_a_dangling_accessor_index() {
     let mut spec = sample_spec();
     spec["figure"]["axes"][0]["lines"][0]["x"] = serde_json::json!({ "acc": 999 });
     let bytes = sample_bytes();
-    let (_, bin) = super::container::read(&bytes).unwrap();
-    let reframed = super::container::write(spec.to_string().as_bytes(), bin);
+    let (_, bin) = split(&bytes);
+    let reframed = reframe(spec.to_string().as_bytes(), bin);
     match import(&reframed) {
         Err(PortableError::Malformed(msg)) => assert!(msg.contains("999"), "{msg}"),
         other => panic!("expected Malformed, got {other:?}"),
@@ -450,11 +571,11 @@ fn rejects_inconsistent_array_lengths() {
     ax.imshow(&data, 3, 4);
     let bytes = fig.to_portable().unwrap();
 
-    let (json, bin) = super::container::read(&bytes).unwrap();
+    let (json, bin) = split(&bytes);
     let mut spec: serde_json::Value = serde_json::from_slice(json).unwrap();
     // Claim a 5x4 grid over the same 12 samples.
     spec["figure"]["axes"][0]["images"][0]["nrows"] = serde_json::json!(5);
-    let reframed = super::container::write(spec.to_string().as_bytes(), bin);
+    let reframed = reframe(spec.to_string().as_bytes(), bin);
     match import(&reframed) {
         Err(PortableError::Malformed(msg)) => assert!(msg.contains("samples"), "{msg}"),
         other => panic!("expected Malformed, got {other:?}"),
@@ -469,8 +590,8 @@ fn rejects_hostile_locator_parameters() {
     spec["figure"]["axes"][0]["xaxis"]["locator"] =
         serde_json::json!({ "multiple": { "step": 0.0, "offset": 0.0 } });
     let bytes = sample_bytes();
-    let (_, bin) = super::container::read(&bytes).unwrap();
-    let reframed = super::container::write(spec.to_string().as_bytes(), bin);
+    let (_, bin) = split(&bytes);
+    let reframed = reframe(spec.to_string().as_bytes(), bin);
     match import(&reframed) {
         Err(PortableError::Malformed(msg)) => assert!(msg.contains("step"), "{msg}"),
         other => panic!("expected Malformed, got {other:?}"),
@@ -482,8 +603,8 @@ fn rejects_self_contained_chunks_this_build_cannot_honor() {
     // FONT/WASM chunks belong to a later phase; ignoring them would render
     // with the wrong font or the wrong renderer.
     let bytes = sample_bytes();
-    let (json, _) = super::container::read(&bytes).unwrap();
-    let mut framed = super::container::write(json, &[]);
+    let (json, _) = split(&bytes);
+    let mut framed = reframe(json, &[]);
     // Append a FONT chunk and fix up the declared total length.
     let payload = b"not-a-font";
     framed.extend_from_slice(&(payload.len() as u32).to_le_bytes());
@@ -504,8 +625,8 @@ fn rejects_self_contained_chunks_this_build_cannot_honor() {
 #[test]
 fn rejects_a_duplicate_chunk() {
     let bytes = sample_bytes();
-    let (json, _) = super::container::read(&bytes).unwrap();
-    let mut framed = super::container::write(json, &[]);
+    let (json, _) = split(&bytes);
+    let mut framed = reframe(json, &[]);
     let start = framed.len();
     framed.extend_from_slice(&(json.len() as u32).to_le_bytes());
     framed.extend_from_slice(b"JSON");
@@ -534,7 +655,7 @@ fn rejects_an_unknown_path_code() {
     ])));
     ax.scatter(&[0.5], &[0.5]);
     let bytes = fig.to_portable().unwrap();
-    let (json, bin) = super::container::read(&bytes).unwrap();
+    let (json, bin) = split(&bytes);
     let spec: serde_json::Value = serde_json::from_slice(json).unwrap();
 
     // Find a u8 (path-code) accessor and corrupt its first byte.
@@ -548,7 +669,7 @@ fn rejects_an_unknown_path_code() {
         .expect("a path-code accessor");
     bin[offset] = 200;
 
-    let reframed = super::container::write(json, &bin);
+    let reframed = reframe(json, &bin);
     match import(&reframed) {
         Err(PortableError::Malformed(msg)) => assert!(msg.contains("path code"), "{msg}"),
         other => panic!("expected Malformed, got {other:?}"),
@@ -609,7 +730,7 @@ fn json_scalars_round_trip_bit_exactly() {
 #[test]
 fn declares_its_schema_and_generator() {
     let bytes = sample_bytes();
-    let (json, _) = super::container::read(&bytes).unwrap();
+    let (json, _) = split(&bytes);
     let spec: serde_json::Value = serde_json::from_slice(json).unwrap();
     assert_eq!(spec["schema"], SCHEMA_VERSION);
     assert_eq!(spec["generator"]["rizzma"], env!("CARGO_PKG_VERSION"));
