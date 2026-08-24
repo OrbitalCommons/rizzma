@@ -7,6 +7,27 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.8.1] - 2026-08-24
+
+### Fixed
+- The published runtime manifest pinned only the wasm renderer, leaving the
+  wasm-bindgen glue and the mount loader as unverifiable executable inputs. That
+  is a hole rather than an omission: the loader is what decides whether the
+  renderer gets verified, so checking the renderer with an unverified loader
+  checks nothing. `runtime.json` now carries `role`, `file`, `mime`, `size`, and
+  `sha256` for each of the three, and `cargo xtask runtime-manifest` hashes every
+  file itself and refuses to emit a manifest with a missing, duplicated, or
+  unknown executable role, an empty asset, or an unsafe filename. The MIME
+  follows from the role rather than the file extension, so renaming a file
+  cannot change how a consumer executes its bytes. The manifest gained a
+  `manifest` format field so a consumer can tell the shapes apart.
+
+  v1.8.0's assets are left untouched — something may already have pinned them,
+  and rewriting a published artifact to close a security gap is a worse
+  precedent than leaving a version behind that under-specifies. Its release
+  notes list the three digests as text; `runtime.json` in v1.8.1 and later is
+  the pinnable form.
+
 ## [1.8.0] - 2026-08-24
 
 ### Added

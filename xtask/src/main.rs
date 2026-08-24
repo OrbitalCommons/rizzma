@@ -120,9 +120,10 @@ fn print_usage() {
          Report a wasm artifact size and optionally fail when it exceeds N bytes.\n    \
          serve-www [--port <u16>] [--dir <path>]\n        \
          Serve the interactive wasm demo site (default crates/rizzma/www) over HTTP.\n    \
-         runtime-manifest --version <v> [--sha256 <hex>]\n        \
-         Print the JSON compatibility manifest published beside a wasm runtime:\n        \
-         which portable-figure schema range that runtime can render."
+         runtime-manifest --version <v> --asset <role>=<path> ...\n        \
+         Print the JSON manifest published beside a wasm runtime: the schema\n        \
+         range it renders, plus size and sha256 for every executable asset\n        \
+         (roles: renderer, glue, loader), each hashed from the file itself."
     );
 }
 
@@ -671,9 +672,34 @@ fn run_serve_www(args: &[String]) -> ExitCode {
 /// A host resolving a renderer needs to know, without running it, which
 /// portable-figure schemas it can render. The range is read from
 /// `rizzma-portable` so the manifest cannot drift from the code.
+/// The executable assets a runtime release publishes, and the MIME each is
+/// served and instantiated as.
+///
+/// Role is the key rather than the filename: a consumer keys its CSP and its
+/// instantiation path off the role, so a renamed file must not be able to
+/// change how its bytes are executed.
+const ROLES: [(&str, &str); 3] = [
+    ("renderer", "application/wasm"),
+    ("glue", "text/javascript"),
+    ("loader", "text/javascript"),
+];
+
+/// Whether `name` is a plain filename safe to hand a consumer that will join it
+/// onto a route: no separators, no dot-segments, no query or fragment.
+fn is_safe_basename(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.starts_with('.')
+        && !name.contains(['/', '\\', '?', '#', ':'])
+        && name.chars().all(|c| !c.is_control())
+}
+
 fn run_runtime_manifest(args: &[String]) -> ExitCode {
+    use sha2::{Digest, Sha256};
+
     let mut version = None;
-    let mut sha256 = None;
+    let mut assets: Vec<(String, String)> = Vec::new();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -681,8 +707,12 @@ fn run_runtime_manifest(args: &[String]) -> ExitCode {
                 version = Some(args[i + 1].clone());
                 i += 2;
             }
-            "--sha256" if i + 1 < args.len() => {
-                sha256 = Some(args[i + 1].clone());
+            "--asset" if i + 1 < args.len() => {
+                let Some((role, path)) = args[i + 1].split_once('=') else {
+                    eprintln!("error: --asset expects <role>=<path>, got {}", args[i + 1]);
+                    return ExitCode::from(2);
+                };
+                assets.push((role.to_string(), path.to_string()));
                 i += 2;
             }
             other => {
@@ -695,14 +725,69 @@ fn run_runtime_manifest(args: &[String]) -> ExitCode {
         eprintln!("error: runtime-manifest requires --version <v>");
         return ExitCode::from(2);
     };
-    let sha = match &sha256 {
-        Some(s) => format!("\"{s}\""),
-        None => "null".to_string(),
-    };
+
+    // Every asset here is executable, so every one has to be pinnable. A
+    // consumer that verified only the renderer would be trusting the loader
+    // that decides whether verification happens at all.
+    // Role is the semantic key, and the MIME follows from the role rather than
+    // from a filename — a consumer keys its CSP and instantiation off these, so
+    // deriving them from an extension would let a rename change how bytes are
+    // executed.
+    for (role, _) in ROLES {
+        if assets.iter().filter(|(r, _)| r == role).count() != 1 {
+            eprintln!("error: expected exactly one --asset {role}=<path>");
+            return ExitCode::from(2);
+        }
+    }
+    if let Some((role, _)) = assets
+        .iter()
+        .find(|(r, _)| !ROLES.iter().any(|(known, _)| known == r))
+    {
+        let known: Vec<&str> = ROLES.iter().map(|(r, _)| *r).collect();
+        eprintln!("error: unknown asset role {role:?}; expected one of {known:?}");
+        return ExitCode::from(2);
+    }
+
+    let mut entries = Vec::new();
+    for (role, path) in &assets {
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(err) => {
+                eprintln!("error: cannot read {path}: {err}");
+                return ExitCode::from(1);
+            }
+        };
+        if bytes.is_empty() {
+            eprintln!("error: {path} is empty; an executable asset must have content");
+            return ExitCode::from(1);
+        }
+        let file = std::path::Path::new(path)
+            .file_name()
+            .map_or_else(|| path.clone(), |n| n.to_string_lossy().into_owned());
+        if !is_safe_basename(&file) {
+            eprintln!("error: unsafe asset filename {file:?}; expected a plain basename");
+            return ExitCode::from(2);
+        }
+        let mime = ROLES
+            .iter()
+            .find(|(r, _)| r == role)
+            .map(|(_, m)| *m)
+            .expect("role checked above");
+        let digest = Sha256::digest(&bytes);
+        entries.push(format!(
+            "    {{ \"role\": \"{role}\", \"file\": \"{file}\", \"mime\": \"{mime}\", \
+             \"size\": {}, \"sha256\": \"{:x}\" }}",
+            bytes.len(),
+            digest
+        ));
+    }
+
     println!(
-        "{{\n  \"version\": \"{version}\",\n  \"sha256\": {sha},\n  \"schema_min\": {},\n  \"schema_max\": {}\n}}",
+        "{{\n  \"manifest\": 1,\n  \"version\": \"{version}\",\n  \"schema_min\": {},\n  \
+         \"schema_max\": {},\n  \"assets\": [\n{}\n  ]\n}}",
         rizzma::portable::SCHEMA_MIN,
-        rizzma::portable::SCHEMA_VERSION
+        rizzma::portable::SCHEMA_VERSION,
+        entries.join(",\n")
     );
     ExitCode::SUCCESS
 }
@@ -818,6 +903,66 @@ mod tests {
         assert_eq!(
             format_bytes(2_199_745),
             "2199745 bytes (2148.2 KiB, 2.10 MiB)"
+        );
+    }
+
+    #[test]
+    fn every_role_has_a_fixed_mime() {
+        // A consumer keys its CSP and instantiation off the role, so the MIME
+        // must come from the role and never from a filename that could be
+        // renamed.
+        assert_eq!(ROLES.len(), 3);
+        assert_eq!(
+            ROLES
+                .iter()
+                .find(|(r, _)| *r == "renderer")
+                .map(|(_, m)| *m),
+            Some("application/wasm")
+        );
+        for role in ["glue", "loader"] {
+            assert_eq!(
+                ROLES.iter().find(|(r, _)| *r == role).map(|(_, m)| *m),
+                Some("text/javascript"),
+                "{role} must be served as javascript"
+            );
+        }
+    }
+
+    #[test]
+    fn unsafe_asset_filenames_are_rejected() {
+        // These names get joined onto a consumer's routes; anything that can
+        // escape a path segment or carry a query has no business in a manifest.
+        for good in ["rizzma_bg.wasm", "rizzma.js", "rizzma-mount.js"] {
+            assert!(is_safe_basename(good), "{good} should be accepted");
+        }
+        for bad in [
+            "",
+            ".",
+            "..",
+            "../etc/passwd",
+            "a/b.js",
+            "a\\b.js",
+            "x.js?v=1",
+            "x.js#frag",
+            "C:evil.js",
+            ".hidden",
+            "bad\u{7f}name.js",
+        ] {
+            assert!(!is_safe_basename(bad), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn digests_are_lowercase_hex_of_the_right_length() {
+        use sha2::{Digest, Sha256};
+        // The manifest promises exactly 64 lowercase hex characters; this is
+        // what the formatting in `run_runtime_manifest` relies on.
+        let hex = format!("{:x}", Sha256::digest(b"rizzma"));
+        assert_eq!(hex.len(), 64);
+        assert!(
+            hex.chars()
+                .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
+            "digest must be lowercase hex: {hex}"
         );
     }
 }

@@ -143,10 +143,15 @@ jobs:
           mkdir -p runtime-out
           cp crates/rizzma/www/pkg/rizzma_bg.wasm crates/rizzma/www/pkg/rizzma.js runtime-out/
           cp crates/rizzma/www/rizzma-mount.js runtime-out/
-          sha=$(sha256sum runtime-out/rizzma_bg.wasm | cut -d' ' -f1)
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          # Every asset here is executable, so xtask hashes each one itself
+          # and records role, size, and digest. A consumer that verified only
+          # the renderer would be trusting the loader that decides whether
+          # verification happens at all.
           cargo run -q -p xtask -- runtime-manifest \
-            --version "${{ steps.ver.outputs.version }}" --sha256 "$sha" \
+            --version "${{ steps.ver.outputs.version }}" \
+            --asset renderer=runtime-out/rizzma_bg.wasm \
+            --asset glue=runtime-out/rizzma.js \
+            --asset loader=runtime-out/rizzma-mount.js \
             > runtime-out/runtime.json
           cat runtime-out/runtime.json
 
@@ -155,19 +160,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.ver.outputs.version }}
-          SHA: ${{ steps.build.outputs.sha }}
         run: |
           {
             echo "Portable-figure runtime for rizzma ${VERSION}."
             echo
-            echo '| file | purpose |'
-            echo '|---|---|'
-            echo '| `rizzma_bg.wasm` | the renderer |'
-            echo '| `rizzma.js` | wasm-bindgen glue |'
-            echo '| `rizzma-mount.js` | loader: mount a `.riz` into a canvas |'
-            echo '| `runtime.json` | version, digest, and the schema range it renders |'
+            echo '| role | file | purpose |'
+            echo '|---|---|---|'
+            echo '| renderer | `rizzma_bg.wasm` | draws the figure |'
+            echo '| glue | `rizzma.js` | wasm-bindgen bindings |'
+            echo '| loader | `rizzma-mount.js` | mounts a `.riz` into a canvas |'
+            echo '| — | `runtime.json` | schema range, and size + sha256 per asset |'
             echo
-            echo "\`rizzma_bg.wasm\` sha256: \`${SHA}\`"
+            echo 'Digests (also in `runtime.json`, which is the pinnable form):'
+            echo
+            echo '```'
+            sha256sum runtime-out/rizzma_bg.wasm runtime-out/rizzma.js runtime-out/rizzma-mount.js \
+              | sed 's| runtime-out/| |'
+            echo '```'
             echo
             echo 'Vet these bytes once, serve your own copy, and resolve renderers'
             echo 'through your own allowlist. A digest an artifact carries about'
