@@ -701,8 +701,8 @@ fn run_runtime_manifest(args: &[String]) -> ExitCode {
     };
     println!(
         "{{\n  \"version\": \"{version}\",\n  \"sha256\": {sha},\n  \"schema_min\": {},\n  \"schema_max\": {}\n}}",
-        rizzma_portable::SCHEMA_MIN,
-        rizzma_portable::SCHEMA_VERSION
+        rizzma::portable::SCHEMA_MIN,
+        rizzma::portable::SCHEMA_VERSION
     );
     ExitCode::SUCCESS
 }

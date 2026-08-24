@@ -13,8 +13,8 @@
 //! poster from a partial read; readers must tolerate any order, because a
 //! parser that depends on layout breaks on the first writer that differs.
 
-use crate::error::PortableError;
-use crate::limits::Limits;
+use super::Limits;
+use super::PortableError;
 
 /// The container magic bytes.
 pub const MAGIC: [u8; 4] = *b"RZFG";

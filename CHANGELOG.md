@@ -10,13 +10,20 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 ## [1.8.0] - 2026-08-24
 
 ### Added
-- **`rizzma-portable`**, a companion crate holding the `.riz` container framing
-  and a renderer-free `inspect(bytes, &Limits)`. It depends only on serde and a
-  JSON codec — no rasterizer, no font stack — so a host can read what an
-  artifact *is* (exact pixel size, title, alt text, poster, provenance, and
-  whether it can render that schema) without linking the machinery to draw it.
-  That is the common case: a transcript holding hundreds of figures paints a
-  card for nearly all of them and renders one or two.
+- **`portable::inspect(bytes, &Limits)`**, which reads what an artifact *is* —
+  exact pixel size, title, alt text, poster, provenance, and whether this build
+  can render its schema — without building a figure or rendering one, and
+  without allocating the binary payloads. That is the common case rather than
+  an edge case: a transcript holding hundreds of figures paints a card for
+  nearly all of them and renders one or two. Dead-code elimination keeps the
+  cost honest for a consumer that only inspects: a wasm binary doing nothing
+  else links none of the rasterizer or the embedded font and comes to ~22 KB.
+- `portable::Limits`, the budgets a caller imposes on artifacts it did not
+  produce (total bytes, chunk count, JSON and poster size, canvas pixels),
+  enforced before allocating. Defaults are generous against a typical figure
+  and low enough to still be a bound.
+- `portable::container`, the `RZFG` chunk framing, made public so an
+  independent implementation has something stable to target.
 - **Posters.** Artifacts now embed a PNG of the figure as authored, so every
   path that cannot execute a renderer still has something to show: scripting
   disabled, an unsupported schema, an archive preview, or the card displayed
@@ -30,7 +37,7 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   schema range it renders), so a host can vet a runtime once and fetch the
   exact one an archived figure was authored against.
 - `cargo xtask runtime-manifest` prints that compatibility manifest, reading the
-  schema range from `rizzma-portable` so the two cannot drift.
+  schema range from the code so the two cannot drift.
 - **`WasmFigure::from_portable(bytes, max_bytes)`** and `rizzma-mount.js`: a
   `.riz` can now be mounted into a `<canvas>` in the browser, with pan, zoom,
   and hover intact and no imperative plotting calls on the JS side. The loader

@@ -54,18 +54,18 @@ pub(crate) struct PortableSpec {
     /// Wire-format schema version (see [`SCHEMA_VERSION`](super::SCHEMA_VERSION)).
     pub(crate) schema: u32,
     /// Provenance of the exporter.
-    pub(crate) generator: rizzma_portable::GeneratorRef,
+    pub(crate) generator: crate::portable::GeneratorRef,
     /// The renderer this artifact was authored against. The digest is
     /// provenance and a lookup key for a host's own registry — never an
-    /// authorization; see the [`rizzma_portable`] crate docs.
-    pub(crate) renderer: rizzma_portable::RendererRef,
+    /// authorization; see the [module docs](super).
+    pub(crate) renderer: crate::portable::RendererRef,
     /// Layout, accessibility, and poster metadata a host can read without
     /// instantiating a renderer. Absent in schema 1 artifacts, which predate
     /// it, so it stays optional for as long as [`SCHEMA_MIN`] is 1.
     ///
     /// [`SCHEMA_MIN`]: super::SCHEMA_MIN
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) meta: Option<rizzma_portable::Meta>,
+    pub(crate) meta: Option<crate::portable::Meta>,
     /// The figure itself.
     pub(crate) figure: FigureSpec,
     /// Typed views into the binary chunk.

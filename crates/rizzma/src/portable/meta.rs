@@ -1,7 +1,7 @@
 //! The metadata a host reads before it decides to render anything.
 //!
 //! These types are shared by the exporter (which writes them into the JSON
-//! chunk) and by [`inspect`](crate::inspect), so the two cannot drift.
+//! chunk) and by [`inspect`](super::inspect), so the two cannot drift.
 
 use serde::{Deserialize, Serialize};
 
@@ -64,14 +64,14 @@ pub struct Meta {
     pub animated: bool,
 }
 
-/// What [`inspect`](crate::inspect) returns: everything readable without
+/// What [`inspect`](super::inspect) returns: everything readable without
 /// instantiating a renderer or allocating the bulk payloads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Metadata {
     /// Wire-format schema version the artifact declares.
     pub schema: u32,
     /// Whether this build can render that schema (see
-    /// [`SCHEMA_MIN`](crate::SCHEMA_MIN)/[`SCHEMA_VERSION`](crate::SCHEMA_VERSION)).
+    /// [`SCHEMA_MIN`](super::SCHEMA_MIN)/[`SCHEMA_VERSION`](super::SCHEMA_VERSION)).
     pub schema_supported: bool,
     /// Which rizzma wrote it.
     pub generator: GeneratorRef,
@@ -80,7 +80,7 @@ pub struct Metadata {
     /// Layout and fallback metadata, absent in schema 1 artifacts.
     pub meta: Option<Meta>,
     /// Every chunk in the container, in file order.
-    pub chunks: Vec<crate::container::ChunkRef>,
+    pub chunks: Vec<super::container::ChunkRef>,
     /// Total artifact size in bytes.
     pub total_bytes: usize,
 }
@@ -91,7 +91,7 @@ impl Metadata {
     /// `bytes` must be the same slice that was inspected.
     #[must_use]
     pub fn poster<'a>(&self, bytes: &'a [u8]) -> Option<&'a [u8]> {
-        crate::container::chunk(bytes, &self.chunks, crate::container::TAG_PSTR)
+        super::container::chunk(bytes, &self.chunks, super::container::TAG_PSTR)
     }
 
     /// Whether a host can render this artifact live, or must fall back to the
