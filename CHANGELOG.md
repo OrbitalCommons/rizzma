@@ -31,6 +31,14 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   exact one an archived figure was authored against.
 - `cargo xtask runtime-manifest` prints that compatibility manifest, reading the
   schema range from `rizzma-portable` so the two cannot drift.
+- **`WasmFigure::from_portable(bytes, max_bytes)`** and `rizzma-mount.js`: a
+  `.riz` can now be mounted into a `<canvas>` in the browser, with pan, zoom,
+  and hover intact and no imperative plotting calls on the JS side. The loader
+  **requires** the host to supply the renderer — there is no default that
+  fetches a URL and no fallback to bytes an artifact brought with it — and
+  verifies it against the digest the host recorded when it vetted those bytes.
+  `WasmFigure::schemaRange()` lets a loader choose between mounting and showing
+  the poster.
 
 ### Changed
 - Portable figures are now **schema 2**: the artifact carries a `meta` block

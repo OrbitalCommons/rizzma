@@ -173,6 +173,7 @@ jobs:
           wasm-pack build --target web --out-dir www/pkg crates/rizzma --features wasm
           mkdir -p runtime-out
           cp crates/rizzma/www/pkg/rizzma_bg.wasm crates/rizzma/www/pkg/rizzma.js runtime-out/
+          cp crates/rizzma/www/rizzma-mount.js runtime-out/
           sha=$(sha256sum runtime-out/rizzma_bg.wasm | cut -d' ' -f1)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           cargo run -q -p xtask -- runtime-manifest \
@@ -194,6 +195,7 @@ jobs:
             echo '|---|---|'
             echo '| `rizzma_bg.wasm` | the renderer |'
             echo '| `rizzma.js` | wasm-bindgen glue |'
+            echo '| `rizzma-mount.js` | loader: mount a `.riz` into a canvas |'
             echo '| `runtime.json` | version, digest, and the schema range it renders |'
             echo
             echo "\`rizzma_bg.wasm\` sha256: \`${SHA}\`"
@@ -204,4 +206,5 @@ jobs:
           } > notes.md
           gh release create "v${VERSION}" \
             --title "rizzma ${VERSION}" --notes-file notes.md \
-            runtime-out/rizzma_bg.wasm runtime-out/rizzma.js runtime-out/runtime.json
+            runtime-out/rizzma_bg.wasm runtime-out/rizzma.js \
+            runtime-out/rizzma-mount.js runtime-out/runtime.json

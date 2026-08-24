@@ -259,6 +259,46 @@ impl WasmFigure {
         }
     }
 
+    /// Rebuild a figure from portable-figure (`.riz`) bytes.
+    ///
+    /// This is the browser end of the artifact: the host fetches the bytes,
+    /// hands them over, and the result binds to a canvas like any other
+    /// [`WasmFigure`], with pan, zoom, and hover intact — because the artifact
+    /// carries the data, not a picture of it.
+    ///
+    /// `max_bytes` is the caller's budget for the whole artifact. Artifacts are
+    /// attacker-influenced input, and the host is the one that knows what is
+    /// reasonable, so there is no default: pass the same cap used when the
+    /// artifact was accepted. `0` means "the library default" (10 MiB).
+    ///
+    /// # Errors
+    ///
+    /// Returns the error message as a `JsValue` when the artifact is
+    /// malformed, over budget, or of a schema this build cannot render. Callers
+    /// should fall back to the poster rather than showing an empty frame; see
+    /// `rizzma-portable`'s `inspect`, which reports both without instantiating
+    /// this module.
+    #[cfg(feature = "portable")]
+    pub fn from_portable(bytes: &[u8], max_bytes: usize) -> Result<WasmFigure, JsValue> {
+        let mut limits = crate::portable::Limits::default();
+        if max_bytes > 0 {
+            limits = limits.with_max_total_bytes(max_bytes);
+        }
+        let fig = Figure::from_portable_limited(bytes, &limits)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(WasmFigure { fig })
+    }
+
+    /// The schema range this build can render, as `[min, max]`.
+    ///
+    /// A loader compares this against an artifact's declared schema to decide
+    /// between mounting it and showing its poster.
+    #[cfg(feature = "portable")]
+    #[wasm_bindgen(js_name = schemaRange)]
+    pub fn schema_range() -> Box<[u32]> {
+        Box::new([crate::portable::SCHEMA_MIN, crate::portable::SCHEMA_VERSION])
+    }
+
     /// Add axes at the figure-fraction rectangle `(left, bottom, width,
     /// height)`, returning the new axes' index.
     pub fn add_axes(&mut self, l: f64, b: f64, w: f64, h: f64) -> usize {

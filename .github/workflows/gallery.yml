@@ -55,6 +55,7 @@ jobs:
           mkdir -p gallery-out/demo
           cp target/gallery_*.png gallery-out/
           cp -r crates/rizzma/www/index.html crates/rizzma/www/pkg gallery-out/demo/
+          cp crates/rizzma/www/rizzma-mount.js gallery-out/demo/
           # wasm-pack writes a `*` .gitignore into pkg/; left in place it makes
           # the deploy action's git commit silently drop the whole bundle.
           rm -f gallery-out/demo/pkg/.gitignore
