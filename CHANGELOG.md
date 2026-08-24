@@ -17,8 +17,10 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   checks nothing. `runtime.json` now carries `role`, `file`, `mime`, `size`, and
   `sha256` for each of the three, and `cargo xtask runtime-manifest` hashes every
   file itself and refuses to emit a manifest with a missing, duplicated, or
-  unknown executable role. The manifest gained a `manifest` format field so a
-  consumer can tell the shapes apart.
+  unknown executable role, an empty asset, or an unsafe filename. The MIME
+  follows from the role rather than the file extension, so renaming a file
+  cannot change how a consumer executes its bytes. The manifest gained a
+  `manifest` format field so a consumer can tell the shapes apart.
 
   v1.8.0's assets are left untouched — something may already have pinned them,
   and rewriting a published artifact to close a security gap is a worse
