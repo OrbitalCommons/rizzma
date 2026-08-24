@@ -80,6 +80,20 @@ export function posterUrl(bytes) {
   return poster ? URL.createObjectURL(new Blob([poster], { type: "image/png" })) : null;
 }
 
+/**
+ * Instantiated renderers in *this realm*, keyed by digest.
+ *
+ * Two constraints meet here, and they are the same one seen from opposite
+ * sides. A module cache cannot cross an opaque-origin boundary, so a host that
+ * sandboxes each figure in its own iframe compiles once per frame no matter
+ * what this map does — the answer to that cost is keeping few frames live, not
+ * sharing a realm between artifacts. And because this map outlives any
+ * individual `dispose()`, it is exactly the state that would leak from one
+ * artifact to the next if a realm *were* reused. So don't: disposal is
+ * terminal, the realm goes with it, and this map dies with the realm. Pooling,
+ * if it is ever worth the complexity, needs an explicit reset that proves
+ * every prior resource is gone — not a second `mount()` after a `dispose()`.
+ */
 const modules = new Map(); // digest -> Promise<wasm module namespace>
 
 /** Lowercase hex SHA-256 of `bytes`, via SubtleCrypto. */

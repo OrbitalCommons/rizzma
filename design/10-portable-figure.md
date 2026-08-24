@@ -778,6 +778,54 @@ Points 4 and 5 are the ones that touch rizzma rather than the host: a
 renderer capability, and it is the concrete deliverable behind §12's pan-latency
 benchmark.
 
+## 12d. The sandbox contract
+
+Agreed with the agent-portal review before either side implements it, because an
+origin or lifecycle assumption is far cheaper to fix now than to unwind later.
+The message shapes and transition table are still to be written; what follows is
+the part that is settled, and that the code should not quietly drift from.
+
+**Validation happens outside the realm.** The parent reads the artifact with
+`inspect` (§4.6), enforces its budgets, resolves a vetted runtime whose declared
+schema range covers the artifact, and decides interactive-versus-poster —
+*before* creating an opaque-origin child. An artifact that is malformed,
+over-budget, or of an unsupported schema therefore never causes a realm to exist
+at all. This is where the code lives, not merely what it does: it is easy for a
+later reader to "helpfully" move validation inward, and that would mean hostile
+bytes get a realm before anyone has looked at them.
+
+**The child still fails safely on bad bytes anyway.** The parent's validation is
+where the *decision* is made, not where the *safety* comes from. The importer
+already behaves this way — bounds checked before allocation, `Result` rather
+than panic — so the child's contract is a promise about what it will not do with
+bad input, never an assumption that bad input cannot arrive.
+
+**Sequence:** `Ready → Mount → Mounted | Error → Pause / Resume → Dispose →
+Disposed`. The parent owns focus, visibility, and the active-renderer budget
+(§12c), so `Pause` stops work without freeing state, and it is the parent that
+decides when a figure stops being live.
+
+**`Dispose` is terminal.** The realm is destroyed; there is no `Mount` that
+revives it. An earlier draft of this contract made a post-`Dispose` mount a
+legal no-op-except-mount, which quietly makes reuse the default and demotes
+disposal to a strong pause. It also creates a cross-artifact state-leak path:
+anything realm-scoped that outlives a single figure — the loader's
+digest-keyed module cache is the obvious one — becomes shared between artifacts
+the moment a realm is reused. If pooling is ever worth its complexity, it
+arrives as an explicit `Reset → Ready` carrying an argument that every prior
+resource is gone, never as a relaxation of `Dispose`.
+
+`dispose()` must actually free: cancel `requestAnimationFrame` and timers, drop
+listeners, free the wasm-owned figure and session, and zero the canvas width and
+height so the backing store is released. A host cannot enforce an
+active-renderer budget of two if disposal only stops drawing.
+
+**Nothing an artifact names crosses the boundary.** The parent sends validated
+bytes (or an unguessable same-origin capability), never an artifact-supplied
+URL. The child receives no cookies, tokens, or backend URLs, initiates no fetch
+or navigation, and both sides check a channel nonce alongside origin and source,
+because opaque origins report `null` and cannot be distinguished by origin alone.
+
 ## 13. Explicit non-goals
 
 - **A Canvas2D/WebGL renderer.** Settled by the charter; the raster backend *is*
