@@ -206,7 +206,14 @@ impl Figure {
         // the outer envelope and the frame rect is derived from decoration
         // extents at draw time (matplotlib's tight layout). Explicit
         // `add_axes` rects stay literal.
-        let envelope_gs = GridSpec::new(nrows, ncols).with_margins(0.0, 1.0, 0.0, 1.0);
+        //
+        // The envelope grid drops `wspace`/`hspace` as well as the margins:
+        // matplotlib's default gaps exist to hold exactly the decorations this
+        // layout measures per-axes, so keeping them would reserve that space
+        // twice and leave an empty band between rows and columns.
+        let envelope_gs = GridSpec::new(nrows, ncols)
+            .with_margins(0.0, 1.0, 0.0, 1.0)
+            .with_spacing(0.0, 0.0);
         ax.layout_envelope = Some(envelope_gs.subplot(row, col).get_position(&envelope_gs));
         self.axes.push(ax);
         self.axes.last_mut().expect("just pushed axes")
@@ -770,6 +777,74 @@ mod tests {
     fn pixel(r: &SkiaRenderer, x: u32, y: u32) -> [u8; 4] {
         let p = r.pixmap().pixel(x, y).expect("pixel in bounds");
         [p.red(), p.green(), p.blue(), p.alpha()]
+    }
+
+    #[test]
+    fn subplot_envelopes_tile_without_gaps() {
+        // Tight layout derives every frame by insetting its envelope by the
+        // decorations it measured, so the envelopes themselves must tile the
+        // figure edge to edge. If they carried matplotlib's default
+        // `wspace`/`hspace` as well, that gap would reserve room for the same
+        // decorations a second time and leave an empty band between panels.
+        let mut fig = Figure::new(12.0, 7.0);
+        for i in 1..=4 {
+            fig.add_subplot(2, 2, i);
+        }
+        let env: Vec<Bbox> = fig
+            .axes
+            .iter()
+            .map(|ax| ax.layout_envelope.expect("subplot axes carry an envelope"))
+            .collect();
+
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-12;
+        // Envelopes are figure fractions, y-up: index 0/1 are the top row.
+        assert!(close(env[0].xmax(), env[1].xmin()), "column gap in row 0");
+        assert!(close(env[2].xmax(), env[3].xmin()), "column gap in row 1");
+        assert!(close(env[0].ymin(), env[2].ymax()), "row gap in column 0");
+        assert!(close(env[1].ymin(), env[3].ymax()), "row gap in column 1");
+        // …and they cover the whole figure.
+        assert!(close(env[0].xmin(), 0.0) && close(env[1].xmax(), 1.0));
+        assert!(close(env[2].ymin(), 0.0) && close(env[0].ymax(), 1.0));
+    }
+
+    #[test]
+    fn stacked_subplots_are_separated_only_by_their_decorations() {
+        // The visible band between two stacked panels should hold the upper
+        // panel's tick labels and the lower panel's title, and nothing more.
+        // Regression guard: this gap was once ~2.2x larger because an empty
+        // `hspace` band sat between the two decoration insets.
+        let mut fig = Figure::new(12.0, 7.0);
+        for i in 1..=4 {
+            let ax = fig.add_subplot(2, 2, i);
+            ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
+            ax.set_title("panel");
+            if i > 2 {
+                ax.set_xlabel("time");
+            }
+        }
+        let (w, h) = fig.size_px();
+        let insets: Vec<(f64, f64, f64, f64)> = (0..4)
+            .map(|i| fig.axes[i].layout_insets(&fig.font, 1.0, None))
+            .collect();
+        let top_env = fig.axes[0].layout_envelope.expect("envelope");
+        let bottom_env = fig.axes[2].layout_envelope.expect("envelope");
+
+        // y-up fractions -> top-down pixels.
+        let top_frame_bottom = (1.0 - top_env.ymin()) * h - insets[0].2;
+        let bottom_frame_top = (1.0 - bottom_env.ymax()) * h + insets[2].3;
+        let gap = bottom_frame_top - top_frame_bottom;
+
+        assert!(
+            gap > 0.0,
+            "stacked panels must not overlap (gap was {gap:.1}px)"
+        );
+        let budget = insets[0].2 + insets[2].3;
+        assert!(
+            gap <= budget + 1.0,
+            "gap {gap:.1}px exceeds the {budget:.1}px its decorations need — \
+             an empty band crept back into the envelope grid"
+        );
+        let _ = w;
     }
 
     #[test]

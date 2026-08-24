@@ -7,7 +7,17 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
-## [1.7.0] - 2026-08-22
+## [1.7.1] - 2026-08-23
+
+### Fixed
+- Subplot grids no longer reserve the space between panels twice. Tight layout
+  insets each axes by the decorations it measured, but the envelope grid still
+  carried matplotlib's default `wspace`/`hspace` — gaps that exist precisely to
+  hold those same decorations — so an empty band sat between the insets. On a
+  1200x700 two-by-two grid the gap between rows was 117 px where 53 px of
+  decoration needed it, and 149 px between columns where 41 px did; each panel
+  now gains roughly 11% in both dimensions. Figures built with `add_subplot`
+  will lay out visibly tighter; `add_axes` rectangles are unaffected.
 
 ### Added
 - **Portable figures (`.riz`)**: `Figure::to_portable`, `save_portable`, and
