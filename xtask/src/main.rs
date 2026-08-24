@@ -120,9 +120,10 @@ fn print_usage() {
          Report a wasm artifact size and optionally fail when it exceeds N bytes.\n    \
          serve-www [--port <u16>] [--dir <path>]\n        \
          Serve the interactive wasm demo site (default crates/rizzma/www) over HTTP.\n    \
-         runtime-manifest --version <v> [--sha256 <hex>]\n        \
-         Print the JSON compatibility manifest published beside a wasm runtime:\n        \
-         which portable-figure schema range that runtime can render."
+         runtime-manifest --version <v> --asset <role>=<path> ...\n        \
+         Print the JSON manifest published beside a wasm runtime: the schema\n        \
+         range it renders, plus size and sha256 for every executable asset\n        \
+         (roles: renderer, glue, loader), each hashed from the file itself."
     );
 }
 
@@ -672,8 +673,10 @@ fn run_serve_www(args: &[String]) -> ExitCode {
 /// portable-figure schemas it can render. The range is read from
 /// `rizzma-portable` so the manifest cannot drift from the code.
 fn run_runtime_manifest(args: &[String]) -> ExitCode {
+    use sha2::{Digest, Sha256};
+
     let mut version = None;
-    let mut sha256 = None;
+    let mut assets: Vec<(String, String)> = Vec::new();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -681,8 +684,12 @@ fn run_runtime_manifest(args: &[String]) -> ExitCode {
                 version = Some(args[i + 1].clone());
                 i += 2;
             }
-            "--sha256" if i + 1 < args.len() => {
-                sha256 = Some(args[i + 1].clone());
+            "--asset" if i + 1 < args.len() => {
+                let Some((role, path)) = args[i + 1].split_once('=') else {
+                    eprintln!("error: --asset expects <role>=<path>, got {}", args[i + 1]);
+                    return ExitCode::from(2);
+                };
+                assets.push((role.to_string(), path.to_string()));
                 i += 2;
             }
             other => {
@@ -695,14 +702,54 @@ fn run_runtime_manifest(args: &[String]) -> ExitCode {
         eprintln!("error: runtime-manifest requires --version <v>");
         return ExitCode::from(2);
     };
-    let sha = match &sha256 {
-        Some(s) => format!("\"{s}\""),
-        None => "null".to_string(),
-    };
+
+    // Every asset here is executable, so every one has to be pinnable. A
+    // consumer that verified only the renderer would be trusting the loader
+    // that decides whether verification happens at all.
+    let expected = ["renderer", "glue", "loader"];
+    for role in expected {
+        if assets.iter().filter(|(r, _)| r == role).count() != 1 {
+            eprintln!("error: expected exactly one --asset {role}=<path>");
+            return ExitCode::from(2);
+        }
+    }
+    if let Some((role, _)) = assets.iter().find(|(r, _)| !expected.contains(&r.as_str())) {
+        eprintln!("error: unknown asset role {role:?}; expected one of {expected:?}");
+        return ExitCode::from(2);
+    }
+
+    let mut entries = Vec::new();
+    for (role, path) in &assets {
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(err) => {
+                eprintln!("error: cannot read {path}: {err}");
+                return ExitCode::from(1);
+            }
+        };
+        let file = std::path::Path::new(path)
+            .file_name()
+            .map_or_else(|| path.clone(), |n| n.to_string_lossy().into_owned());
+        let mime = if file.ends_with(".wasm") {
+            "application/wasm"
+        } else {
+            "text/javascript"
+        };
+        let digest = Sha256::digest(&bytes);
+        entries.push(format!(
+            "    {{ \"role\": \"{role}\", \"file\": \"{file}\", \"mime\": \"{mime}\", \
+             \"size\": {}, \"sha256\": \"{:x}\" }}",
+            bytes.len(),
+            digest
+        ));
+    }
+
     println!(
-        "{{\n  \"version\": \"{version}\",\n  \"sha256\": {sha},\n  \"schema_min\": {},\n  \"schema_max\": {}\n}}",
+        "{{\n  \"manifest\": 1,\n  \"version\": \"{version}\",\n  \"schema_min\": {},\n  \
+         \"schema_max\": {},\n  \"assets\": [\n{}\n  ]\n}}",
         rizzma::portable::SCHEMA_MIN,
-        rizzma::portable::SCHEMA_VERSION
+        rizzma::portable::SCHEMA_VERSION,
+        entries.join(",\n")
     );
     ExitCode::SUCCESS
 }

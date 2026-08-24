@@ -831,6 +831,30 @@ URL. The child receives no cookies, tokens, or backend URLs, initiates no fetch
 or navigation, and both sides check a channel nonce alongside origin and source,
 because opaque origins report `null` and cannot be distinguished by origin alone.
 
+**Every executable asset is pinned, and verification precedes the realm.** The
+runtime ships three executables — the wasm renderer, the wasm-bindgen glue, and
+the loader — and 1.8.0 pinned only the first, which was a hole rather than an
+omission: the loader is what decides whether the renderer gets verified, so
+checking the renderer with an unverified loader checks nothing. From 1.8.1
+`runtime.json` carries `role`, `file`, `mime`, `size`, and `sha256` for each,
+and a host should reject a manifest with a missing, duplicated, or unexpected
+executable role.
+
+The order matters and cannot be shortened: fetch bytes → verify the manifest
+against a digest the host's registry pins → parse it → verify each asset against
+its entry → *then* create the realm and hand it already-verified bytes. The
+sandbox must never execute the loader in order to verify the loader. In practice
+that means a host vendors a small bootstrap of its own whose only job is to
+receive verified bytes over a nonce-bound channel and instantiate them under the
+sandbox CSP. Whether the verified JS is transferred as source and imported via a
+blob or module URL, or served from host-owned content-addressed routes, is the
+host's choice — the CSP and cleanup differ, and blob URLs must be revoked on
+`Dispose`.
+
+Pinning `runtime.json` itself and letting the verified manifest authenticate the
+rest is sound. Pinning an unverified URL that happens to be named
+`runtime.json` is not.
+
 ## 13. Explicit non-goals
 
 - **A Canvas2D/WebGL renderer.** Settled by the charter; the raster backend *is*

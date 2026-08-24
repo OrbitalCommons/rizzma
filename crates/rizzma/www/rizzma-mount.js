@@ -8,8 +8,24 @@
  * an artifact brought with it, and no way to ask this module to "just figure it
  * out". Vet a runtime once, keep your own copy, pass it in.
  *
- * Pairs with the `rizzma-portable` crate, which reads an artifact's size,
+ * Pairs with `rizzma::portable::inspect`, which reads an artifact's size,
  * poster, and schema without instantiating any of this.
+ *
+ * ## Verify this file before you run it
+ *
+ * This module is itself an executable supply-chain input, and it is the part
+ * that decides whether the renderer gets verified at all — so verifying the
+ * wasm with an unverified loader verifies nothing. A host must check every
+ * executable asset against its own pinned digests *before* bootstrapping the
+ * realm that runs them, which means the check cannot happen in here. The
+ * published `runtime.json` carries a role, size, and sha256 for each of the
+ * renderer, the glue, and this loader; pin that manifest and let it
+ * authenticate the rest.
+ *
+ * Concretely: fetch bytes, verify the manifest against a digest your registry
+ * pins, parse it, verify each asset against its entry, and only then create the
+ * sandbox and hand it bytes you have already checked. If you materialise the
+ * verified JS as blob URLs, revoke them on dispose.
  *
  * @module rizzma-mount
  */
