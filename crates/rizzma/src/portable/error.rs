@@ -21,7 +21,7 @@ pub enum PortableError {
     /// safety removes a corruption class rather than parser denial-of-service,
     /// so budgets are enforced before allocating.
     ///
-    /// [`Limits`]: crate::Limits
+    /// [`Limits`]: super::Limits
     Budget(String),
     /// The artifact's schema version is outside this build's supported range.
     Schema {

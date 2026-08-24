@@ -640,12 +640,12 @@ impl Figure {
             .suptitle
             .clone()
             .or_else(|| self.axes.first().and_then(Axes::title_text));
-        let meta = rizzma_portable::Meta {
+        let meta = crate::portable::Meta {
             width_px: w.max(0.0).round() as u32,
             height_px: h.max(0.0).round() as u32,
             alt: cfg.alt.clone(),
             title,
-            poster: poster.as_ref().map(|p| rizzma_portable::PosterRef {
+            poster: poster.as_ref().map(|p| crate::portable::PosterRef {
                 chunk: "PSTR".to_string(),
                 mime: "image/png".to_string(),
                 bytes: p.len(),
@@ -656,10 +656,10 @@ impl Figure {
 
         let spec = crate::portable::spec::PortableSpec {
             schema: crate::portable::SCHEMA_VERSION,
-            generator: rizzma_portable::GeneratorRef {
+            generator: crate::portable::GeneratorRef {
                 rizzma: env!("CARGO_PKG_VERSION").to_string(),
             },
-            renderer: rizzma_portable::RendererRef {
+            renderer: crate::portable::RendererRef {
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 sha256: None,
             },
@@ -681,12 +681,12 @@ impl Figure {
 
         // JSON and the poster precede the bulk payload so a consumer can paint
         // a card from a partial read.
-        let mut chunks: Vec<([u8; 4], &[u8])> = vec![(rizzma_portable::container::TAG_JSON, &json)];
+        let mut chunks: Vec<([u8; 4], &[u8])> = vec![(crate::portable::container::TAG_JSON, &json)];
         if let Some(poster) = &poster {
-            chunks.push((rizzma_portable::container::TAG_PSTR, poster));
+            chunks.push((crate::portable::container::TAG_PSTR, poster));
         }
-        chunks.push((rizzma_portable::container::TAG_BIN, &bank.bytes));
-        Ok(rizzma_portable::container::write(&chunks))
+        chunks.push((crate::portable::container::TAG_BIN, &bank.bytes));
+        Ok(crate::portable::container::write(&chunks))
     }
 
     /// Write this figure to `path` as a portable figure (`.riz`).
@@ -735,7 +735,7 @@ impl Figure {
         bytes: &[u8],
         limits: &crate::portable::Limits,
     ) -> Result<Figure, PortableError> {
-        use rizzma_portable::container;
+        use crate::portable::container;
 
         let dir = container::directory(bytes, limits)?;
         let json = container::chunk(bytes, &dir, container::TAG_JSON)

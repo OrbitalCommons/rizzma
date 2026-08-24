@@ -959,7 +959,6 @@ dependencies = [
  "js-sys",
  "png",
  "resvg",
- "rizzma-portable",
  "serde",
  "serde_json",
  "tiny-skia",
@@ -967,14 +966,6 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
-]
-
-[[package]]
-name = "rizzma-portable"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1403,7 +1394,7 @@ name = "xtask"
 version = "1.0.1"
 dependencies = [
  "image",
- "rizzma-portable",
+ "rizzma",
 ]
 
 [[package]]

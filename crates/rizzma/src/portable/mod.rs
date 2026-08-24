@@ -8,12 +8,18 @@
 //! **pixel identity**: `Figure::from_portable(fig.to_portable()?)` renders
 //! byte-for-byte the same PNG as `fig` itself.
 //!
-//! The container framing, the host-facing metadata, and the renderer-free
-//! [`rizzma_portable::inspect`] entry point live in the companion
-//! [`rizzma_portable`] crate, which links no rasterizer: a host that only needs
-//! to size a card and show a poster should not have to compile a font stack.
-//! This module is the half that needs the renderer.
+//! Everything the format needs lives here, behind the default-on `portable`
+//! feature:
 //!
+//! - [`container`] — the `RZFG` chunk framing, and the only part an
+//!   independent implementation has to reimplement.
+//! - [`inspect`] — read an artifact's size, title, alt text, poster, and
+//!   schema **without building a figure or rendering one**. This is the entry
+//!   point a host uses for the common case, which is the case where it never
+//!   draws: a transcript holding hundreds of figures paints a card for nearly
+//!   all of them and renders one or two.
+//! - [`Limits`] — the budgets a caller imposes on artifacts it did not
+//!   produce, enforced before allocating.
 //! - `spec` — the wire model: plain serde mirrors of the live types, every
 //!   struct `deny_unknown_fields`, every enum closed. Unknown content is a hard
 //!   error, never silently dropped: a figure missing an artist is a
@@ -21,24 +27,61 @@
 //! - `data` — typed binary accessors: bulk arrays live in one binary chunk,
 //!   referenced by index from the JSON spec.
 //!
-//! The public entry points live on `Figure`:
+//! The figure-level entry points live on `Figure`:
 //! [`to_portable`](crate::figure::Figure::to_portable),
 //! [`to_portable_with`](crate::figure::Figure::to_portable_with),
-//! [`save_portable`](crate::figure::Figure::save_portable), and
-//! [`from_portable`](crate::figure::Figure::from_portable).
+//! [`save_portable`](crate::figure::Figure::save_portable),
+//! [`from_portable`](crate::figure::Figure::from_portable), and
+//! [`from_portable_limited`](crate::figure::Figure::from_portable_limited).
+//!
+//! # Trust
+//!
+//! An artifact's `renderer.sha256` is an **identity and a lookup key, never an
+//! authorization**. A hostile artifact can inline a hostile renderer and
+//! honestly report its digest, so verifying artifact bytes against the
+//! artifact's own claim is circular and buys nothing. A host keeps its own
+//! allowlist mapping schema (and optionally version) to renderers *it* vetted,
+//! serves its own copy, and ignores any `WASM` chunk for execution.
 
 #[cfg(feature = "portable")]
+pub mod container;
+#[cfg(feature = "portable")]
 pub(crate) mod data;
+#[cfg(feature = "portable")]
+mod error;
+#[cfg(feature = "portable")]
+mod inspect;
+#[cfg(feature = "portable")]
+mod limits;
+#[cfg(feature = "portable")]
+mod meta;
 pub(crate) mod spec;
 
 #[cfg(all(test, feature = "portable"))]
 mod tests;
 
 #[cfg(feature = "portable")]
-pub use rizzma_portable::{
-    ChunkRef, GeneratorRef, Limits, Meta, Metadata, PortableError, PosterRef, RendererRef,
-    SCHEMA_MIN, SCHEMA_VERSION, inspect,
-};
+pub use container::ChunkRef;
+#[cfg(feature = "portable")]
+pub use error::PortableError;
+#[cfg(feature = "portable")]
+pub use inspect::inspect;
+#[cfg(feature = "portable")]
+pub use limits::Limits;
+#[cfg(feature = "portable")]
+pub use meta::{GeneratorRef, Meta, Metadata, PosterRef, RendererRef};
+
+/// Wire-format schema version written into every artifact.
+///
+/// Bumped whenever anything changes that would alter how an existing artifact
+/// renders. Schema 1 is the original static+interactive model; schema 2 adds
+/// the [`Meta`] block and the poster chunk.
+#[cfg(feature = "portable")]
+pub const SCHEMA_VERSION: u32 = 2;
+
+/// Oldest schema version this build can still load.
+#[cfg(feature = "portable")]
+pub const SCHEMA_MIN: u32 = 1;
 
 // Without the `portable` feature the artifact machinery is absent, but the
 // public `Scale`/`Locator`/`Formatter` traits still name the wire forms below,
@@ -50,8 +93,7 @@ pub use no_portable::PortableError;
 mod no_portable {
     /// Placeholder for the error type of the disabled `portable` feature.
     ///
-    /// Enable the feature to get the real
-    /// [`rizzma_portable::PortableError`](https://docs.rs/rizzma-portable).
+    /// Enable the `portable` feature for the real one.
     #[derive(Debug)]
     pub enum PortableError {}
 
