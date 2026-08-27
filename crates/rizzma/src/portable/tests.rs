@@ -951,3 +951,222 @@ fn missing_json_chunk_is_refused() {
         other => panic!("expected Malformed, got {other:?}"),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Animation: a timeline is a pure function of t, and it survives the wire.
+// ---------------------------------------------------------------------------
+
+use crate::portable::{Interp, Target, Timeline, Track};
+
+/// A figure whose single line ramps from flat to a slope over two seconds.
+fn animated_figure() -> Figure {
+    let mut fig = Figure::new(4.0, 3.0);
+    let ax = fig.add_subplot(1, 1, 1);
+    ax.plot(&[0.0, 1.0, 2.0], &[0.0, 0.0, 0.0]);
+    let mut timeline = Timeline::new(2.0);
+    timeline.push(
+        Track::line_y(
+            0,
+            0,
+            vec![0.0, 2.0],
+            vec![vec![0.0, 0.0, 0.0], vec![0.0, 1.0, 2.0]],
+        )
+        .expect("track"),
+    );
+    fig.set_timeline(timeline);
+    fig
+}
+
+#[test]
+fn seeking_is_a_pure_function_of_time() {
+    // The property the whole design rests on: same t, same figure. Without it
+    // scrubbing is approximate and archived replay is a different picture.
+    let mut a = animated_figure();
+    let mut b = animated_figure();
+
+    a.seek(0.75).expect("seek");
+    b.seek(0.25).expect("seek");
+    b.seek(1.9).expect("seek");
+    b.seek(0.75).expect("seek"); // arrives from elsewhere, same destination
+    assert_eq!(a.axes()[0].line_data(0), b.axes()[0].line_data(0));
+    assert!(a.encode_png().unwrap() == b.encode_png().unwrap());
+}
+
+#[test]
+fn interpolation_is_element_wise_and_endpoints_hold() {
+    let mut fig = animated_figure();
+
+    fig.seek(0.0).expect("seek");
+    assert_eq!(fig.axes()[0].line_data(0).unwrap().1, vec![0.0, 0.0, 0.0]);
+
+    fig.seek(1.0).expect("seek");
+    assert_eq!(fig.axes()[0].line_data(0).unwrap().1, vec![0.0, 0.5, 1.0]);
+
+    fig.seek(2.0).expect("seek");
+    assert_eq!(fig.axes()[0].line_data(0).unwrap().1, vec![0.0, 1.0, 2.0]);
+}
+
+#[test]
+fn time_outside_the_timeline_wraps_or_clamps() {
+    // Looping wraps so a caller can pass a monotonic clock; non-looping clamps
+    // so the end state holds rather than extrapolating data nobody drew.
+    let mut looping = animated_figure();
+    looping.seek(3.0).expect("seek"); // 3.0 wraps to 1.0
+    assert_eq!(
+        looping.axes()[0].line_data(0).unwrap().1,
+        vec![0.0, 0.5, 1.0]
+    );
+
+    // Exactly `duration` is the end, not the start: seeking to the end of an
+    // animation should show its end. Wrapping starts strictly past duration.
+    let mut at_end = animated_figure();
+    at_end.seek(2.0).expect("seek");
+    assert_eq!(
+        at_end.axes()[0].line_data(0).unwrap().1,
+        vec![0.0, 1.0, 2.0]
+    );
+    let mut past_end = animated_figure();
+    past_end.seek(2.5).expect("seek");
+    assert_eq!(
+        past_end.axes()[0].line_data(0).unwrap().1,
+        vec![0.0, 0.25, 0.5]
+    );
+
+    let mut once = animated_figure();
+    let held = once
+        .timeline()
+        .expect("timeline")
+        .clone()
+        .with_looping(false);
+    once.set_timeline(held);
+    once.seek(99.0).expect("seek");
+    assert_eq!(once.axes()[0].line_data(0).unwrap().1, vec![0.0, 1.0, 2.0]);
+
+    // A nonsense clock must not produce a nonsense figure.
+    let mut nan = animated_figure();
+    nan.seek(f64::NAN).expect("seek");
+    assert_eq!(nan.axes()[0].line_data(0).unwrap().1, vec![0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn step_interpolation_holds_the_earlier_keyframe() {
+    let track = Track::new(
+        Target::LineY { axes: 0, index: 0 },
+        vec![0.0, 1.0],
+        vec![vec![1.0], vec![9.0]],
+        Interp::Step,
+    )
+    .expect("track");
+    assert_eq!(track.sample(0.0), vec![1.0]);
+    assert_eq!(track.sample(0.99), vec![1.0], "step must not ramp");
+    assert_eq!(track.sample(1.0), vec![9.0]);
+}
+
+#[test]
+fn a_scrolling_window_is_two_keyframes_not_many_frames() {
+    // The oscilloscope case: animating the view, not the data. If this needed a
+    // frame per sample the artifact would be a video with extra steps.
+    let mut fig = Figure::new(4.0, 3.0);
+    let ax = fig.add_subplot(1, 1, 1);
+    let x: Vec<f64> = (0..500).map(|i| i as f64 * 0.02).collect();
+    let y: Vec<f64> = x.iter().map(|v| v.sin()).collect();
+    ax.plot(&x, &y);
+
+    let mut timeline = Timeline::new(10.0);
+    timeline.push(Track::xlim_sweep(0, 10.0, (0.0, 2.0), (8.0, 10.0)).expect("sweep"));
+    fig.set_timeline(timeline);
+
+    fig.seek(5.0).expect("seek");
+    let ((lo, hi), _) = fig.axes()[0].effective_limits();
+    assert!(
+        (lo - 4.0).abs() < 1e-9 && (hi - 6.0).abs() < 1e-9,
+        "window should be halfway across: got ({lo}, {hi})"
+    );
+    assert_eq!(fig.timeline().expect("timeline").tracks[0].len(), 2);
+}
+
+#[test]
+fn an_animation_survives_the_round_trip() {
+    let fig = animated_figure();
+    let bytes = fig.to_portable().expect("export");
+    let restored = Figure::from_portable(&bytes).expect("import");
+
+    assert_eq!(restored.timeline(), fig.timeline());
+
+    // And it still evaluates identically after the trip.
+    let (mut a, mut b) = (fig, restored);
+    a.seek(1.3).expect("seek");
+    b.seek(1.3).expect("seek");
+    assert!(a.encode_png().unwrap() == b.encode_png().unwrap());
+}
+
+#[test]
+fn an_animated_artifact_declares_itself_to_a_host() {
+    // A host decides whether to show transport controls from `inspect` alone,
+    // without parsing the timeline.
+    let bytes = animated_figure().to_portable().expect("export");
+    let info = crate::portable::inspect(&bytes, &Limits::default()).expect("inspect");
+    let meta = info.meta.expect("meta");
+    assert!(meta.animated);
+    assert_eq!(meta.duration, 2.0);
+    assert_eq!(info.schema, SCHEMA_VERSION);
+
+    // A static figure says so, and reports no duration.
+    let mut still = Figure::new(4.0, 3.0);
+    still.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    let info = crate::portable::inspect(&still.to_portable().unwrap(), &Limits::default()).unwrap();
+    let meta = info.meta.expect("meta");
+    assert!(!meta.animated);
+    assert_eq!(meta.duration, 0.0);
+}
+
+#[test]
+fn ill_formed_tracks_are_refused_at_construction() {
+    let target = Target::LineY { axes: 0, index: 0 };
+    // Ragged frames would make the element-wise lerp undefined.
+    assert!(
+        Track::new(
+            target,
+            vec![0.0, 1.0],
+            vec![vec![0.0, 0.0], vec![1.0]],
+            Interp::Linear
+        )
+        .is_err()
+    );
+    // Times must be strictly increasing, or bracketing a time is ambiguous.
+    assert!(
+        Track::new(
+            target,
+            vec![1.0, 0.0],
+            vec![vec![0.0], vec![1.0]],
+            Interp::Linear
+        )
+        .is_err()
+    );
+    // Counts must agree.
+    assert!(Track::new(target, vec![0.0], vec![], Interp::Linear).is_err());
+    assert!(Track::new(target, vec![], vec![], Interp::Linear).is_err());
+}
+
+#[test]
+fn a_track_pointing_at_nothing_fails_loudly() {
+    // Silently skipping a track would animate a figure differently than the
+    // author wrote it, with nothing to indicate anything was dropped.
+    let mut fig = Figure::new(4.0, 3.0);
+    fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+
+    let mut timeline = Timeline::new(1.0);
+    timeline.push(Track::line_y(0, 7, vec![0.0], vec![vec![0.0, 0.0]]).expect("track"));
+    fig.set_timeline(timeline);
+    match fig.seek(0.5) {
+        Err(PortableError::Malformed(msg)) => assert!(msg.contains("line 7"), "{msg}"),
+        other => panic!("expected Malformed, got {other:?}"),
+    }
+
+    let mut fig = Figure::new(4.0, 3.0);
+    fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    let mut timeline = Timeline::new(1.0);
+    timeline.push(Track::line_y(9, 0, vec![0.0], vec![vec![0.0, 0.0]]).expect("track"));
+    fig.set_timeline(timeline);
+    assert!(matches!(fig.seek(0.5), Err(PortableError::Malformed(_))));
+}

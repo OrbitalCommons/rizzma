@@ -289,6 +289,35 @@ impl WasmFigure {
         Ok(WasmFigure { fig })
     }
 
+    /// Move this figure to time `t` (seconds), applying its animation.
+    ///
+    /// Wrapped or clamped into the timeline first, so a caller can hand over a
+    /// monotonically increasing clock. A static figure ignores this.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error message when a track addresses an artist that does not
+    /// exist or hands it the wrong number of values.
+    #[cfg(feature = "portable")]
+    pub fn seek(&mut self, t: f64) -> Result<(), JsValue> {
+        self.fig
+            .seek(t)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Whether this figure animates, and for how long in seconds.
+    ///
+    /// Returned as `[animated, duration]` so a loader can decide whether to
+    /// show transport controls. `animated` is `1.0` or `0.0`.
+    #[cfg(feature = "portable")]
+    #[wasm_bindgen(js_name = animation)]
+    pub fn animation(&self) -> Box<[f64]> {
+        match self.fig.timeline() {
+            Some(t) if !t.is_empty() => Box::new([1.0, t.duration]),
+            _ => Box::new([0.0, 0.0]),
+        }
+    }
+
     /// The schema range this build can render, as `[min, max]`.
     ///
     /// A loader compares this against an artifact's declared schema to decide
