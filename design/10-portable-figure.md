@@ -247,7 +247,9 @@ readable by a dependency-free parse of the container framing:
 Exact pixel dimensions, not an aspect-ratio hint: the figure's size in inches and
 its DPI are both authored, so a host can reserve the right box and never reflow.
 
-**rizzma owns the inspector**, as a renderer-free Rust API — not a JS one. The
+**rizzma owns the inspector**, as a renderer-*independent* Rust API — not a JS
+one. (It was briefly a renderer-*free* crate; see §12's deviations for why that
+distinction now matters.) The
 first draft assumed hosts would parse the container in TypeScript; agent-portal's
 frontend is Rust/Yew/wasm, and more generally a host should not reimplement the
 container parser just to allocate a card. So:
@@ -629,7 +631,9 @@ what a host needs *before* the mount API is useful to it, and they are ordered s
 each is independently checkable:
 
 1. a **published hash-addressed runtime** and a stable mount API (§6, §7);
-2. **`inspect()`**: renderer-free, wasm-safe metadata and validation (§4.6);
+2. **`inspect()`**: renderer-independent, wasm-safe metadata and validation
+   (§4.6) — it builds no figure and rasterizes nothing, though the crate it
+   lives in still compiles the render stack;
 3. the **poster** plus intrinsic sizing and accessibility metadata (§4.7);
 4. an explicit **runtime compatibility and selection policy** (§9).
 

@@ -28,9 +28,11 @@ child**. A malformed, over-budget, or unsupported artifact therefore never
 causes a realm to exist. The child still fails safely on bad bytes — that is
 defense in depth, not where the safety comes from.
 
-**The child is inert until spoken to.** It has no network, no storage, no
-knowledge of the host, and nothing to do until a `Mount` arrives. Everything it
-draws came through `postMessage` from a parent that had already verified it.
+**The child does no figure work until told to.** It has no network, no storage,
+and no knowledge of the host. It does import the loader during bootstrap (§3.1),
+but touches no artifact and instantiates no renderer until `mount` arrives, and
+everything it eventually draws came through `postMessage` from a parent that had
+already verified it.
 
 ## 3. Bootstrap, then transport
 
@@ -51,12 +53,16 @@ type Boot = {
 };
 ```
 
-The bootstrap accepts it only if `event.source === window.parent`, the shape
-matches exactly, and no boot has already been accepted; then it **detaches its
-`window` listener** so a second boot cannot arrive. `targetOrigin` on the
-parent's `postMessage` must be `"*"`, because an opaque origin has no origin to
-target — which is precisely why `event.source` and the nonce carry the
-authentication instead.
+The bootstrap accepts it only if `event.source === window.parent`, the value is
+a plain object with exactly these keys, `nonce` is 32 lowercase hex characters,
+`port` is exactly one transferred `MessagePort`, and no boot has already been
+accepted. It **detaches its `window` listener on both success and terminal
+failure**, so a second boot cannot arrive either way.
+
+`targetOrigin` must be `"*"`, because an opaque origin has no origin to target.
+**`event.source === window.parent` is what authenticates the boot** — the nonce
+cannot, since it arrives *inside* the message it would be authenticating. The
+nonce's job starts afterwards: it binds every message on the channel.
 
 The bootstrap materialises `loader` as a **child-local blob module** and imports
 it. It is source, not a URL: a URL the child fetches is a fetch the child
@@ -66,6 +72,24 @@ alternative; that was wrong and is withdrawn.
 
 `ready` then means **the protocol is installed** — not that a renderer exists.
 The renderer arrives with `mount`.
+
+### 3.1.1 The realm policy this assumes
+
+§2 claims the child has no network and no storage. That is only true if the host
+creates the realm that way, so it is a requirement rather than a description:
+
+- `sandbox="allow-scripts"` and **nothing else** — no `allow-same-origin` (which
+  would hand back an origin and with it storage and same-origin fetch), no
+  `allow-forms`, `allow-popups`, `allow-top-navigation`, or `allow-downloads`.
+- CSP `default-src 'none'`, `connect-src 'none'`, and `script-src` limited to
+  the hash-authorized inline bootstrap plus `blob:` for the verified modules.
+  `img-src`, `style-src`, `font-src`, and `media-src` stay `'none'`: a figure is
+  drawn into a canvas from bytes, and needs to load nothing.
+- No child-created workers unless a later revision needs them, in which case
+  they are added deliberately rather than inherited.
+
+`wasm-unsafe-eval` may be required in `script-src` for WebAssembly compilation
+depending on browser and loader; scope it to this document, never host-wide.
 
 ### 3.2 The channel
 
@@ -85,10 +109,11 @@ type Envelope<T> = {
 - `seq` is **strictly increasing per direction**. `MessagePort` preserves
   ordering, so a `seq` that is not greater than the last seen is a duplicate or
   a replay: **drop it silently**.
-- `re` is present on every acknowledgement and on every error caused by a
-  request, and absent on unsolicited events (`ready`, progress `state`,
-  natural-completion `state`). A parent correlates on `re`, never on arrival
-  order.
+- `re` is carried by `mounted`, `resized`, `disposed`, `superseded`, control
+  acknowledgements (`state` answering `pause`/`resume`/`seek`), and every error
+  caused by a request. It is **absent** on `ready`, on throttled progress
+  `state`, and on natural-completion `state`. A parent correlates on `re`, never
+  on arrival order.
 - **Nonce mismatch: dropped silently.** No reply, no log to the peer — answering
   would distinguish a wrong guess from a wrong shape.
 - A structurally malformed envelope that *does* carry the right nonce gets
@@ -141,11 +166,22 @@ fields would let parent and child disagree about what is acceptable, which is th
 one thing a defense-in-depth check must not do — the child would be enforcing a
 different policy than the one the parent already applied.
 
-**Every number is validated before use**: finite, non-negative, and within
-bounds. `dpr` and canvas dimensions are clamped *before* multiplying, so an
-absurd `dpr` cannot overflow into a small product. A rejected number is
-`error{code:"illegal"}`, not a clamp — silently rendering at a size nobody asked
-for is worse than refusing.
+**Numbers are validated before use, and the rule differs by kind** — an earlier
+draft said everything is rejected, which contradicted `seek` being clamped:
+
+- **Non-finite is always rejected.** `NaN` and infinities are
+  `error{code:"illegal"}` wherever they appear.
+- **Dimensions and budgets are rejected out of range.** `cssWidth`/`cssHeight`
+  must be finite and non-negative, `dpr` strictly greater than zero,
+  `maxChunks` and every byte and pixel limit a safe non-negative **integer**.
+  Silently rendering at a size nobody asked for is worse than refusing.
+- **`seek.time` is clamped** to `[0, duration]` once finite, because a time
+  outside an animation has an obvious intended meaning and refusing a scrub that
+  overshoots by a pixel would be hostile. This matches `Timeline::normalize`,
+  which is what actually evaluates it.
+- `dpr` and canvas dimensions are clamped against the pixel budget **before**
+  multiplying, so an absurd `dpr` cannot overflow into a plausible-looking
+  product.
 
 `artifact` is **transferred**, which detaches the parent's buffer. The parent
 must therefore keep its own durable copy (and its extracted poster) rather than
@@ -163,7 +199,8 @@ type ToParent =
                      animated: boolean; duration: number;   // seconds; 0 if static
                      playing: boolean }
   | { t: "error";    code: ErrorCode; message: string }
-  | { t: "state";    playing: boolean; time: number; at: number }
+  | { t: "state";    playing: boolean; time: number }
+  | { t: "superseded"; by: number }                         // re = superseded seq
   | { t: "resized";  widthPx: number; heightPx: number; dpr: number }
   | { t: "disposed" };
 
@@ -174,8 +211,14 @@ type ErrorCode =
   | "internal";
 ```
 
-`state.at` is the child's `performance.now()` when the sample was taken, so a
-parent can advance a scrubber visually between updates instead of stepping it.
+`state` deliberately carries **no timestamp**. An earlier draft sent the child's
+`performance.now()`, which is unusable: separate realms have separate time
+origins, so the number means nothing in the parent's frame of reference. The
+parent anchors each sample at **its own receipt time** instead — sound here
+because the channel is in-process with no network in the path, and because a
+4 Hz resync bounds how far an interpolated playhead can drift before it is
+corrected. An epoch-aligned timestamp (`timeOrigin + now()`) with a negotiated
+offset would be more precise and is not worth the machinery at this cadence.
 
 **`error.message` is for a human reading a log, never for a parser.** It is
 capped (256 chars) and must never echo artifact bytes, JS source, URLs, stack
@@ -195,7 +238,7 @@ Booting ─► Ready ─► Mounting ─► Playing ⇄ Paused
 |---|---|---|
 | `Booting` | — | emits `ready` once the protocol is installed |
 | `Ready` | `mount`, `dispose` | `mount` → `Mounting` |
-| `Mounting` | `dispose` | → `Playing` or `Paused` (emits `mounted`), or → `Failed` (emits `error`) |
+| `Mounting` | `pause`, `resume`, `resize`, `dispose` | `pause`/`resume` latch the desired state; `resize` is latest-wins; → `Playing`/`Paused` (emits `mounted`) or → `Failed` (emits `error`) |
 | `Playing` | `pause`, `seek`, `resize`, `dispose` | `pause` → `Paused` |
 | `Paused` | `resume`, `seek`, `resize`, `dispose` | `resume` → `Playing` (static figures stay `Paused`) |
 | `Failed` | `dispose` | nothing else; the realm is not reusable |
@@ -205,8 +248,20 @@ Booting ─► Ready ─► Mounting ─► Playing ⇄ Paused
 `Mounting` exists because mounting is genuinely asynchronous — a blob import, a
 wasm compile, an artifact parse, a first render — and a state machine that
 pretends otherwise leaves a window in which the parent cannot tell what is legal.
-**`dispose` is legal throughout it** and cancels what can be cancelled; anything
-else during `Mounting` is `illegal`.
+
+**`pause` and `resume` are legal during `Mounting`**, and this is not a
+convenience. A figure that was visible and focused when the parent decided to
+mount can be scrolled away or unfocused while wasm compiles. If `pause` were
+illegal there, the parent's only correct move — pause it — would draw
+`illegal`, and `illegal` means dispose; the alternative is an animation that
+starts playing in a hidden frame. So during `Mounting` they set a **desired-play
+latch**, acked immediately, and the eventual `mounted` reports the state the
+latch settled on. `resize` is latest-wins for the same reason. Losing the
+active-renderer *slot* may still end in `dispose` — that is a real decision, not
+a race — but ordinary visibility churn must not turn into protocol failure.
+
+`dispose` is legal throughout and cancels what can be cancelled; anything else
+during `Mounting` is `illegal`.
 
 **Failure cleans up before it reports.** A mount that fails partway must release
 whatever it already allocated — blob URLs, listeners, a partially initialised
@@ -252,8 +307,9 @@ A parent driving a scrubber needs the playhead, and the child owns it. So:
 - `state` is emitted on **every control transition** (with `re`), on **natural
   completion** (unsolicited), and as **throttled progress while playing** —
   at most **4 Hz**, unsolicited. Never per frame.
-- Between updates the parent interpolates from `state.at`, and **resyncs to the
-  next `state` rather than to its own accumulated estimate**.
+- Between updates the parent interpolates from **its own receipt time** for the
+  last `state`, and **resyncs to the next `state` rather than to its own
+  accumulated estimate**.
 
 ### Ending, looping, and static figures
 
@@ -284,12 +340,23 @@ reports the dimensions actually applied.
 
 ### Scrub backpressure
 
-Both ends, because they solve different halves: the **parent coalesces** pointer
-movement to at most one `seek` per parent frame, and the **child is latest-wins**
-— a `seek` arriving while a render is in flight supersedes any earlier pending
-one, and the superseded request is acknowledged by the `state` that the winning
-seek emits. No `seek` is silently dropped without an acknowledgement that
-reflects the final position.
+Both ends, because they solve different halves.
+
+The **parent coalesces** pointer movement to at most one `seek` per parent frame.
+Those are never sent, so they need no acknowledgement.
+
+The **child is latest-wins**: a `seek` arriving while a render is in flight
+supersedes any earlier pending one. An earlier draft said the winning `state`
+acknowledged the superseded requests too — it cannot, because an envelope
+carries exactly one `re`. Each superseded request gets its own explicit reply:
+
+```ts
+| { t: "superseded"; by: number }   // re = the superseded seq
+```
+
+so every `seek` that was actually sent is answered exactly once, and the final
+`state` carries `re` of the winning seq. Silence would leave a parent unable to
+distinguish "replaced" from "lost".
 
 ## 8. What `dispose` must actually free
 
@@ -324,7 +391,7 @@ Settled in review; listed because each was live and someone will wonder.
 |---|---|
 | glue as blob source or host-served route? | **blob source only.** A host route means the child fetches, which contradicts no-network — and an opaque origin is not same-origin to it anyway |
 | letterbox in child, or parent sizes the box? | **both.** Parent sizes to the natural aspect from `inspect`; child still letterboxes and never distorts equal-aspect axes, against rounding and responsive constraints |
-| scrub backpressure in parent or child? | **both.** Parent coalesces to ≤1 `seek` per frame; child is latest-wins with the superseded request acknowledged by the winning `state` |
+| scrub backpressure in parent or child? | **both.** Parent coalesces to ≤1 `seek` per frame (never sent, so never acked); child is latest-wins, replying `superseded` to each replaced request |
 | should `error{code:"artifact"}` be reachable? | **yes, and distinctly.** The parent validated first, so seeing it in production is an invariant violation worth alerting on — folding it into `internal` would hide that |
 | `resume` at the end of a non-looping timeline? | **restarts from 0.** Requiring an explicit `seek` first makes pressing play do nothing, which reads as a bug |
 
