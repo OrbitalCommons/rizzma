@@ -1,10 +1,13 @@
 # 10 — Portable figure: a self-describing artifact that renders itself into a canvas
 
-Status: **P0 shipped** in 1.7.0; **P1's four host prerequisites shipped** in
-1.8.0 — the renderer-free `portable::inspect`, the `PSTR` poster, schema 2's
-`meta` block, and a published hash-addressed runtime. What remains of P1 is the
-browser half: `WasmFigure::from_portable` and `rizzma-mount.js`. Revised against
-an agent-portal host review on 2026-08-22 (§7, §4.6, §4.7, §9, §12b). Design for
+Status: **P0 shipped** in 1.7.0; **P1 shipped** in 1.8.0 — the
+renderer-*independent* `portable::inspect`, the `PSTR` poster, schema 2's `meta`
+block, a published hash-addressed runtime, `WasmFigure::from_portable`, and
+`rizzma-mount.js`;
+1.8.1 pinned every executable runtime asset. Next is **P3's timeline**, so
+figures animate rather than merely interact, with the mount protocol it rides on
+in `11-figure-mount-protocol.md`. Revised against agent-portal host reviews from
+2026-08-22 onward (§7, §4.6, §4.7, §9, §12b, §12c, §12d). Design for
 [#287](https://github.com/OrbitalCommons/rizzma/issues/287).
 Companion docs: `06-wasm-interactive-plan.md` (charter), `09-show-browser.md` (whose
 Phase 3 "scene transport" this subsumes). Size numbers below are measured on `main`
@@ -244,7 +247,9 @@ readable by a dependency-free parse of the container framing:
 Exact pixel dimensions, not an aspect-ratio hint: the figure's size in inches and
 its DPI are both authored, so a host can reserve the right box and never reflow.
 
-**rizzma owns the inspector**, as a renderer-free Rust API — not a JS one. The
+**rizzma owns the inspector**, as a renderer-*independent* Rust API — not a JS
+one. (It was briefly a renderer-*free* crate; see §12's deviations for why that
+distinction now matters.) The
 first draft assumed hosts would parse the container in TypeScript; agent-portal's
 frontend is Rust/Yew/wasm, and more generally a host should not reimplement the
 container parser just to allocate a card. So:
@@ -323,7 +328,7 @@ artifact for lacking one (show a "load interactive figure" placeholder instead) 
 but the exporter writes one by default, because a figure that cannot render and
 has nothing to show is the one failure mode with no recovery.
 
-## 5. Animation: a declarative timeline (schema 2)
+## 5. Animation: a declarative timeline (schema 3)
 
 A host-callback animation cannot be serialized; the demos today are JS
 `setInterval` loops recomputing arrays and calling the three mutation verbs
@@ -366,10 +371,10 @@ promise all at once. Keyframes ship first; operators get added as *closed enum
 variants* only when a real artifact is too heavy as keyframes, and never as a
 general expression language.
 
-The timeline lands as **schema 2** (§9) — deliberately, so the versioning
-discipline is exercised while the stakes are low: a schema-1 loader rejects a
-schema-2 artifact with a clear "needs rizzma ≥ X" error instead of silently
-dropping the animation.
+The timeline lands as **schema 3**. It was planned as schema 2, but 1.8.0 spent
+that on the `meta` block — which is the versioning discipline working rather than
+a plan going wrong: a schema-2 loader rejects a schema-3 artifact with a clear
+"needs rizzma ≥ X" instead of rendering a figure that silently does not move.
 
 Runtime behavior copies the pattern proven in `docs-header.html:83`: one shared
 clock, `IntersectionObserver` gating so off-screen figures don't burn CPU, and the
@@ -614,9 +619,9 @@ Actions, kept out of the artifact-format work so each lands independently:
 | phase | delivers | schema |
 |---|---|---|
 | **P0** ✅ | `crate::portable` wire model + container + native `to/from_portable` + golden identity & rejection tests | 1 |
-| **P1** | the four host prerequisites below, then `WasmFigure::from_portable` + `rizzma-mount.js`; linked profile end-to-end (agent-portal, docs) | 1 |
+| **P1** ✅ | the four host prerequisites below, then `WasmFigure::from_portable` + `rizzma-mount.js`; the linked profile through **rizzma's own browser runtime** — no host integration exists yet | 2 |
 | **P2** | self-contained profile (`WASM` chunk), `save_html`, size program (§11) | 1 |
-| **P3** | timeline + shared clock/scrub UI; font subsetting with alphabet closure + `FONT` chunk | 2 |
+| **P3** | timeline + transport controls; font subsetting with alphabet closure + `FONT` chunk | 3 |
 
 P0 is pure native Rust — no browser, no JS — and already proves the hard 80%:
 the wire model, strictness, and pixel-identity.
@@ -626,7 +631,9 @@ what a host needs *before* the mount API is useful to it, and they are ordered s
 each is independently checkable:
 
 1. a **published hash-addressed runtime** and a stable mount API (§6, §7);
-2. **`inspect()`**: renderer-free, wasm-safe metadata and validation (§4.6);
+2. **`inspect()`**: renderer-independent, wasm-safe metadata and validation
+   (§4.6) — it builds no figure and rasterizes nothing, though the crate it
+   lives in still compiles the render stack;
 3. the **poster** plus intrinsic sizing and accessibility metadata (§4.7);
 4. an explicit **runtime compatibility and selection policy** (§9).
 
@@ -646,6 +653,11 @@ bottleneck, not the 370 KB download.
    `runtime.json` declaring the schema range it renders, generated by
    `cargo xtask runtime-manifest` so it reads the range from the code.
 2. **`inspect()` is a feature of `rizzma`**, `portable`, not a separate crate.
+   Note the wording that survives from the split: it is **renderer-independent**,
+   not renderer-free. Calling `inspect` builds no figure and rasterizes nothing,
+   and a consumer that only calls it links ~22 KB after dead-code elimination —
+   but the crate still *compiles* tiny-skia, ttf-parser, png and chrono to get
+   there. "Renderer-free" was accurate about a crate that no longer exists.
    It briefly *was* a separate crate, on the argument that `tiny-skia` is a
    non-optional dependency so an in-crate inspector would drag a rasterizer
    along. Measurement did not support that: a wasm consumer that only calls
