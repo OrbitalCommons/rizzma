@@ -32,24 +32,69 @@ defense in depth, not where the safety comes from.
 knowledge of the host, and nothing to do until a `Mount` arrives. Everything it
 draws came through `postMessage` from a parent that had already verified it.
 
-## 3. Transport
+## 3. Bootstrap, then transport
 
-A dedicated `MessageChannel`. The parent creates it, keeps `port1`, and transfers
-`port2` to the child in the bootstrap message. All subsequent traffic is on that
-channel, so `event.origin` — which is `null` for an opaque origin and therefore
-useless as an authenticator — never has to be the check.
+### 3.1 The bootstrap is not part of the protocol
 
-Every message additionally carries a `nonce`, a 128-bit random value minted per
-realm by the parent and delivered once in the bootstrap. **A message whose nonce
-does not match is dropped silently** — no reply, no log to the peer, because
-answering distinguishes a wrong guess from a wrong shape.
+The child cannot speak the protocol until it *has* the protocol, so installing
+it is a separate, one-shot step with its own shape. The realm starts as a tiny
+**host-owned inline bootstrap** — not rizzma code — whose entire job is to
+receive one message and then get out of the way.
 
 ```ts
-type Envelope<T> = { nonce: string; seq: number; body: T };
+// The single `window` message the bootstrap accepts. Not an Envelope.
+type Boot = {
+  kind: "rizzma-boot";
+  nonce: string;          // 128-bit, hex
+  loader: string;         // already parent-verified JS source (§4)
+  port: MessagePort;      // transferred: the child's end of the channel
+};
 ```
 
-`seq` is monotonic per direction. Its only job is correlating a reply with its
-request; a reply carries the `seq` it answers in `re`.
+The bootstrap accepts it only if `event.source === window.parent`, the shape
+matches exactly, and no boot has already been accepted; then it **detaches its
+`window` listener** so a second boot cannot arrive. `targetOrigin` on the
+parent's `postMessage` must be `"*"`, because an opaque origin has no origin to
+target — which is precisely why `event.source` and the nonce carry the
+authentication instead.
+
+The bootstrap materialises `loader` as a **child-local blob module** and imports
+it. It is source, not a URL: a URL the child fetches is a fetch the child
+initiates, and an opaque-origin child has no same-origin host route to fetch
+from anyway. An earlier draft of this document offered a host-served route as an
+alternative; that was wrong and is withdrawn.
+
+`ready` then means **the protocol is installed** — not that a renderer exists.
+The renderer arrives with `mount`.
+
+### 3.2 The channel
+
+Everything after the bootstrap is on the transferred `MessagePort`, so
+`event.origin` — `null` for an opaque origin, and therefore useless as an
+authenticator — never has to be the check.
+
+```ts
+type Envelope<T> = {
+  nonce: string;      // must equal the boot nonce
+  seq: number;        // safe positive integer, strictly increasing per direction
+  re?: number;        // the `seq` this answers; absent on unsolicited events
+  body: T;
+};
+```
+
+- `seq` is **strictly increasing per direction**. `MessagePort` preserves
+  ordering, so a `seq` that is not greater than the last seen is a duplicate or
+  a replay: **drop it silently**.
+- `re` is present on every acknowledgement and on every error caused by a
+  request, and absent on unsolicited events (`ready`, progress `state`,
+  natural-completion `state`). A parent correlates on `re`, never on arrival
+  order.
+- **Nonce mismatch: dropped silently.** No reply, no log to the peer — answering
+  would distinguish a wrong guess from a wrong shape.
+- A structurally malformed envelope that *does* carry the right nonce gets
+  `error{code:"illegal"}` — but at most a small bounded number of them per
+  realm, after which the child stops replying, so a malformed-message loop
+  cannot be turned into an amplifier.
 
 ## 4. Before the child exists
 
@@ -75,83 +120,114 @@ verifying the verifier. That is why steps 1–2 are the parent's.
 
 ```ts
 type ToChild =
-  | { t: "mount";   artifact: ArrayBuffer;      // transferred, not copied
+  | { t: "mount";   artifact: ArrayBuffer;          // transferred, not copied
                     renderer: { wasm: ArrayBuffer; glue: string };
-                    view: { cssWidth: number; cssHeight: number; dpr: number };
-                    limits: { maxBytes: number; maxCanvasPixels: number };
+                    view: View;
+                    limits: Limits;                 // the FULL inspector budget
                     autoplay: boolean }
   | { t: "pause" }
   | { t: "resume" }
-  | { t: "seek";    time: number }              // seconds, clamped to duration
-  | { t: "resize";  cssWidth: number; cssHeight: number; dpr: number }
+  | { t: "seek";    time: number }                  // seconds
+  | { t: "resize";  view: View }
   | { t: "dispose" };
+
+type View   = { cssWidth: number; cssHeight: number; dpr: number };
+type Limits = { maxTotalBytes: number; maxChunks: number; maxJsonBytes: number;
+                maxPosterBytes: number; maxCanvasPixels: number };
 ```
 
-`renderer.glue` is a string of already-verified JavaScript rather than a URL,
-because a URL the child fetches is a fetch the child initiates. How the child
-turns it into a module — a blob URL it revokes on dispose, or a host-served
-content-addressed route under the sandbox CSP — is the host's decision (§8).
+`limits` is the **whole** inspector budget, not a subset. Passing two of five
+fields would let parent and child disagree about what is acceptable, which is the
+one thing a defense-in-depth check must not do — the child would be enforcing a
+different policy than the one the parent already applied.
 
-`limits` is passed even though the parent already enforced it: the child applies
-it again on its own parse, which is the defense-in-depth half of §2.
+**Every number is validated before use**: finite, non-negative, and within
+bounds. `dpr` and canvas dimensions are clamped *before* multiplying, so an
+absurd `dpr` cannot overflow into a small product. A rejected number is
+`error{code:"illegal"}`, not a clamp — silently rendering at a size nobody asked
+for is worse than refusing.
+
+`artifact` is **transferred**, which detaches the parent's buffer. The parent
+must therefore keep its own durable copy (and its extracted poster) rather than
+treating the transferred buffer as its retained artifact.
+
+`autoplay` is the parent's decision at mount time, gated on visibility, focus,
+and its active-renderer budget — not a property of the artifact.
 
 ### Child → parent
 
 ```ts
 type ToParent =
-  | { t: "ready";    protocol: 1 }
+  | { t: "ready";    protocol: 1 }                          // protocol installed
   | { t: "mounted";  widthPx: number; heightPx: number;
-                     animated: boolean; duration: number }   // seconds; 0 if static
+                     animated: boolean; duration: number;   // seconds; 0 if static
+                     playing: boolean }
   | { t: "error";    code: ErrorCode; message: string }
-  | { t: "state";    playing: boolean; time: number }        // ack for pause/resume/seek
+  | { t: "state";    playing: boolean; time: number; at: number }
+  | { t: "resized";  widthPx: number; heightPx: number; dpr: number }
   | { t: "disposed" };
 
 type ErrorCode =
-  | "artifact"        // malformed, over-budget, or unsupported schema
-  | "renderer"        // wasm failed to instantiate
-  | "illegal"         // message not legal in the current state
+  | "artifact"   // malformed, over-budget, or unsupported schema
+  | "renderer"   // glue import or wasm instantiation failed
+  | "illegal"    // not legal in this state, or a malformed/invalid message
   | "internal";
 ```
 
-`error` carries a message for a human, never for a parser: hosts branch on
-`code`.
+`state.at` is the child's `performance.now()` when the sample was taken, so a
+parent can advance a scrubber visually between updates instead of stepping it.
+
+**`error.message` is for a human reading a log, never for a parser.** It is
+capped (256 chars) and must never echo artifact bytes, JS source, URLs, stack
+traces, or anything from the host's environment. Hosts branch on `code`.
 
 ## 6. States
 
 ```
-        bootstrap                mount                  dispose
-Booting ─────────► Ready ────────────────► Mounted ─────────────► Disposed
-                     │                     ▲  │  ▲                    ▲
-                     │  mount fails        │  │  │ resume             │
-                     └────────────────► Failed  └─┴─ pause ─► Paused ─┘
-                                          │                     │
-                                          └──── dispose ────────┘
+  boot        mount ──────────────┐
+Booting ─► Ready ─► Mounting ─► Playing ⇄ Paused
+                       │            │        │
+                       │ fails      └────────┴──► Disposing ─► Disposed
+                       └──► Failed ─────────────────────┘
 ```
 
 | in state | legal | effect |
 |---|---|---|
-| `Booting` | — | child emits `ready` when its runtime is instantiated |
-| `Ready` | `mount`, `dispose` | `mount` → `Mounted` (emits `mounted`) or `Failed` (emits `error`) |
-| `Mounted` | `pause`, `seek`, `resize`, `dispose` | `pause` → `Paused`; `seek`/`resize` stay, emit `state` |
-| `Paused` | `resume`, `seek`, `resize`, `dispose` | `resume` → `Mounted`; others stay |
+| `Booting` | — | emits `ready` once the protocol is installed |
+| `Ready` | `mount`, `dispose` | `mount` → `Mounting` |
+| `Mounting` | `dispose` | → `Playing` or `Paused` (emits `mounted`), or → `Failed` (emits `error`) |
+| `Playing` | `pause`, `seek`, `resize`, `dispose` | `pause` → `Paused` |
+| `Paused` | `resume`, `seek`, `resize`, `dispose` | `resume` → `Playing` (static figures stay `Paused`) |
 | `Failed` | `dispose` | nothing else; the realm is not reusable |
-| `Disposed` | — | **every message is ignored, with no reply** |
+| `Disposing` | — | emits `disposed`, then `Disposed` |
+| `Disposed` | — | **every message ignored, no reply** |
+
+`Mounting` exists because mounting is genuinely asynchronous — a blob import, a
+wasm compile, an artifact parse, a first render — and a state machine that
+pretends otherwise leaves a window in which the parent cannot tell what is legal.
+**`dispose` is legal throughout it** and cancels what can be cancelled; anything
+else during `Mounting` is `illegal`.
+
+**Failure cleans up before it reports.** A mount that fails partway must release
+whatever it already allocated — blob URLs, listeners, a partially initialised
+module — *then* emit `error` and enter `Failed`. An internal failure from
+`Playing` or `Paused` likewise transitions to `Failed`, after which the parent's
+only move is `dispose`.
 
 Anything not listed is illegal: the child replies `error{code:"illegal"}` and
-**does not change state**. A parent that receives `illegal` has a bug and should
-dispose rather than retry.
+**does not change state**. A parent that receives `illegal` has a version or
+logic bug; it should dispose rather than retry.
 
 `Disposed` is terminal, and this is the rule most likely to be "helpfully"
 relaxed later: there is no `mount` that revives a realm. Reuse would demote
 disposal to a strong pause and let anything realm-scoped — the loader's
 digest-keyed module cache, most obviously — leak from one artifact to the next.
 If pooling is ever worth its complexity it arrives as an explicit `reset`
-carrying an argument that every prior resource is gone, never as a relaxation of
-`dispose`.
+carrying an argument that every prior resource is gone.
 
-**Exactly one `mount` per realm.** Combined with terminal disposal, that makes a
-realm's whole life one artifact, which is what makes "no cross-artifact state"
-checkable rather than aspirational.
+**Exactly one `mount` per realm.** With terminal disposal, a realm's whole life
+is one artifact, which is what makes "no cross-artifact state" checkable rather
+than aspirational.
 
 ## 7. Animation
 
@@ -160,69 +236,103 @@ sequence (`design/10` §5). That is what makes these controls meaningful: `seek`
 is exact rather than approximate, and a paused figure at `t` is a full-quality
 render of that instant rather than a held frame.
 
-- `mounted` reports `animated` and `duration`, so a parent knows whether to show
-  transport controls at all without parsing the artifact itself.
-- **The child owns the clock while playing**, driving its own
-  `requestAnimationFrame` loop, because a per-frame message round-trip would put
-  the parent's event loop in the frame path. The parent owns *whether* it plays.
-- `pause` stops the loop and frees nothing. `resume` restarts from the current
-  `t`. `seek` sets `t` and repaints once, legal in both states.
-- The parent must `pause` on: the figure leaving the viewport, the document
-  becoming hidden, and the session view losing focus. The last one is the
-  non-obvious one — a portal keeps every activated session mounted and merely
-  CSS-hides the unfocused ones, so nothing else will tell the child to stop
-  (`design/10` §12c).
-- A static figure ignores `pause`/`resume`/`seek` beyond acking with `state`.
+**The child owns the `requestAnimationFrame` clock while playing**; the parent
+owns *whether* it plays. A per-frame message round trip would put the parent's
+event loop in the frame path.
 
-**Reduced resolution while interacting** is the renderer's job, not the host's:
-at DPR 3 a 640×480 canvas is ~11 MB per RGBA frame, and `putImageData` — not the
-runtime download — is the plausible bottleneck. The child caps effective DPR
-during animation and pan/zoom and repaints once at full quality when motion
-settles. That policy lives in one place rather than in every host.
+**The parent must `pause`** on viewport exit, document hidden, and session-view
+unfocus. The last is the non-obvious one: a portal keeps every activated session
+mounted and merely CSS-hides the unfocused ones, so nothing else will tell the
+child to stop (`design/10` §12c).
 
-## 8. One decision left to the host
+### Observability without a message per frame
 
-Whether verified glue arrives as source imported via a blob URL, or is served
-from a host-owned content-addressed route:
+A parent driving a scrubber needs the playhead, and the child owns it. So:
 
-| | blob URL | host route |
-|---|---|---|
-| CSP | needs `blob:` in `script-src` | `'self'`-shaped, tighter |
-| cleanup | must `URL.revokeObjectURL` on dispose | nothing to revoke |
-| fetch | none — bytes already in the realm | child fetches, so the route must be same-origin to the child |
+- `state` is emitted on **every control transition** (with `re`), on **natural
+  completion** (unsolicited), and as **throttled progress while playing** —
+  at most **4 Hz**, unsolicited. Never per frame.
+- Between updates the parent interpolates from `state.at`, and **resyncs to the
+  next `state` rather than to its own accumulated estimate**.
 
-Both satisfy §2. The tradeoff is CSP shape against cleanup obligation, and the
-host owns both, so the host picks. The child accepts either: `renderer.glue` is
-a string, and how it is materialised is decided at the boundary.
+### Ending, looping, and static figures
 
-## 9. What `dispose` must actually free
+- A non-looping timeline that reaches `duration` **stops the rAF loop, clamps
+  `t = duration`, and emits `state{playing:false, time:duration}`**.
+- `resume` at the end **restarts from 0**. The alternative — requiring an
+  explicit `seek` first — makes the obvious gesture (press play again) do
+  nothing, which reads as a bug.
+- A looping timeline wraps and does not emit a completion `state`.
+- A **static figure mounts `Paused`**, and acknowledges `pause`/`resume`/`seek`
+  with `state` **without ever scheduling a frame**.
+
+### Resolution while moving
+
+At DPR 3 a 640×480 canvas is ~11 MB per RGBA frame, and `putImageData` — not the
+runtime download — is the plausible bottleneck. The child caps effective DPR and
+backing-store pixels while animating or interacting, then repaints once at full
+quality when motion settles. That belongs in the renderer so it is one policy
+rather than every host rediscovering it.
+
+### Sizing
+
+The parent sizes the outer box to the natural aspect it read from `inspect`. The
+child **still letterboxes** inside whatever box it is given and never distorts
+equal-aspect axes — belt and braces against rounding and responsive constraints,
+since a figure that is silently 3% stretched is a wrong figure. `resized`
+reports the dimensions actually applied.
+
+### Scrub backpressure
+
+Both ends, because they solve different halves: the **parent coalesces** pointer
+movement to at most one `seek` per parent frame, and the **child is latest-wins**
+— a `seek` arriving while a render is in flight supersedes any earlier pending
+one, and the superseded request is acknowledged by the `state` that the winning
+seek emits. No `seek` is silently dropped without an acknowledgement that
+reflects the final position.
+
+## 8. What `dispose` must actually free
 
 A host cannot enforce an active-renderer budget of two if disposal only stops
 drawing. Before emitting `disposed`, the child must:
 
 - cancel any pending `requestAnimationFrame` and every timer;
 - remove every DOM listener it added (pointer, wheel, resize, visibility);
-- drop the wasm-owned `Figure` and session so the module's allocations are
-  reclaimed, not merely unreferenced;
+- call the **explicit free** on the wasm-owned `Figure` and session, and drop
+  every JS reference to them;
 - **set the canvas `width` and `height` to 0**, which is what actually releases
   the backing store — clearing pixels does not;
-- revoke any blob URLs it created (§8).
+- revoke every blob URL it created (§3.1).
 
-The parent destroys the realm after `disposed`, or after a short timeout if it
-never arrives. A child that cannot dispose cleanly must not be able to keep its
-realm alive.
+**What this does not promise.** An earlier draft said dropping the wasm-owned
+objects meant "the module's allocations are reclaimed". JavaScript cannot
+promise that: GC is nondeterministic, and emitting `disposed` says only that
+the child released everything it holds and cancelled everything it scheduled.
+The explicit `free` calls matter precisely because dropping a reference is not
+a deallocation. **Realm destruction by the parent is the hard reclamation
+boundary** — the only step that actually returns the memory.
 
-## 10. Open questions
+So the parent destroys the realm after `disposed`, or after a short timeout if
+it never arrives. A child that cannot dispose cleanly must not be able to keep
+its realm alive by failing to answer.
 
-1. **Resize semantics under `aspect_equal`.** A figure with equal-aspect axes has
-   an intrinsic shape; a host box may not match it. Letterbox in the child, or
-   report the natural size and let the parent size the box? Leaning the latter,
-   since the parent already gets exact pixel dimensions from `inspect`.
-2. **Backpressure on `seek`.** A scrub gesture can emit seeks faster than frames
-   render. Coalesce in the child (drop all but the newest) or rate-limit in the
-   parent? Child-side coalescing is one implementation instead of every host's.
-3. **Whether `error{code:"artifact"}` should ever be reachable** given §4
-   validates first. It should stay reachable as defense in depth, but a host
-   seeing it in production has a validation bug worth alerting on, which argues
-   for it being distinguishable from the others rather than folded into
-   `internal`.
+## 9. Decisions recorded
+
+Settled in review; listed because each was live and someone will wonder.
+
+| question | answer |
+|---|---|
+| glue as blob source or host-served route? | **blob source only.** A host route means the child fetches, which contradicts no-network — and an opaque origin is not same-origin to it anyway |
+| letterbox in child, or parent sizes the box? | **both.** Parent sizes to the natural aspect from `inspect`; child still letterboxes and never distorts equal-aspect axes, against rounding and responsive constraints |
+| scrub backpressure in parent or child? | **both.** Parent coalesces to ≤1 `seek` per frame; child is latest-wins with the superseded request acknowledged by the winning `state` |
+| should `error{code:"artifact"}` be reachable? | **yes, and distinctly.** The parent validated first, so seeing it in production is an invariant violation worth alerting on — folding it into `internal` would hide that |
+| `resume` at the end of a non-looping timeline? | **restarts from 0.** Requiring an explicit `seek` first makes pressing play do nothing, which reads as a bug |
+
+## 10. A standing constraint on schema 3
+
+The timeline lands as schema 3 (`design/10` §5). **A schema-3 artifact stays
+poster-only on any host whose vetted runtime manifest advertises
+`schema_max < 3`** — which is every host until one registers a runtime that
+declares otherwise. That is the versioning rule doing its job rather than an
+obstacle: an animated figure rendered by a runtime that cannot animate would be
+a still, wrong figure presented as a live one.
