@@ -692,3 +692,173 @@ fn an_animated_artifact_seeks_in_the_browser() {
         "the same time must draw the same picture"
     );
 }
+
+/// An animated artifact whose timeline ramps the line while sweeping nothing,
+/// bound to `canvas_id` — the shape a host mounts.
+#[cfg(feature = "portable")]
+fn bound_animated_session(canvas_id: &str) -> WasmSession {
+    make_canvas(canvas_id);
+    let mut fig = rizzma::Figure::new(3.0, 2.0);
+    let ax = fig.add_axes(0.15, 0.15, 0.7, 0.7);
+    ax.plot(&[0.0, 5.0, 10.0], &[0.0, 0.0, 0.0]);
+    ax.set_xlim(0.0, 10.0);
+    ax.set_ylim(0.0, 10.0);
+    let mut tl = rizzma::portable::Timeline::new(2.0);
+    tl.push(
+        rizzma::portable::Track::line_y(
+            0,
+            0,
+            vec![0.0, 2.0],
+            vec![vec![0.0, 0.0, 0.0], vec![0.0, 5.0, 10.0]],
+        )
+        .expect("track"),
+    );
+    fig.set_timeline(tl);
+    let bytes = fig.to_portable().expect("export");
+    WasmFigure::from_portable(&bytes, 0)
+        .expect("mount")
+        .bind(canvas_id)
+        .expect("bind")
+}
+
+/// Straight RGBA readback of the whole canvas.
+#[cfg(feature = "portable")]
+fn readback(id: &str) -> Vec<u8> {
+    let canvas: HtmlCanvasElement = web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .get_element_by_id(id)
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    let ctx: CanvasRenderingContext2d = canvas
+        .get_context("2d")
+        .unwrap()
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    ctx.get_image_data(
+        0.0,
+        0.0,
+        f64::from(canvas.width()),
+        f64::from(canvas.height()),
+    )
+    .unwrap()
+    .data()
+    .to_vec()
+}
+
+#[cfg(feature = "portable")]
+#[wasm_bindgen_test]
+fn a_bound_session_seeks_without_rebinding() {
+    // The API the portal asked for: advance an animation on a canvas that is
+    // already live, no unbind, no rebuild.
+    let session = bound_animated_session("seek-bound");
+    session.seek(0.0).expect("seek");
+    session.render().expect("paint");
+    let start = readback("seek-bound");
+
+    session.seek(2.0).expect("seek");
+    session.render().expect("paint");
+    let end = readback("seek-bound");
+    assert!(
+        start != end,
+        "seeking a bound session must change the pixels"
+    );
+
+    let anim = session.animation();
+    assert!(anim[0] > 0.0 && (anim[1] - 2.0).abs() < 1e-9);
+}
+
+#[cfg(feature = "portable")]
+#[wasm_bindgen_test]
+fn listeners_survive_seeking() {
+    // Seeking must not disturb the session's interaction wiring: after many
+    // seeks, a wheel event still zooms.
+    let session = bound_animated_session("seek-listeners");
+    for i in 0..25 {
+        session.seek(f64::from(i) * 0.08).expect("seek");
+    }
+    let before = limits(&session);
+
+    let canvas: HtmlCanvasElement = web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .get_element_by_id("seek-listeners")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    let init = WheelEventInit::new();
+    init.set_client_x(150);
+    init.set_client_y(100);
+    init.set_delta_y(-120.0);
+    init.set_delta_mode(WheelEvent::DOM_DELTA_PIXEL);
+    init.set_cancelable(true);
+    init.set_bubbles(true);
+    let ev = WheelEvent::new_with_event_init_dict("wheel", &init).unwrap();
+    canvas.dispatch_event(&ev).unwrap();
+
+    let after = limits(&session);
+    assert!(
+        (after[1] - after[0]) < (before[1] - before[0]),
+        "wheel must still zoom after seeking: {before:?} -> {after:?}"
+    );
+}
+
+#[cfg(feature = "portable")]
+#[wasm_bindgen_test]
+fn a_user_zoom_survives_seeking_in_the_browser() {
+    // The policy end to end through the DOM: zoom, then seek — the data moves
+    // and the user's window does not.
+    let session = bound_animated_session("seek-hold");
+    let canvas: HtmlCanvasElement = web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .get_element_by_id("seek-hold")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    let init = WheelEventInit::new();
+    init.set_client_x(150);
+    init.set_client_y(100);
+    init.set_delta_y(-120.0);
+    init.set_delta_mode(WheelEvent::DOM_DELTA_PIXEL);
+    init.set_cancelable(true);
+    init.set_bubbles(true);
+    let ev = WheelEvent::new_with_event_init_dict("wheel", &init).unwrap();
+    canvas.dispatch_event(&ev).unwrap();
+    let held = limits(&session);
+
+    session.seek(1.7).expect("seek");
+    assert_eq!(
+        limits(&session),
+        held,
+        "seek must not move a user-held view"
+    );
+}
+
+#[cfg(feature = "portable")]
+#[wasm_bindgen_test]
+fn rapid_seeks_coalesce_and_settle_exactly() {
+    // Seeks faster than the display refreshes ride the same rAF coalescing as
+    // interaction; whatever painting happens, the settled state is exactly the
+    // last time asked for — including exactly-duration showing the end.
+    let session = bound_animated_session("seek-rapid");
+    for i in 0..200 {
+        session.seek(f64::from(i % 40) * 0.05).expect("seek");
+    }
+    session.seek(2.0).expect("final seek to exactly duration");
+    session.render().expect("paint");
+    let settled = readback("seek-rapid");
+
+    let reference = bound_animated_session("seek-rapid-ref");
+    reference.seek(2.0).expect("seek");
+    reference.render().expect("paint");
+    assert!(
+        settled == readback("seek-rapid-ref"),
+        "after rapid seeking, t=duration must draw the end frame exactly"
+    );
+}

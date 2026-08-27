@@ -7,6 +7,29 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.10.0] - 2026-08-27
+
+### Added
+- **`WasmSession::seek(t)`** (and `WasmSession::animation()`): a host can now
+  advance an animation on a canvas it has **already bound**, with the pointer
+  and wheel listeners staying attached. Previously `seek` lived only on
+  `WasmFigure`, which `bind` consumes, so a bound interactive canvas could not
+  animate at all. Repaints ride the same `requestAnimationFrame` coalescing as
+  interaction, so seeking faster than the display refreshes does not stack
+  frames.
+- **`Interactor::seek(t)`**, which owns the policy for who steers the view:
+  data tracks always apply, but a timeline's `xlim`/`ylim` tracks **yield to a
+  view the user has taken over** by panning or zooming — an authored camera
+  fighting the user every frame would make interaction pointless. Double-click
+  (Home) hands the view back and the camera tracks resume on the next seek.
+  Seeking alone never suspends anything. `Figure::seek` stays policy-free.
+- The `rizzma-mount.js` handle grew `play()`/`pause()`/`seek(t)`, `animated`,
+  and `duration`, plus an `autoplay` mount option: a child-owned rAF clock per
+  the mount protocol, with natural completion clamping to the end and
+  resume-at-end restarting from zero. `dispose()` now also cancels the clock
+  and zeroes the canvas backing store. `readMetadata` additionally reports
+  `timeline: {duration, loop}`.
+
 ## [1.9.0] - 2026-08-26
 
 ### Added

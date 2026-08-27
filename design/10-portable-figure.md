@@ -4,9 +4,11 @@ Status: **P0 shipped** in 1.7.0; **P1 shipped** in 1.8.0 — the
 renderer-*independent* `portable::inspect`, the `PSTR` poster, schema 2's `meta`
 block, a published hash-addressed runtime, `WasmFigure::from_portable`, and
 `rizzma-mount.js`;
-1.8.1 pinned every executable runtime asset. Next is **P3's timeline**, so
-figures animate rather than merely interact, with the mount protocol it rides on
-in `11-figure-mount-protocol.md`. Revised against agent-portal host reviews from
+1.8.1 pinned every executable runtime asset; **P3's timeline shipped** in 1.9.0
+(schema 3), and 1.10.0 added `WasmSession::seek` so a bound canvas animates
+without losing its pan/zoom bindings, under §5's user-wins view policy. The
+mount protocol lives in `11-figure-mount-protocol.md`. Font subsetting remains.
+Revised against agent-portal host reviews from
 2026-08-22 onward (§7, §4.6, §4.7, §9, §12b, §12c, §12d). Design for
 [#287](https://github.com/OrbitalCommons/rizzma/issues/287).
 Companion docs: `06-wasm-interactive-plan.md` (charter), `09-show-browser.md` (whose
@@ -359,9 +361,16 @@ exists — the targets are the same verbs the interactive sessions call:
 - **Samplers:** `times` strictly increasing; `step` holds, `linear` lerps
   element-wise. Evaluation at `t` is a pure function — same `t`, same arrays,
   every host, which is what makes scrubbing and archival replay honest.
-- **Orthogonality:** the timeline mutates *data*, interaction mutates *view*;
-  both go through the same `Interactor`/redraw machinery and compose without
-  special cases.
+- **Orthogonality, and the one place it needs a rule:** the timeline mutates
+  *data*, interaction mutates *view*, and they compose — except for `xlim`/
+  `ylim` tracks, which are the timeline steering the view. There the rule is
+  **the user wins**: once someone pans or zooms an axes, the timeline's camera
+  tracks are suspended for that axes — an authored camera fighting the user
+  every frame would make interaction pointless — while data tracks continue,
+  because they are the animation's content. Double-click (Home) hands the view
+  back, and the camera tracks resume on the next seek. Seeking alone never
+  suspends anything. (`Interactor::seek` implements this; `Figure::seek` stays
+  policy-free and applies every track.)
 
 **Deliberately deferred: procedural tracks.** Closed-form operators ("rotate
 offsets about an axis at angle θ(t)", "phase-shift `y`") would compress the
