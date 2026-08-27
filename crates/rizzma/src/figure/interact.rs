@@ -60,6 +60,10 @@ pub struct Interactor {
     home: Option<Vec<AxesLimits>>,
     /// The active pan drag, if any.
     drag: Option<Drag>,
+    /// Axes whose view the user has taken over by panning or zooming. While an
+    /// axes is held, a timeline's view tracks ([`seek`](Interactor::seek))
+    /// leave its limits alone; double-click hands the view back.
+    user_view: std::collections::HashSet<usize>,
 }
 
 impl Interactor {
@@ -70,6 +74,7 @@ impl Interactor {
             fig,
             home: None,
             drag: None,
+            user_view: std::collections::HashSet::new(),
         }
     }
 
@@ -199,6 +204,10 @@ impl Interactor {
             self.fig.axes_mut()[axes].set_xlim(xlim.0, xlim.1);
         }
         self.fig.axes_mut()[axes].set_ylim(ylim.0, ylim.1);
+        // The user now owns this view (and the leader's x, when linked):
+        // timeline view tracks yield to it until double-click hands it back.
+        self.user_view.insert(axes);
+        self.user_view.insert(x_target);
         true
     }
 
@@ -297,7 +306,47 @@ impl Interactor {
             let (lxlo, lxhi) = (*lxlo, *lxhi);
             self.fig.axes_mut()[x_target].set_xlim(lxlo, lxhi);
         }
+        // Double-click hands the view back: an animated axes' camera tracks
+        // resume on the next seek.
+        self.user_view.remove(&axes);
+        self.user_view.remove(&x_target);
         Outcome::NeedsRedraw
+    }
+
+    /// Advance the figure's animation to time `t`, preserving any view the
+    /// user has taken over.
+    ///
+    /// Data tracks (line samples, scatter offsets, image data) always apply —
+    /// they are the animation's content. **View tracks (`xlim`/`ylim`) yield
+    /// to a user-held view**: once someone has panned or zoomed an axes, an
+    /// authored camera move fighting them every frame would make interaction
+    /// pointless, so the timeline's camera is suspended for that axes until
+    /// double-click hands the view back. This is the interactive counterpart
+    /// of `design/10` §5's data/view orthogonality.
+    ///
+    /// Implemented as snapshot-and-restore around [`Figure::seek`] rather than
+    /// as a filtered evaluation, so the timeline machinery has exactly one
+    /// code path and the policy lives here, next to the state that defines it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Figure::seek`]: a track addressing a missing artist, or handing it
+    /// the wrong number of values.
+    #[cfg(feature = "portable")]
+    pub fn seek(&mut self, t: f64) -> Result<(), crate::portable::PortableError> {
+        let held: Vec<(usize, AxesLimits)> = self
+            .user_view
+            .iter()
+            .filter(|&&i| i < self.fig.axes().len())
+            .map(|&i| (i, self.fig.axes()[i].effective_limits()))
+            .collect();
+        self.fig.seek(t)?;
+        for (i, (xlim, ylim)) in held {
+            let ax = &mut self.fig.axes_mut()[i];
+            ax.set_xlim(xlim.0, xlim.1);
+            ax.set_ylim(ylim.0, ylim.1);
+        }
+        Ok(())
     }
 
     fn hover(&self, x: f64, y: f64) -> Outcome {

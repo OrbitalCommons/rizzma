@@ -995,6 +995,46 @@ mod canvas {
             render_now(&self.state)
         }
 
+        /// Advance the bound figure's animation to time `t` (seconds) and
+        /// schedule a repaint.
+        ///
+        /// This is how a host animates a canvas it has already bound: the
+        /// session stays live, pointer and wheel listeners stay attached, and
+        /// a view the user has taken over by panning or zooming is preserved —
+        /// the timeline's `xlim`/`ylim` tracks yield to it until double-click
+        /// hands the view back (see `Interactor::seek`). Data tracks always
+        /// apply.
+        ///
+        /// Repaints are coalesced through the same `requestAnimationFrame`
+        /// path as interaction, so calling this faster than the display
+        /// refreshes does not stack frames. A figure without a timeline
+        /// ignores the call.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error when a track addresses an artist that does not
+        /// exist or hands it the wrong number of values.
+        #[cfg(feature = "portable")]
+        pub fn seek(&self, t: f64) -> Result<(), JsValue> {
+            self.state
+                .borrow_mut()
+                .interactor
+                .seek(t)
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            schedule_redraw(&self.state);
+            Ok(())
+        }
+
+        /// Whether the bound figure animates, and for how long, as
+        /// `[animated, duration]` (`animated` is `1.0` or `0.0`).
+        #[cfg(feature = "portable")]
+        pub fn animation(&self) -> Box<[f64]> {
+            match self.state.borrow().interactor.figure().timeline() {
+                Some(tl) if !tl.is_empty() => Box::new([1.0, tl.duration]),
+                _ => Box::new([0.0, 0.0]),
+            }
+        }
+
         /// The effective `[xlo, xhi, ylo, yhi]` limits of axes `axes` (the
         /// live values pan/zoom mutate).
         ///

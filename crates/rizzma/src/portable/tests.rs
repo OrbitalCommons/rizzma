@@ -1170,3 +1170,122 @@ fn a_track_pointing_at_nothing_fails_loudly() {
     fig.set_timeline(timeline);
     assert!(matches!(fig.seek(0.5), Err(PortableError::Malformed(_))));
 }
+
+// ---------------------------------------------------------------------------
+// Seeking a bound, interactive figure: the animation and the user share one
+// view, and the user wins until they hand it back.
+// ---------------------------------------------------------------------------
+
+/// A figure whose timeline sweeps the x window AND ramps the line's y data.
+fn swept_figure() -> Figure {
+    let mut fig = Figure::new(4.0, 3.0);
+    let ax = fig.add_subplot(1, 1, 1);
+    let x: Vec<f64> = (0..100).map(|i| i as f64 * 0.1).collect();
+    let y = vec![0.0; 100];
+    ax.plot(&x, &y);
+    ax.set_xlim(0.0, 2.0);
+    ax.set_ylim(-1.0, 1.0);
+
+    let mut tl = Timeline::new(10.0);
+    tl.push(Track::xlim_sweep(0, 10.0, (0.0, 2.0), (8.0, 10.0)).expect("sweep"));
+    tl.push(
+        Track::line_y(0, 0, vec![0.0, 10.0], vec![vec![0.0; 100], vec![1.0; 100]]).expect("ramp"),
+    );
+    fig.set_timeline(tl);
+    fig
+}
+
+/// Wheel-zoom at the axes center so the interactor takes the view.
+fn zoom_center(it: &mut Interactor) {
+    let (w, h) = it.figure().size_px();
+    let out = it.handle(Event::Wheel {
+        x: w / 2.0,
+        y: h / 2.0,
+        dy: -3.0,
+    });
+    assert_eq!(
+        out,
+        crate::figure::Outcome::NeedsRedraw,
+        "zoom must land on the axes"
+    );
+}
+
+#[test]
+fn a_user_held_view_suspends_the_camera_but_not_the_data() {
+    let mut it = Interactor::new(swept_figure());
+
+    // Untouched: the sweep owns the camera.
+    it.seek(5.0).expect("seek");
+    let ((lo, hi), _) = it.figure().axes()[0].effective_limits();
+    assert!(
+        (lo - 4.0).abs() < 1e-9 && (hi - 6.0).abs() < 1e-9,
+        "sweep should place the window"
+    );
+
+    // The user zooms: they now own the view.
+    zoom_center(&mut it);
+    let (held_x, held_y) = it.figure().axes()[0].effective_limits();
+
+    it.seek(8.0).expect("seek");
+    let (after_x, after_y) = it.figure().axes()[0].effective_limits();
+    assert_eq!(
+        (after_x, after_y),
+        (held_x, held_y),
+        "the sweep must not fight the user"
+    );
+
+    // …but the data track still advanced: the animation's content continues.
+    let y = it.figure().axes()[0].line_data(0).expect("line").1;
+    assert!(
+        (y[0] - 0.8).abs() < 1e-9,
+        "data should be at t=8 of the ramp, got {}",
+        y[0]
+    );
+}
+
+#[test]
+fn double_click_hands_the_view_back_to_the_timeline() {
+    let mut it = Interactor::new(swept_figure());
+    it.seek(2.0).expect("seek");
+    zoom_center(&mut it);
+
+    // Held: the camera stays put.
+    it.seek(6.0).expect("seek");
+    let held = it.figure().axes()[0].effective_limits();
+
+    // Double-click is the explicit "yours again".
+    let (w, h) = it.figure().size_px();
+    it.handle(Event::DoubleClick {
+        x: w / 2.0,
+        y: h / 2.0,
+    });
+    it.seek(6.0).expect("seek");
+    let ((lo, hi), _) = it.figure().axes()[0].effective_limits();
+    assert!(
+        (lo - 4.8).abs() < 1e-9 && (hi - 6.8).abs() < 1e-9,
+        "after home the sweep resumes: got ({lo}, {hi}), held was {held:?}"
+    );
+}
+
+#[test]
+fn seeking_without_interaction_never_marks_the_view_held() {
+    // Seeks alone — however many — must not accumulate into a state where the
+    // timeline blocks itself.
+    let mut it = Interactor::new(swept_figure());
+    for i in 0..50 {
+        it.seek(f64::from(i) * 0.2).expect("seek");
+    }
+    it.seek(5.0).expect("seek");
+    let ((lo, hi), _) = it.figure().axes()[0].effective_limits();
+    assert!((lo - 4.0).abs() < 1e-9 && (hi - 6.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_static_figure_ignores_interactor_seek() {
+    let mut fig = Figure::new(4.0, 3.0);
+    fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    let before = fig.encode_png().expect("png");
+    let mut it = Interactor::new(fig);
+    it.seek(3.0).expect("seek is a no-op without a timeline");
+    assert!(it.figure().encode_png().unwrap() == before);
+}

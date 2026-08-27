@@ -71,6 +71,7 @@ export function chunks(bytes) {
  *
  * @param {Uint8Array} bytes
  * @returns {{schema: number, generator: object, renderer: object, meta: object|null,
+ *            timeline: {duration: number, loop: boolean}|null,
  *            poster: Uint8Array|null}}
  */
 export function readMetadata(bytes) {
@@ -86,6 +87,9 @@ export function readMetadata(bytes) {
     generator: spec.generator,
     renderer: spec.renderer,
     meta: spec.meta ?? null,
+    timeline: spec.timeline
+      ? { duration: spec.timeline.duration, loop: spec.timeline.loop }
+      : null,
     poster: pstr ? bytes.subarray(pstr.offset, pstr.offset + pstr.length) : null,
   };
 }
@@ -133,7 +137,12 @@ async function digest(bytes) {
  *   one *you* recorded when you vetted these bytes, not the one the artifact
  *   claims.
  * @param {number} [options.maxBytes] artifact budget, default 10 MiB.
- * @returns {Promise<{figure: object, session: object, dispose: () => void}>}
+ * @param {boolean} [options.autoplay] start an animated figure playing. The
+ *   host owns this decision and must pause on viewport exit, document hidden,
+ *   and session-view unfocus — nothing else will (design/11 §7).
+ * @returns {Promise<{figure: object, session: object, animated: boolean,
+ *   duration: number, play: () => void, pause: () => void,
+ *   seek: (t: number) => void, dispose: () => void}>}
  */
 export async function mount(canvas, bytes, options) {
   const renderer = options?.renderer;
@@ -186,12 +195,70 @@ export async function mount(canvas, bytes, options) {
 
   const figure = mod.WasmFigure.from_portable(bytes, options?.maxBytes ?? 0);
   const session = figure.bind(canvas.id);
-  return {
+
+  // Playback: the mount handle owns the requestAnimationFrame clock while
+  // playing (a message per frame would put the host's event loop in the frame
+  // path — design/11 §7); the host owns *whether* it plays, and must pause on
+  // viewport exit, document hidden, and session-view unfocus. Seeks ride the
+  // session's own rAF-coalesced repaint, so scrubbing faster than the display
+  // refreshes does not stack frames.
+  const [animated, duration] = session.animation();
+  const tl = readMetadata(bytes).timeline;
+  const looping = tl ? !!tl.loop : false;
+  let playing = false;
+  let t = 0;
+  let lastTick = 0;
+  let raf = 0;
+
+  const tick = (now) => {
+    if (!playing) return;
+    t += (now - lastTick) / 1000;
+    lastTick = now;
+    if (!looping && t >= duration) {
+      // Natural completion: clamp, paint the end, stop the loop.
+      t = duration;
+      playing = false;
+      session.seek(t);
+      return;
+    }
+    session.seek(t); // the session wraps/clamps; we keep a monotonic clock
+    raf = requestAnimationFrame(tick);
+  };
+
+  const handle = {
     figure,
     session,
-    /** Free the wasm instance and detach listeners. */
+    /** Whether this figure animates, and its duration in seconds. */
+    animated: animated > 0,
+    duration,
+    /** Start (or restart, at the end of a non-looping run) playback. */
+    play() {
+      if (!(animated > 0) || playing) return;
+      if (!looping && t >= duration) t = 0; // resume-at-end restarts
+      playing = true;
+      lastTick = performance.now();
+      raf = requestAnimationFrame(tick);
+    },
+    /** Stop the clock, keeping the current frame. Frees nothing. */
+    pause() {
+      playing = false;
+      cancelAnimationFrame(raf);
+    },
+    /** Jump to `time` seconds and repaint; legal playing or paused. */
+    seek(time) {
+      t = time;
+      lastTick = performance.now();
+      session.seek(t);
+    },
+    /** Cancel the clock, free the wasm session, release the backing store. */
     dispose() {
+      playing = false;
+      cancelAnimationFrame(raf);
       session.free();
+      canvas.width = 0;
+      canvas.height = 0;
     },
   };
+  if (options?.autoplay && animated > 0) handle.play();
+  return handle;
 }
