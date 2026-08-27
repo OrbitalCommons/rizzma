@@ -109,11 +109,17 @@ type Envelope<T> = {
 - `seq` is **strictly increasing per direction**. `MessagePort` preserves
   ordering, so a `seq` that is not greater than the last seen is a duplicate or
   a replay: **drop it silently**.
-- `re` is carried by `mounted`, `resized`, `disposed`, `superseded`, control
-  acknowledgements (`state` answering `pause`/`resume`/`seek`), and every error
-  caused by a request. It is **absent** on `ready`, on throttled progress
-  `state`, and on natural-completion `state`. A parent correlates on `re`, never
-  on arrival order.
+- **Exactly one answer per request.** Every message the parent *sends* is
+  answered exactly once — by its result, by an `error`, or by `superseded` when
+  a later request displaced it. The per-message rules below are instances of
+  this, and a new message type is not finished until it says how it satisfies
+  it. Requests the parent coalesces away before sending were never sent, so
+  they need no answer.
+- `re` is carried by `mounted`, `resized`, `latched`, `disposed`, `superseded`,
+  control acknowledgements (`state` answering `pause`/`resume`/`seek` once
+  mounted), and every error caused by a request. It is **absent** on `ready`, on
+  throttled progress `state`, and on natural-completion `state`. A parent
+  correlates on `re`, never on arrival order.
 - **Nonce mismatch: dropped silently.** No reply, no log to the peer — answering
   would distinguish a wrong guess from a wrong shape.
 - A structurally malformed envelope that *does* carry the right nonce gets
@@ -179,9 +185,15 @@ draft said everything is rejected, which contradicted `seek` being clamped:
   outside an animation has an obvious intended meaning and refusing a scrub that
   overshoots by a pixel would be hostile. This matches `Timeline::normalize`,
   which is what actually evaluates it.
-- `dpr` and canvas dimensions are clamped against the pixel budget **before**
-  multiplying, so an absurd `dpr` cannot overflow into a plausible-looking
-  product.
+- **Invalid is refused; resolution is reduced.** Those are different things and
+  an earlier draft blurred them. A value that is non-finite or out of range is
+  refused outright. A *valid* request that would exceed `maxCanvasPixels` is
+  honoured at **reduced effective DPR** — the CSS box stays exactly what the
+  parent asked for, and only the backing-store resolution drops. Silently
+  changing the figure's dimensions would be a lie about layout; drawing the
+  requested box at fewer device pixels is a quality tradeoff the parent can see
+  in `resized`. The budget check happens **before** multiplying, so an absurd
+  `dpr` cannot overflow into a plausible-looking product.
 
 `artifact` is **transferred**, which detaches the parent's buffer. The parent
 must therefore keep its own durable copy (and its extracted poster) rather than
@@ -202,6 +214,7 @@ type ToParent =
   | { t: "state";    playing: boolean; time: number }
   | { t: "superseded"; by: number }                         // re = superseded seq
   | { t: "resized";  widthPx: number; heightPx: number; dpr: number }
+  | { t: "latched";  desiredPlaying: boolean }   // answers pause/resume while Mounting
   | { t: "disposed" };
 
 type ErrorCode =
@@ -255,10 +268,22 @@ mount can be scrolled away or unfocused while wasm compiles. If `pause` were
 illegal there, the parent's only correct move — pause it — would draw
 `illegal`, and `illegal` means dispose; the alternative is an animation that
 starts playing in a hidden frame. So during `Mounting` they set a **desired-play
-latch**, acked immediately, and the eventual `mounted` reports the state the
-latch settled on. `resize` is latest-wins for the same reason. Losing the
-active-renderer *slot* may still end in `dispose` — that is a real decision, not
-a race — but ordinary visibility churn must not turn into protocol failure.
+latch**, and the eventual `mounted` reports the state the latch settled on.
+
+They are answered with **`latched{desiredPlaying}`**, not with `state`. Nothing
+is running yet and there is no playhead, so `state{playing:true}` would claim
+the figure is playing and `state{playing:false}` would fail to acknowledge the
+latch at all. `state` means *actual renderer state* and a parent interpolates a
+scrubber from it; giving it a second meaning here would corrupt that.
+
+`resize` during `Mounting` is **latest-wins on the same terms as `seek`**: each
+displaced request is answered `superseded{by}` carrying `re` of the request it
+replaced, and the winner is answered `resized` with `re` of the winning seq once
+the mount completes. `mounted` answers the `mount` seq and nothing else.
+
+Losing the active-renderer *slot* may still end in `dispose` — that is a
+decision, not a race — but ordinary visibility churn must not become protocol
+failure.
 
 `dispose` is legal throughout and cancels what can be cancelled; anything else
 during `Mounting` is `illegal`.
