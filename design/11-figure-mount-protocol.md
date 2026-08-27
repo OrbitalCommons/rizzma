@@ -109,12 +109,17 @@ type Envelope<T> = {
 - `seq` is **strictly increasing per direction**. `MessagePort` preserves
   ordering, so a `seq` that is not greater than the last seen is a duplicate or
   a replay: **drop it silently**.
-- **Exactly one answer per request.** Every message the parent *sends* is
-  answered exactly once — by its result, by an `error`, or by `superseded` when
-  a later request displaced it. The per-message rules below are instances of
+- **Exactly one answer per accepted request.** Every request that is *accepted*
+  — valid shape, matching nonce, and a `seq` greater than the last seen — is
+  answered exactly once: by its result, by an `error`, or by `superseded` when
+  something later displaced it. The per-message rules below are instances of
   this, and a new message type is not finished until it says how it satisfies
-  it. Requests the parent coalesces away before sending were never sent, so
-  they need no answer.
+  it.
+
+  Deliberately outside the rule, and not violations of it: messages dropped for
+  a wrong nonce or a stale `seq` (answering them is the leak the drop exists to
+  prevent), malformed envelopes past the bounded-reply cap, and requests the
+  parent coalesced away before sending — which were never sent at all.
 - `re` is carried by `mounted`, `resized`, `latched`, `disposed`, `superseded`,
   control acknowledgements (`state` answering `pause`/`resume`/`seek` once
   mounted), and every error caused by a request. It is **absent** on `ready`, on
@@ -285,8 +290,19 @@ Losing the active-renderer *slot* may still end in `dispose` — that is a
 decision, not a race — but ordinary visibility churn must not become protocol
 failure.
 
-`dispose` is legal throughout and cancels what can be cancelled; anything else
-during `Mounting` is `illegal`.
+`dispose` is legal throughout and cancels what can be cancelled — and it owes
+the mount an answer. `disposed` carries `re` of the *dispose*, so on its own it
+leaves the `mount` request unanswered, which the exactly-one rule forbids. So a
+`dispose` that cancels a `Mounting` **first answers the mount with
+`superseded{by: <dispose seq>}`**, then emits `disposed`. That reuses the
+existing mechanism rather than adding a `cancelled` code, and it is literally
+what happened: a later request displaced this one, and the parent should stop
+waiting on that `seq`.
+
+This is not a corner case. A wasm compile is long enough that losing focus or
+an active-renderer slot mid-mount is an ordinary race, not a rare one.
+
+Anything else during `Mounting` is `illegal`.
 
 **Failure cleans up before it reports.** A mount that fails partway must release
 whatever it already allocated — blob URLs, listeners, a partially initialised
