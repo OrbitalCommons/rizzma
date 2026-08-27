@@ -667,6 +667,40 @@ impl Axes {
         self.lines.last_mut().expect("just pushed a line")
     }
 
+    /// The `(x, y)` samples of line `index`, or `None` if there is no such
+    /// line.
+    ///
+    /// The counterpart of [`Axes::set_line_data`], useful for checking what an
+    /// animation frame actually produced.
+    #[must_use]
+    pub fn line_data(&self, index: usize) -> Option<(Vec<f64>, Vec<f64>)> {
+        self.lines.get(index).map(|l| {
+            l.points()
+                .into_iter()
+                .map(|[x, y]| (x, y))
+                .collect::<(Vec<f64>, Vec<f64>)>()
+        })
+    }
+
+    /// The number of collections (scatter artists) on this axes.
+    #[must_use]
+    pub fn collection_count(&self) -> usize {
+        self.collections.len()
+    }
+
+    /// The number of colormapped images on this axes.
+    #[must_use]
+    pub fn image_count(&self) -> usize {
+        self.images.len()
+    }
+
+    /// The `(nrows, ncols)` shape of image `index`, or `None` if there is no
+    /// such image.
+    #[must_use]
+    pub fn image_shape(&self, index: usize) -> Option<(usize, usize)> {
+        self.images.get(index).map(AxesImage::shape)
+    }
+
     /// The number of lines plotted on this axes (indexable by
     /// [`set_line_data`](Axes::set_line_data)).
     #[must_use]

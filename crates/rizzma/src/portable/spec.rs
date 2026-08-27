@@ -68,6 +68,10 @@ pub(crate) struct PortableSpec {
     pub(crate) meta: Option<crate::portable::Meta>,
     /// The figure itself.
     pub(crate) figure: FigureSpec,
+    /// The animation, when the figure has one. Absent in schema 1 and 2, which
+    /// predate it, so it stays optional while those remain loadable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) timeline: Option<crate::portable::Timeline>,
     /// Typed views into the binary chunk.
     pub(crate) accessors: Vec<Accessor>,
 }

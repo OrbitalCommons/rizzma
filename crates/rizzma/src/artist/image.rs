@@ -238,6 +238,14 @@ fn data_min_max(data: &[f64]) -> (f64, f64) {
     if min <= max { (min, max) } else { (0.0, 1.0) }
 }
 
+impl AxesImage {
+    /// The `(nrows, ncols)` shape of the sample grid.
+    #[must_use]
+    pub fn shape(&self) -> (usize, usize) {
+        (self.nrows, self.ncols)
+    }
+}
+
 impl Artist for AxesImage {
     /// Colorize the data and blit it into the device rectangle spanned by the
     /// image's `extent`.

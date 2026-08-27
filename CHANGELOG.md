@@ -7,6 +7,41 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.9.0] - 2026-08-26
+
+### Added
+- **Animated portable figures.** A figure can carry a `Timeline`: keyframed
+  tracks over the same mutation verbs a live session already drives (line x/y,
+  scatter offsets, image data, and view limits). `Figure::seek(t)` evaluates it,
+  and export carries it, so an animation survives the trip to a host that never
+  heard of the process that made it.
+
+  The timeline is **evaluable at any `t`** rather than a frame sequence, which
+  is what makes the difference worth having: seeking is exact rather than
+  approximate, a paused figure is a full-quality render of that instant rather
+  than a held frame, and the same `t` draws the same pixels on every host. A
+  frame sequence would be a video, and video already exists and is smaller.
+
+  A scrolling window — an oscilloscope sweep — is two keyframes on `Xlim`, not
+  hundreds of frames of duplicated samples.
+- `WasmFigure::seek(t)` and `WasmFigure::animation()` put the same control in
+  the browser, and `inspect` reports `animated` and `duration` so a host can
+  decide whether to show transport controls without parsing the timeline.
+- `Axes::line_data`, `Axes::image_shape`, `Axes::collection_count`,
+  `Axes::image_count`, and `AxesImage::shape` — accessors the animation path
+  needs, and useful on their own for checking what a frame produced.
+
+### Changed
+- Portable figures are now **schema 3**. Schema 1 and 2 artifacts still load;
+  schema 3 artifacts are not readable by earlier builds, which is what the
+  version signals. A host renders schema 3 only once its vetted runtime
+  manifest advertises `schema_max >= 3`; until then an animated artifact is
+  shown as its poster, because an animated figure drawn by a runtime that
+  cannot animate is a still figure presented as a live one.
+- Seeking to exactly `duration` on a looping timeline shows the **end** of the
+  animation rather than wrapping to the start. Wrapping begins strictly past
+  the duration, which is where a playback clock crosses anyway.
+
 ## [1.8.1] - 2026-08-24
 
 ### Fixed

@@ -627,3 +627,68 @@ fn the_schema_range_is_exposed_for_loaders() {
     assert_eq!(range.len(), 2);
     assert!(range[0] <= range[1], "min must not exceed max");
 }
+
+#[cfg(feature = "portable")]
+#[wasm_bindgen_test]
+fn an_animated_artifact_seeks_in_the_browser() {
+    // Animation crosses the wire as a timeline, so the browser end of it is a
+    // seek rather than a frame feed: two different times must draw two
+    // different pictures, and the same time must draw the same one.
+    let mut fig = rizzma::Figure::new(3.0, 2.0);
+    let ax = fig.add_axes(0.15, 0.15, 0.7, 0.7);
+    ax.plot(&[0.0, 1.0, 2.0], &[0.0, 0.0, 0.0]);
+    ax.set_ylim(0.0, 2.0);
+    let mut timeline = rizzma::portable::Timeline::new(2.0);
+    timeline.push(
+        rizzma::portable::Track::line_y(
+            0,
+            0,
+            vec![0.0, 2.0],
+            vec![vec![0.0, 0.0, 0.0], vec![0.0, 1.0, 2.0]],
+        )
+        .expect("track"),
+    );
+    fig.set_timeline(timeline);
+    let bytes = fig.to_portable().expect("export");
+
+    let mut mounted = WasmFigure::from_portable(&bytes, 0).expect("mount");
+    let anim = mounted.animation();
+    assert_eq!(anim.len(), 2);
+    assert!(anim[0] > 0.0, "artifact should report itself animated");
+    assert!((anim[1] - 2.0).abs() < 1e-9, "duration should survive");
+
+    let canvas = make_canvas("anim-target");
+    let read = |canvas: &HtmlCanvasElement| -> Vec<u8> {
+        let ctx: CanvasRenderingContext2d = canvas
+            .get_context("2d")
+            .unwrap()
+            .unwrap()
+            .dyn_into()
+            .unwrap();
+        ctx.get_image_data(
+            0.0,
+            0.0,
+            f64::from(canvas.width()),
+            f64::from(canvas.height()),
+        )
+        .unwrap()
+        .data()
+        .to_vec()
+    };
+
+    mounted.seek(0.0).expect("seek");
+    mounted.render("anim-target").expect("render");
+    let flat = read(&canvas);
+
+    mounted.seek(2.0).expect("seek");
+    mounted.render("anim-target").expect("render");
+    let ramped = read(&canvas);
+    assert!(flat != ramped, "seeking must change what is drawn");
+
+    mounted.seek(0.0).expect("seek");
+    mounted.render("anim-target").expect("render");
+    assert!(
+        read(&canvas) == flat,
+        "the same time must draw the same picture"
+    );
+}

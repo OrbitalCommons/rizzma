@@ -56,6 +56,8 @@ mod limits;
 #[cfg(feature = "portable")]
 mod meta;
 pub(crate) mod spec;
+#[cfg(feature = "portable")]
+mod timeline;
 
 #[cfg(all(test, feature = "portable"))]
 mod tests;
@@ -70,6 +72,8 @@ pub use inspect::inspect;
 pub use limits::Limits;
 #[cfg(feature = "portable")]
 pub use meta::{GeneratorRef, Meta, Metadata, PosterRef, RendererRef};
+#[cfg(feature = "portable")]
+pub use timeline::{Interp, Target, Timeline, Track};
 
 /// Wire-format schema version written into every artifact.
 ///
@@ -77,7 +81,7 @@ pub use meta::{GeneratorRef, Meta, Metadata, PosterRef, RendererRef};
 /// renders. Schema 1 is the original static+interactive model; schema 2 adds
 /// the [`Meta`] block and the poster chunk.
 #[cfg(feature = "portable")]
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Oldest schema version this build can still load.
 #[cfg(feature = "portable")]

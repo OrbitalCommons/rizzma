@@ -45,7 +45,7 @@ pub struct PosterRef {
 /// Everything here answers a question a host has *before* fetching a renderer:
 /// how much space to reserve, what to announce to a screen reader, and what to
 /// show if the figure cannot be rendered at all.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Meta {
     /// Exact figure width in pixels (`width_in × dpi`), not an aspect hint, so
@@ -62,11 +62,18 @@ pub struct Meta {
     pub poster: Option<PosterRef>,
     /// Whether the artifact carries a timeline that animates.
     pub animated: bool,
+    /// Length of the animation in seconds; `0.0` when the figure is static.
+    ///
+    /// A host reads this to decide whether to show transport controls, without
+    /// parsing the timeline itself. Defaulted so schema 1 and 2 artifacts,
+    /// which predate it, still load.
+    #[serde(default)]
+    pub duration: f64,
 }
 
 /// What [`inspect`](super::inspect) returns: everything readable without
 /// instantiating a renderer or allocating the bulk payloads.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Metadata {
     /// Wire-format schema version the artifact declares.
     pub schema: u32,

@@ -63,6 +63,10 @@ pub struct Figure {
     /// Colorbars registered on this figure, drawn after the axes (see
     /// [`Figure::colorbar`]).
     pub(crate) colorbars: Vec<crate::figure::colorbar::Colorbar>,
+    /// Optional animation, evaluated by [`Figure::seek`] and carried by
+    /// portable export.
+    #[cfg(feature = "portable")]
+    pub(crate) timeline: Option<crate::portable::Timeline>,
 }
 
 impl Figure {
@@ -82,6 +86,8 @@ impl Figure {
             suptitle: None,
             suptitle_color: Rgba::BLACK,
             colorbars: Vec::new(),
+            #[cfg(feature = "portable")]
+            timeline: None,
         }
     }
 
@@ -559,6 +565,116 @@ impl Figure {
         std::fs::write(path, self.to_pdf())
     }
 
+    /// Attach an animation, replacing any existing one.
+    ///
+    /// The figure is not moved by attaching a timeline — call
+    /// [`Figure::seek`] to evaluate it at a time. Exporting the figure carries
+    /// the animation with it (schema 3).
+    #[cfg(feature = "portable")]
+    pub fn set_timeline(&mut self, timeline: crate::portable::Timeline) -> &mut Self {
+        self.timeline = Some(timeline);
+        self
+    }
+
+    /// This figure's animation, if it has one.
+    #[cfg(feature = "portable")]
+    #[must_use]
+    pub fn timeline(&self) -> Option<&crate::portable::Timeline> {
+        self.timeline.as_ref()
+    }
+
+    /// Move the figure to time `t` (seconds), applying every track.
+    ///
+    /// `t` is wrapped or clamped into the timeline first, so a caller can hand
+    /// over a monotonically increasing clock without doing modular arithmetic.
+    /// This is a pure function of `t`: the same time always produces the same
+    /// figure, which is what makes seeking exact and replay honest.
+    ///
+    /// Does nothing when the figure has no timeline.
+    ///
+    /// # Errors
+    ///
+    /// [`PortableError::Malformed`](crate::portable::PortableError::Malformed)
+    /// if a track addresses an artist that does not exist or hands it the wrong
+    /// number of values — a mismatch that would otherwise show up as a silently
+    /// wrong plot.
+    #[cfg(feature = "portable")]
+    pub fn seek(&mut self, t: f64) -> Result<(), PortableError> {
+        let Some(timeline) = self.timeline.take() else {
+            return Ok(());
+        };
+        let result = self.apply_timeline(&timeline, t);
+        self.timeline = Some(timeline);
+        result
+    }
+
+    #[cfg(feature = "portable")]
+    fn apply_timeline(
+        &mut self,
+        timeline: &crate::portable::Timeline,
+        t: f64,
+    ) -> Result<(), PortableError> {
+        use crate::portable::Target;
+
+        let time = timeline.normalize(t);
+        for (i, track) in timeline.tracks.iter().enumerate() {
+            let values = track.sample(time);
+            let axes_index = track.target.axes();
+            let ax = self.axes.get_mut(axes_index).ok_or_else(|| {
+                PortableError::Malformed(format!(
+                    "track {i} animates axes {axes_index}, which does not exist"
+                ))
+            })?;
+            let bad = |what: &str| {
+                PortableError::Malformed(format!("track {i} animates {what}, which does not exist"))
+            };
+            match track.target {
+                Target::LineX { index, .. } | Target::LineY { index, .. } => {
+                    let (x, y) = ax
+                        .line_data(index)
+                        .ok_or_else(|| bad(&format!("line {index}")))?;
+                    let is_x = matches!(track.target, Target::LineX { .. });
+                    let (new_x, new_y) = if is_x { (values, y) } else { (x, values) };
+                    ax.set_line_data(index, &new_x, &new_y)
+                        .map_err(|e| PortableError::Malformed(format!("track {i}: {e}")))?;
+                }
+                Target::Offsets { index, .. } => {
+                    if !values.len().is_multiple_of(2) {
+                        return Err(PortableError::Malformed(format!(
+                            "track {i} gives {} values for scatter offsets, which come in pairs",
+                            values.len()
+                        )));
+                    }
+                    let (xs, ys): (Vec<f64>, Vec<f64>) =
+                        values.chunks_exact(2).map(|p| (p[0], p[1])).collect();
+                    ax.set_collection_offsets(index, &xs, &ys)
+                        .map_err(|e| PortableError::Malformed(format!("track {i}: {e}")))?;
+                }
+                Target::ImageData { index, .. } => {
+                    let (rows, cols) = ax
+                        .image_shape(index)
+                        .ok_or_else(|| bad(&format!("image {index}")))?;
+                    ax.set_image_data(index, &values, rows, cols, None)
+                        .map_err(|e| PortableError::Malformed(format!("track {i}: {e}")))?;
+                }
+                Target::Xlim { .. } | Target::Ylim { .. } => {
+                    if values.len() != 2 {
+                        return Err(PortableError::Malformed(format!(
+                            "track {i} gives {} values for view limits, which are [min, max]",
+                            values.len()
+                        )));
+                    }
+                    if matches!(track.target, Target::Xlim { .. }) {
+                        ax.set_xlim(values[0], values[1]);
+                    } else {
+                        ax.set_ylim(values[0], values[1]);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Serialize this figure to a **portable figure** (`.riz`): the semantic
     /// model — axes, artists, data, and rcparams — in a chunked binary
     /// container, from which [`Figure::from_portable`] reconstructs an
@@ -650,8 +766,8 @@ impl Figure {
                 mime: "image/png".to_string(),
                 bytes: p.len(),
             }),
-            // Schema 2 has no timeline; animation lands with schema 3.
-            animated: false,
+            animated: self.timeline.as_ref().is_some_and(|t| !t.is_empty()),
+            duration: self.timeline.as_ref().map_or(0.0, |t| t.duration),
         };
 
         let spec = crate::portable::spec::PortableSpec {
@@ -664,6 +780,7 @@ impl Figure {
                 sha256: None,
             },
             meta: Some(meta),
+            timeline: self.timeline.clone(),
             figure: crate::portable::spec::FigureSpec {
                 width_in: self.width_in,
                 height_in: self.height_in,
@@ -786,6 +903,7 @@ impl Figure {
             suptitle: fig.suptitle,
             suptitle_color: fig.suptitle_color,
             colorbars: fig.colorbars,
+            timeline: spec.timeline,
         })
     }
 
