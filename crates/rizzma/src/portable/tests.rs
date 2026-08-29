@@ -1863,3 +1863,47 @@ fn forged_tracks_and_grids_are_an_import_error_not_a_panic() {
     let bytes = fig.to_portable().expect("export");
     assert!(Figure::from_portable(&bytes).is_err());
 }
+
+#[test]
+fn inspect_reports_the_control_manifest_typed() {
+    // A host validates once and persists the manifest without JSON pokes:
+    // declaration order, layout fields only, no track data parsed.
+    let fig = controlled_figure();
+    let bytes = fig.to_portable().expect("export");
+    let info = crate::portable::inspect(&bytes, &Limits::default()).expect("inspect");
+
+    assert_eq!(info.controls.len(), 2);
+    assert_eq!(info.controls[0].label, "shape");
+    assert_eq!(
+        (
+            info.controls[0].min,
+            info.controls[0].max,
+            info.controls[0].default
+        ),
+        (0.0, 4.0, 2.0)
+    );
+    assert_eq!(info.controls[0].step, None);
+    assert_eq!(info.controls[1].label, "level");
+
+    // A static artifact reports an empty manifest, not an error.
+    let mut plain = Figure::new(4.0, 3.0);
+    plain.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    let bytes = plain.to_portable().expect("export");
+    let info = crate::portable::inspect(&bytes, &Limits::default()).expect("inspect");
+    assert!(info.controls.is_empty());
+
+    // And a forged nonsense range fails at inspect, before a host persists it.
+    let mut fig = Figure::new(4.0, 3.0);
+    fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    let mut c = crate::portable::Control::new("ok", 0.0, 1.0, 0.5).expect("control");
+    c.default = 9.0;
+    fig.add_control(c);
+    let bytes = fig.to_portable().expect("export");
+    let err = crate::portable::inspect(&bytes, &Limits::default())
+        .err()
+        .expect("nonsense range must not inspect");
+    assert!(
+        matches!(&err, PortableError::Malformed(m) if m.contains("control 0")),
+        "{err}"
+    );
+}

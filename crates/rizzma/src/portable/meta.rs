@@ -71,6 +71,27 @@ pub struct Meta {
     pub duration: f64,
 }
 
+/// One entry of the control manifest, as [`inspect`](super::inspect) reports
+/// it: the slider's layout, without its track data.
+///
+/// This is what a host persists after validating an artifact once — typed, in
+/// declaration order, and sufficient to draw the sliders. The keyframes stay
+/// in the artifact, where the renderer that samples them lives.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ControlRef {
+    /// The label a host shows beside the slider.
+    pub label: String,
+    /// Smallest position, inclusive.
+    pub min: f64,
+    /// Largest position, inclusive.
+    pub max: f64,
+    /// The position the figure was authored at.
+    pub default: f64,
+    /// Snap increment from `min`; `None` is a continuous slider.
+    #[serde(default)]
+    pub step: Option<f64>,
+}
+
 /// What [`inspect`](super::inspect) returns: everything readable without
 /// instantiating a renderer or allocating the bulk payloads.
 #[derive(Debug, Clone, PartialEq)]
@@ -86,6 +107,8 @@ pub struct Metadata {
     pub renderer: RendererRef,
     /// Layout and fallback metadata, absent in schema 1 artifacts.
     pub meta: Option<Meta>,
+    /// The control manifest in declaration order; empty before schema 4.
+    pub controls: Vec<ControlRef>,
     /// Every chunk in the container, in file order.
     pub chunks: Vec<super::container::ChunkRef>,
     /// Total artifact size in bytes.

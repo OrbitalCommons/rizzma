@@ -28,6 +28,16 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   live tier emits its own.
 - `Figure::is_animated`: true when the timeline has tracks **or** any control
   carries a grid — a figure whose only time-dependence is a grid still plays.
+- `portable::ControlRef` and `Metadata::controls`: `inspect` reports the
+  typed control manifest (declaration order, layout fields only — serde skips
+  the track data rather than allocating it), with nonsense ranges refused at
+  inspection, so a host validates once and persists typed rather than poking
+  JSON.
+- Import validation for deserialized tracks, grids, and controls: a
+  hand-crafted artifact carrying a stride that disagrees with its value
+  count, an empty keyframe axis, or a lying lattice is now `Malformed` at
+  `from_portable` instead of a panic in `sample()`. The hole predates schema
+  4 — a forged schema-3 timeline panicked identically in 1.9 through 1.11.
 - `examples/portable_demo.rs`, the canonical demo: a travelling wave that
   loops crisply (its final keyframe is byte-identical to its first, so the
   wrap interpolates into a repaint rather than a jump) with a wavelength

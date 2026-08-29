@@ -79,7 +79,7 @@ pub use inspect::inspect;
 #[cfg(feature = "portable")]
 pub use limits::Limits;
 #[cfg(feature = "portable")]
-pub use meta::{GeneratorRef, Meta, Metadata, PosterRef, RendererRef};
+pub use meta::{ControlRef, GeneratorRef, Meta, Metadata, PosterRef, RendererRef};
 #[cfg(feature = "portable")]
 pub use timeline::{Interp, Target, Timeline, Track};
 
