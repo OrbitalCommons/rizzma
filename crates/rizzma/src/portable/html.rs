@@ -81,7 +81,7 @@ fn page(title: &str, alt: &str, artifact_b64: &str, extra: &str) -> String {
         r#"<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title} — rizzma portable figure</title>
-<style>body{{margin:0;background:#1a1b26;color:#c0caf5;font:14px system-ui;display:grid;place-items:center;min-height:100vh;gap:8px}}img,canvas{{max-width:95vw;height:auto}}p{{opacity:.7;margin:4px}}</style>
+<style>body{{margin:0;background:#1a1b26;color:#c0caf5;font:14px system-ui;display:grid;place-items:center;min-height:100vh;gap:8px}}img,canvas{{max-width:95vw;height:auto}}p{{opacity:.7;margin:4px}}#riz-controls{{display:flex;gap:20px;flex-wrap:wrap;justify-content:center;max-width:95vw}}#riz-controls label{{display:flex;align-items:center;gap:8px}}#riz-controls input{{accent-color:#7aa2f7}}#riz-controls output{{font-variant-numeric:tabular-nums;min-width:4ch;opacity:.8}}</style>
 {OPEN}{artifact_b64}{CLOSE}
 <img id="riz-poster" alt="{alt}">
 <p id="riz-note">{title} — a rizzma portable figure. This preview is its embedded
@@ -149,6 +149,7 @@ pub fn wrap_html_live(
 <script type="text/plain" id="riz-rt-glue">{glue}</script>
 <script type="text/plain" id="riz-rt-loader">{loader}</script>
 <canvas id="riz-live" hidden></canvas>
+<div id="riz-controls" hidden></div>
 <script type="module">
 // Poster-first upgrade: any failure below leaves the poster showing.
 try {{
@@ -165,7 +166,30 @@ try {{
   document.getElementById("riz-poster").hidden = true;
   document.getElementById("riz-note").textContent =
     "drag to pan, wheel to zoom, double-click to reset";
-  void handle;
+  // Sliders are host DOM (design/12 §5), and this page is the host. Labels
+  // come through textContent, so an artifact-authored label stays text.
+  const row = document.getElementById("riz-controls");
+  for (const [i, c] of handle.controls.entries()) {{
+    row.hidden = false;
+    const label = document.createElement("label");
+    const name = document.createElement("span");
+    name.textContent = c.label;
+    const value = document.createElement("output");
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = c.min;
+    slider.max = c.max;
+    slider.step = c.step ?? (c.max - c.min) / 1000;
+    slider.value = c.value;
+    const show = () => {{ value.textContent = slider.valueAsNumber.toPrecision(3); }};
+    show();
+    slider.addEventListener("input", () => {{
+      handle.setControl(i, slider.valueAsNumber);
+      show();
+    }});
+    label.append(name, slider, value);
+    row.append(label);
+  }}
 }} catch (err) {{
   document.getElementById("riz-live").hidden = true;
   console.warn("riz: live upgrade failed, poster stands:", err);

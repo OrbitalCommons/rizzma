@@ -324,23 +324,48 @@ impl Interactor {
     /// double-click hands the view back. This is the interactive counterpart
     /// of `design/10` §5's data/view orthogonality.
     ///
-    /// Implemented as snapshot-and-restore around [`Figure::seek`] rather than
-    /// as a filtered evaluation, so the timeline machinery has exactly one
-    /// code path and the policy lives here, next to the state that defines it.
-    ///
     /// # Errors
     ///
     /// As [`Figure::seek`]: a track addressing a missing artist, or handing it
     /// the wrong number of values.
     #[cfg(feature = "portable")]
     pub fn seek(&mut self, t: f64) -> Result<(), crate::portable::PortableError> {
+        self.holding_user_view(|fig| fig.seek(t))
+    }
+
+    /// Move control `index` to `value` under the same view policy as
+    /// [`Interactor::seek`]: controls may drive `xlim`/`ylim` exactly as
+    /// timelines may, and a view the user has taken over wins against both
+    /// through one code path (design/12 §4).
+    ///
+    /// # Errors
+    ///
+    /// As [`Figure::set_control`].
+    #[cfg(feature = "portable")]
+    pub fn set_control(
+        &mut self,
+        index: usize,
+        value: f64,
+    ) -> Result<(), crate::portable::PortableError> {
+        self.holding_user_view(|fig| fig.set_control(index, value))
+    }
+
+    /// Run `f` and re-impose the user's limits on every axes they have taken
+    /// over — snapshot-and-restore rather than filtered evaluation, so the
+    /// track machinery keeps exactly one code path and the policy lives here,
+    /// next to the state that defines it.
+    #[cfg(feature = "portable")]
+    fn holding_user_view(
+        &mut self,
+        f: impl FnOnce(&mut Figure) -> Result<(), crate::portable::PortableError>,
+    ) -> Result<(), crate::portable::PortableError> {
         let held: Vec<(usize, AxesLimits)> = self
             .user_view
             .iter()
             .filter(|&&i| i < self.fig.axes().len())
             .map(|&i| (i, self.fig.axes()[i].effective_limits()))
             .collect();
-        self.fig.seek(t)?;
+        f(&mut self.fig)?;
         for (i, (xlim, ylim)) in held {
             let ax = &mut self.fig.axes_mut()[i];
             ax.set_xlim(xlim.0, xlim.1);

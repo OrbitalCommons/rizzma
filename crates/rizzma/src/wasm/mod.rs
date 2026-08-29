@@ -313,7 +313,7 @@ impl WasmFigure {
     #[wasm_bindgen(js_name = animation)]
     pub fn animation(&self) -> Box<[f64]> {
         match self.fig.timeline() {
-            Some(t) if !t.is_empty() => Box::new([1.0, t.duration]),
+            Some(t) if self.fig.is_animated() => Box::new([1.0, t.duration]),
             _ => Box::new([0.0, 0.0]),
         }
     }
@@ -326,6 +326,31 @@ impl WasmFigure {
     #[wasm_bindgen(js_name = schemaRange)]
     pub fn schema_range() -> Box<[u32]> {
         Box::new([crate::portable::SCHEMA_MIN, crate::portable::SCHEMA_VERSION])
+    }
+
+    /// The figure's control manifest as JSON:
+    /// `[{label, min, max, default, step, value}]`, where `step` is null for a
+    /// continuous slider and `value` is the live position. Track data stays
+    /// out — this is what a host needs to lay out sliders, nothing more.
+    #[cfg(feature = "portable")]
+    #[must_use]
+    pub fn controls(&self) -> String {
+        controls_manifest(&self.fig)
+    }
+
+    /// Move control `index` to `value` (clamped, snapped, defaulted when
+    /// non-finite) and re-evaluate the figure.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error message when `index` is out of range or a track
+    /// addresses an artist that does not exist.
+    #[cfg(feature = "portable")]
+    #[wasm_bindgen(js_name = setControl)]
+    pub fn set_control(&mut self, index: usize, value: f64) -> Result<(), JsValue> {
+        self.fig
+            .set_control(index, value)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     /// Add axes at the figure-fraction rectangle `(left, bottom, width,
@@ -825,6 +850,35 @@ impl WasmAxes3D {
 ///
 /// Only called on the wasm boundary; `JsValue` construction is unimplemented
 /// on native targets, which is why the `*_impl` layer carries `String`s.
+/// A figure's control manifest as JSON:
+/// `[{label, min, max, default, step, value}]` — the layout a host needs to
+/// build sliders, with the track data staying inside the figure. `step` is
+/// `null` for a continuous slider; `value` is the live position.
+#[cfg(feature = "portable")]
+fn controls_manifest(fig: &crate::figure::Figure) -> String {
+    // Formatted by hand rather than through `serde_json::Value`, which would
+    // pull the generic value serializer into the wasm bundle for six fields.
+    // The label is the one field needing escaping, and the typed string
+    // serializer is already linked. `{:?}` formats every finite f64 as valid
+    // JSON; the ranges are author-validated finite at construction.
+    let entries: Vec<String> = fig
+        .controls()
+        .iter()
+        .zip(fig.control_values())
+        .map(|(c, &value)| {
+            let label =
+                serde_json::to_string(&c.label).unwrap_or_else(|_| "\"control\"".to_string());
+            let step = c.step.map_or("null".to_string(), |s| format!("{s:?}"));
+            format!(
+                "{{\"label\":{label},\"min\":{:?},\"max\":{:?},\"default\":{:?},\
+                 \"step\":{step},\"value\":{value:?}}}",
+                c.min, c.max, c.default
+            )
+        })
+        .collect();
+    format!("[{}]", entries.join(","))
+}
+
 fn js_err(msg: String) -> JsValue {
     JsValue::from_str(&msg)
 }
@@ -847,6 +901,8 @@ mod canvas {
     use crate::figure::{Event, Interactor, MouseButton, Outcome};
     #[cfg(feature = "plot3d")]
     use crate::wasm::WasmAxes3D;
+    #[cfg(feature = "portable")]
+    use crate::wasm::controls_manifest;
     use crate::wasm::{WasmFigure, figure_to_rgba_scaled, sample_figure};
 
     #[wasm_bindgen]
@@ -1029,10 +1085,44 @@ mod canvas {
         /// `[animated, duration]` (`animated` is `1.0` or `0.0`).
         #[cfg(feature = "portable")]
         pub fn animation(&self) -> Box<[f64]> {
-            match self.state.borrow().interactor.figure().timeline() {
-                Some(tl) if !tl.is_empty() => Box::new([1.0, tl.duration]),
+            let state = self.state.borrow();
+            let fig = state.interactor.figure();
+            match fig.timeline() {
+                Some(tl) if fig.is_animated() => Box::new([1.0, tl.duration]),
                 _ => Box::new([0.0, 0.0]),
             }
+        }
+
+        /// The bound figure's control manifest as JSON:
+        /// `[{label, min, max, default, step, value}]` — what a host needs to
+        /// lay out sliders, with the track data staying inside.
+        #[cfg(feature = "portable")]
+        #[must_use]
+        pub fn controls(&self) -> String {
+            controls_manifest(self.state.borrow().interactor.figure())
+        }
+
+        /// Move control `index` to `value` and schedule a repaint.
+        ///
+        /// The same view policy and the same rAF coalescing as
+        /// [`WasmSession::seek`]: axes the user has panned or zoomed keep the
+        /// user's limits, and dragging a slider faster than the display
+        /// refreshes does not stack frames.
+        ///
+        /// # Errors
+        ///
+        /// Returns the error message when `index` is out of range or a track
+        /// addresses an artist that does not exist.
+        #[cfg(feature = "portable")]
+        #[wasm_bindgen(js_name = setControl)]
+        pub fn set_control(&self, index: usize, value: f64) -> Result<(), JsValue> {
+            self.state
+                .borrow_mut()
+                .interactor
+                .set_control(index, value)
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            schedule_redraw(&self.state);
+            Ok(())
         }
 
         /// The effective `[xlo, xhi, ylo, yhi]` limits of axes `axes` (the
