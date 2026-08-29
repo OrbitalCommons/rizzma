@@ -67,6 +67,17 @@ pub struct Figure {
     /// portable export.
     #[cfg(feature = "portable")]
     pub(crate) timeline: Option<crate::portable::Timeline>,
+    /// User-driven parameters (schema 4), evaluated by [`Figure::set_control`]
+    /// and carried by portable export.
+    #[cfg(feature = "portable")]
+    pub(crate) controls: Vec<crate::portable::Control>,
+    /// Live position of each control, parallel to `controls`.
+    #[cfg(feature = "portable")]
+    pub(crate) control_values: Vec<f64>,
+    /// The clock position last sought to, kept so a control change can
+    /// re-evaluate its grids at the current instant.
+    #[cfg(feature = "portable")]
+    pub(crate) time: f64,
 }
 
 impl Figure {
@@ -88,6 +99,12 @@ impl Figure {
             colorbars: Vec::new(),
             #[cfg(feature = "portable")]
             timeline: None,
+            #[cfg(feature = "portable")]
+            controls: Vec::new(),
+            #[cfg(feature = "portable")]
+            control_values: Vec::new(),
+            #[cfg(feature = "portable")]
+            time: 0.0,
         }
     }
 
@@ -590,7 +607,7 @@ impl Figure {
     /// This is a pure function of `t`: the same time always produces the same
     /// figure, which is what makes seeking exact and replay honest.
     ///
-    /// Does nothing when the figure has no timeline.
+    /// Does nothing when the figure has neither a timeline nor controls.
     ///
     /// # Errors
     ///
@@ -600,79 +617,301 @@ impl Figure {
     /// wrong plot.
     #[cfg(feature = "portable")]
     pub fn seek(&mut self, t: f64) -> Result<(), PortableError> {
-        let Some(timeline) = self.timeline.take() else {
+        self.time = t;
+        self.apply_state()
+    }
+
+    /// Re-evaluate the displayed state as a pure function of the clock and
+    /// every control's position: the timeline's tracks at the current time,
+    /// then each control in declaration order — its tracks at its position,
+    /// its grids at `(time, position)`. Re-applying the whole function on
+    /// every change is what makes target overlap well-defined: the later step
+    /// wins *always*, not whichever event fired last (design/12 §3).
+    #[cfg(feature = "portable")]
+    fn apply_state(&mut self) -> Result<(), PortableError> {
+        if let Some(timeline) = self.timeline.take() {
+            let result: Result<(), PortableError> = (|| {
+                let time = timeline.normalize(self.time);
+                for (i, track) in timeline.tracks.iter().enumerate() {
+                    self.apply_target(&format!("track {i}"), track.target, track.sample(time))?;
+                }
+                Ok(())
+            })();
+            self.timeline = Some(timeline);
+            result?;
+        }
+        if self.controls.is_empty() {
             return Ok(());
-        };
-        let result = self.apply_timeline(&timeline, t);
-        self.timeline = Some(timeline);
+        }
+        let time = self
+            .timeline
+            .as_ref()
+            .map_or(self.time, |tl| tl.normalize(self.time));
+        let controls = std::mem::take(&mut self.controls);
+        let result: Result<(), PortableError> = (|| {
+            for (ci, control) in controls.iter().enumerate() {
+                let v = self.control_values[ci];
+                for (i, track) in control.tracks.iter().enumerate() {
+                    self.apply_target(
+                        &format!("control {ci} track {i}"),
+                        track.target,
+                        track.sample(v),
+                    )?;
+                }
+                for (i, grid) in control.grids.iter().enumerate() {
+                    self.apply_target(
+                        &format!("control {ci} grid {i}"),
+                        grid.target,
+                        grid.sample(time, v),
+                    )?;
+                }
+            }
+            Ok(())
+        })();
+        self.controls = controls;
         result
     }
 
     #[cfg(feature = "portable")]
-    fn apply_timeline(
+    fn apply_target(
         &mut self,
-        timeline: &crate::portable::Timeline,
-        t: f64,
+        who: &str,
+        target: crate::portable::Target,
+        values: Vec<f64>,
     ) -> Result<(), PortableError> {
         use crate::portable::Target;
 
-        let time = timeline.normalize(t);
-        for (i, track) in timeline.tracks.iter().enumerate() {
-            let values = track.sample(time);
-            let axes_index = track.target.axes();
-            let ax = self.axes.get_mut(axes_index).ok_or_else(|| {
-                PortableError::Malformed(format!(
-                    "track {i} animates axes {axes_index}, which does not exist"
-                ))
-            })?;
-            let bad = |what: &str| {
-                PortableError::Malformed(format!("track {i} animates {what}, which does not exist"))
-            };
-            match track.target {
-                Target::LineX { index, .. } | Target::LineY { index, .. } => {
-                    let (x, y) = ax
-                        .line_data(index)
-                        .ok_or_else(|| bad(&format!("line {index}")))?;
-                    let is_x = matches!(track.target, Target::LineX { .. });
-                    let (new_x, new_y) = if is_x { (values, y) } else { (x, values) };
-                    ax.set_line_data(index, &new_x, &new_y)
-                        .map_err(|e| PortableError::Malformed(format!("track {i}: {e}")))?;
+        let axes_index = target.axes();
+        let ax = self.axes.get_mut(axes_index).ok_or_else(|| {
+            PortableError::Malformed(format!(
+                "{who} animates axes {axes_index}, which does not exist"
+            ))
+        })?;
+        let bad = |what: &str| {
+            PortableError::Malformed(format!("{who} animates {what}, which does not exist"))
+        };
+        match target {
+            Target::LineX { index, .. } | Target::LineY { index, .. } => {
+                let (x, y) = ax
+                    .line_data(index)
+                    .ok_or_else(|| bad(&format!("line {index}")))?;
+                let is_x = matches!(target, Target::LineX { .. });
+                let (new_x, new_y) = if is_x { (values, y) } else { (x, values) };
+                ax.set_line_data(index, &new_x, &new_y)
+                    .map_err(|e| PortableError::Malformed(format!("{who}: {e}")))?;
+            }
+            Target::Offsets { index, .. } => {
+                if !values.len().is_multiple_of(2) {
+                    return Err(PortableError::Malformed(format!(
+                        "{who} gives {} values for scatter offsets, which come in pairs",
+                        values.len()
+                    )));
                 }
-                Target::Offsets { index, .. } => {
-                    if !values.len().is_multiple_of(2) {
-                        return Err(PortableError::Malformed(format!(
-                            "track {i} gives {} values for scatter offsets, which come in pairs",
-                            values.len()
-                        )));
-                    }
-                    let (xs, ys): (Vec<f64>, Vec<f64>) =
-                        values.chunks_exact(2).map(|p| (p[0], p[1])).collect();
-                    ax.set_collection_offsets(index, &xs, &ys)
-                        .map_err(|e| PortableError::Malformed(format!("track {i}: {e}")))?;
+                let (xs, ys): (Vec<f64>, Vec<f64>) =
+                    values.chunks_exact(2).map(|p| (p[0], p[1])).collect();
+                ax.set_collection_offsets(index, &xs, &ys)
+                    .map_err(|e| PortableError::Malformed(format!("{who}: {e}")))?;
+            }
+            Target::ImageData { index, .. } => {
+                let (rows, cols) = ax
+                    .image_shape(index)
+                    .ok_or_else(|| bad(&format!("image {index}")))?;
+                ax.set_image_data(index, &values, rows, cols, None)
+                    .map_err(|e| PortableError::Malformed(format!("{who}: {e}")))?;
+            }
+            Target::Xlim { .. } | Target::Ylim { .. } => {
+                if values.len() != 2 {
+                    return Err(PortableError::Malformed(format!(
+                        "{who} gives {} values for view limits, which are [min, max]",
+                        values.len()
+                    )));
                 }
-                Target::ImageData { index, .. } => {
-                    let (rows, cols) = ax
-                        .image_shape(index)
-                        .ok_or_else(|| bad(&format!("image {index}")))?;
-                    ax.set_image_data(index, &values, rows, cols, None)
-                        .map_err(|e| PortableError::Malformed(format!("track {i}: {e}")))?;
-                }
-                Target::Xlim { .. } | Target::Ylim { .. } => {
-                    if values.len() != 2 {
-                        return Err(PortableError::Malformed(format!(
-                            "track {i} gives {} values for view limits, which are [min, max]",
-                            values.len()
-                        )));
-                    }
-                    if matches!(track.target, Target::Xlim { .. }) {
-                        ax.set_xlim(values[0], values[1]);
-                    } else {
-                        ax.set_ylim(values[0], values[1]);
-                    }
+                if matches!(target, Target::Xlim { .. }) {
+                    ax.set_xlim(values[0], values[1]);
+                } else {
+                    ax.set_ylim(values[0], values[1]);
                 }
             }
         }
         Ok(())
+    }
+
+    /// Whether the clock moves anything: the timeline has tracks, or some
+    /// control carries a `(time, position)` grid. A figure whose only
+    /// time-dependence is a grid still animates — the timeline then
+    /// contributes the clock its grids are evaluated against.
+    #[cfg(feature = "portable")]
+    #[must_use]
+    pub fn is_animated(&self) -> bool {
+        self.timeline.as_ref().is_some_and(|tl| !tl.is_empty())
+            || (self.timeline.is_some() && self.controls.iter().any(|c| !c.grids.is_empty()))
+    }
+
+    /// Check that `target` addresses an artist this figure has and that
+    /// `stride` fits what that artist accepts — the promise that lets an
+    /// accepted figure never fail during [`Figure::seek`] or
+    /// [`Figure::set_control`]. Returns the complaint bare; callers wrap it.
+    #[cfg(feature = "portable")]
+    fn validate_driver_target(
+        &self,
+        target: crate::portable::Target,
+        stride: usize,
+    ) -> Result<(), String> {
+        use crate::portable::Target;
+
+        let axes_index = target.axes();
+        let Some(ax) = self.axes.get(axes_index) else {
+            return Err(format!("animates axes {axes_index}, which does not exist"));
+        };
+        match target {
+            Target::LineX { index, .. } | Target::LineY { index, .. } => {
+                let Some((x, _)) = ax.line_data(index) else {
+                    return Err(format!("animates line {index}, which does not exist"));
+                };
+                if stride != x.len() {
+                    return Err(format!(
+                        "has stride {stride} but line {index} holds {} points",
+                        x.len()
+                    ));
+                }
+            }
+            Target::Offsets { index, .. } => {
+                if index >= ax.collection_count() {
+                    return Err(format!("animates collection {index}, which does not exist"));
+                }
+                if !stride.is_multiple_of(2) {
+                    return Err(format!(
+                        "has stride {stride} for scatter offsets, which come in pairs"
+                    ));
+                }
+            }
+            Target::ImageData { index, .. } => {
+                let Some((rows, cols)) = ax.image_shape(index) else {
+                    return Err(format!("animates image {index}, which does not exist"));
+                };
+                if stride != rows * cols {
+                    return Err(format!(
+                        "has stride {stride} but image {index} is {rows}x{cols}"
+                    ));
+                }
+            }
+            Target::Xlim { .. } | Target::Ylim { .. } => {
+                if stride != 2 {
+                    return Err(format!(
+                        "has stride {stride} for view limits, which are [min, max]"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Check every timeline track and every control track and grid against
+    /// the artists this figure actually has. Export and import both call
+    /// this, which is what makes an *accepted* figure total: sampling can
+    /// never fail on it, so a host that trusts the acceptance never sees an
+    /// applied-but-failed state.
+    #[cfg(feature = "portable")]
+    pub(crate) fn validate_drivers(&self) -> Result<(), String> {
+        if let Some(timeline) = &self.timeline {
+            for (i, track) in timeline.tracks.iter().enumerate() {
+                self.validate_driver_target(track.target, track.stride)
+                    .map_err(|e| format!("timeline track {i} {e}"))?;
+            }
+        }
+        for (ci, control) in self.controls.iter().enumerate() {
+            for (i, track) in control.tracks.iter().enumerate() {
+                self.validate_driver_target(track.target, track.stride)
+                    .map_err(|e| format!("control {ci} track {i} {e}"))?;
+            }
+            for (i, grid) in control.grids.iter().enumerate() {
+                self.validate_driver_target(grid.target, grid.stride)
+                    .map_err(|e| format!("control {ci} grid {i} {e}"))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Declare a user-driven parameter (schema 4), returning its index for
+    /// [`Figure::set_control`]. The control starts at its default; the base
+    /// artist data should be what its tracks produce there, since that is
+    /// what a schema-3 host — and the poster — will show.
+    ///
+    /// # Errors
+    ///
+    /// [`PortableError::Unsupported`](crate::portable::PortableError::Unsupported)
+    /// when the control's tracks or grids address artists this figure does
+    /// not have, or with a stride those artists cannot take. Declare controls
+    /// after the artists they drive: refusing here is what lets
+    /// [`Figure::set_control`] on an accepted figure never fail.
+    #[cfg(feature = "portable")]
+    pub fn add_control(
+        &mut self,
+        control: crate::portable::Control,
+    ) -> Result<usize, PortableError> {
+        for (i, track) in control.tracks.iter().enumerate() {
+            self.validate_driver_target(track.target, track.stride)
+                .map_err(|e| PortableError::Unsupported(format!("control track {i} {e}")))?;
+        }
+        for (i, grid) in control.grids.iter().enumerate() {
+            self.validate_driver_target(grid.target, grid.stride)
+                .map_err(|e| PortableError::Unsupported(format!("control grid {i} {e}")))?;
+        }
+        self.control_values.push(control.default);
+        self.controls.push(control);
+        Ok(self.controls.len() - 1)
+    }
+
+    /// The controls this figure declares, in declaration order.
+    #[cfg(feature = "portable")]
+    #[must_use]
+    pub fn controls(&self) -> &[crate::portable::Control] {
+        &self.controls
+    }
+
+    /// The live position of each control, parallel to [`Figure::controls`].
+    #[cfg(feature = "portable")]
+    #[must_use]
+    pub fn control_values(&self) -> &[f64] {
+        &self.control_values
+    }
+
+    /// Move control `index` to `value` — clamped into its range, snapped to
+    /// its step, defaulted when non-finite — re-evaluate the figure, and
+    /// return the position actually applied. Echoing the canonical value is
+    /// what lets a host reflect the true slider position without reimplementing
+    /// the normalization policy.
+    ///
+    /// This is a pure function of the clock and the control vector, exactly as
+    /// [`Figure::seek`] is: the same positions always produce the same figure,
+    /// regardless of the order the user reached them in.
+    ///
+    /// # Errors
+    ///
+    /// [`PortableError::Malformed`](crate::portable::PortableError::Malformed)
+    /// if `index` is out of range, or as [`Figure::seek`] when a track
+    /// addresses an artist that does not exist.
+    #[cfg(feature = "portable")]
+    pub fn set_control(&mut self, index: usize, value: f64) -> Result<f64, PortableError> {
+        let control = self.controls.get(index).ok_or_else(|| {
+            PortableError::Malformed(format!(
+                "control {index} does not exist; the figure declares {}",
+                self.controls.len()
+            ))
+        })?;
+        let applied = control.normalize(value);
+        let previous = self.control_values[index];
+        self.control_values[index] = applied;
+        if let Err(e) = self.apply_state() {
+            // Unreachable for accepted figures — export, import, and
+            // add_control all validate drivers — but a live author can still
+            // reach it through a bad timeline set before this call. Keep the
+            // control vector telling the truth about the last successful
+            // application rather than recording a position that never took.
+            self.control_values[index] = previous;
+            return Err(e);
+        }
+        Ok(applied)
     }
 
     /// Serialize this figure to a **portable figure** (`.riz`): the semantic
@@ -729,6 +968,11 @@ impl Figure {
         &self,
         cfg: &crate::portable::PortableConfig,
     ) -> Result<Vec<u8>, PortableError> {
+        // Refuse to export a figure whose drivers cannot all apply: a track
+        // addressing a missing artist would otherwise travel and fail on
+        // every consumer. Loud here, where the author can fix it.
+        self.validate_drivers()
+            .map_err(PortableError::Unsupported)?;
         let mut bank = crate::portable::data::BankWriter::new();
         let axes = self
             .axes
@@ -766,7 +1010,7 @@ impl Figure {
                 mime: "image/png".to_string(),
                 bytes: p.len(),
             }),
-            animated: self.timeline.as_ref().is_some_and(|t| !t.is_empty()),
+            animated: self.is_animated(),
             duration: self.timeline.as_ref().map_or(0.0, |t| t.duration),
         };
 
@@ -781,6 +1025,7 @@ impl Figure {
             },
             meta: Some(meta),
             timeline: self.timeline.clone(),
+            controls: self.controls.clone(),
             figure: crate::portable::spec::FigureSpec {
                 width_in: self.width_in,
                 height_in: self.height_in,
@@ -924,9 +1169,54 @@ impl Figure {
                 max: crate::portable::SCHEMA_VERSION,
             });
         }
+        // Schema is the compatibility decision — a host selects a runtime
+        // from the declaration — so features must not under-declare it.
+        let required = crate::portable::required_schema(
+            spec.meta.is_some(),
+            spec.timeline.is_some(),
+            !spec.controls.is_empty(),
+        );
+        if spec.schema < required {
+            return Err(PortableError::Malformed(format!(
+                "declares schema {} but carries features requiring schema {required}",
+                spec.schema
+            )));
+        }
+        // The control manifest becomes host-materialized state, so it answers
+        // to its own budgets, not the JSON allowance it fit inside.
+        if spec.controls.len() > limits.max_controls {
+            return Err(PortableError::Budget(format!(
+                "artifact declares {} controls, over the {} control limit",
+                spec.controls.len(),
+                limits.max_controls
+            )));
+        }
+        if let Some(long) = spec
+            .controls
+            .iter()
+            .find(|c| c.label.len() > limits.max_control_label_bytes)
+        {
+            return Err(PortableError::Budget(format!(
+                "a control label is {} bytes, over the {} byte limit",
+                long.label.len(),
+                limits.max_control_label_bytes
+            )));
+        }
+        // Serde checked the shapes of the JSON; it cannot check the promises
+        // the sampling code indexes on — a stride agreeing with the value
+        // count, axes nonempty and ordered. A forged artifact must be an
+        // error here, never a panic in `sample` later.
+        if let Some(timeline) = &spec.timeline {
+            timeline.validate()?;
+        }
+        for (i, control) in spec.controls.iter().enumerate() {
+            control.validate().map_err(|e| {
+                crate::portable::PortableError::Malformed(format!("control {i} {e}"))
+            })?;
+        }
         let reader = crate::portable::data::BankReader::new(bin, &spec.accessors);
         let fig = spec.figure;
-        Ok(Figure {
+        let restored = Figure {
             width_in: fig.width_in,
             height_in: fig.height_in,
             dpi: fig.dpi,
@@ -944,7 +1234,17 @@ impl Figure {
             suptitle_color: fig.suptitle_color,
             colorbars: fig.colorbars,
             timeline: spec.timeline,
-        })
+            control_values: spec.controls.iter().map(|c| c.default).collect(),
+            controls: spec.controls,
+            time: 0.0,
+        };
+        // Only now can targets be checked against the artists that exist. An
+        // accepted figure is total: seek and set_control cannot fail on it,
+        // so a host trusting this acceptance never sees applied-but-failed.
+        restored
+            .validate_drivers()
+            .map_err(PortableError::Malformed)?;
+        Ok(restored)
     }
 
     /// Open this figure in the system browser as an interactive viewer

@@ -46,6 +46,8 @@
 #[cfg(feature = "portable")]
 pub mod container;
 #[cfg(feature = "portable")]
+mod controls;
+#[cfg(feature = "portable")]
 pub(crate) mod data;
 #[cfg(feature = "portable")]
 mod error;
@@ -67,6 +69,8 @@ mod tests;
 #[cfg(feature = "portable")]
 pub use container::ChunkRef;
 #[cfg(feature = "portable")]
+pub use controls::{Control, Grid};
+#[cfg(feature = "portable")]
 pub use error::PortableError;
 #[cfg(feature = "portable")]
 pub use html::{HtmlRuntime, is_raw_riz, unwrap_html, wrap_html, wrap_html_live};
@@ -75,7 +79,7 @@ pub use inspect::inspect;
 #[cfg(feature = "portable")]
 pub use limits::Limits;
 #[cfg(feature = "portable")]
-pub use meta::{GeneratorRef, Meta, Metadata, PosterRef, RendererRef};
+pub use meta::{ControlRef, GeneratorRef, Meta, Metadata, PosterRef, RendererRef};
 #[cfg(feature = "portable")]
 pub use timeline::{Interp, Target, Timeline, Track};
 
@@ -83,13 +87,35 @@ pub use timeline::{Interp, Target, Timeline, Track};
 ///
 /// Bumped whenever anything changes that would alter how an existing artifact
 /// renders. Schema 1 is the original static+interactive model; schema 2 adds
-/// the [`Meta`] block and the poster chunk.
+/// the [`Meta`] block and the poster chunk; schema 3 the [`Timeline`]; schema
+/// 4 user-driven [`Control`]s.
 #[cfg(feature = "portable")]
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// Oldest schema version this build can still load.
 #[cfg(feature = "portable")]
 pub const SCHEMA_MIN: u32 = 1;
+
+/// The schema a document's features require it to declare, at minimum.
+///
+/// Schema is the compatibility decision a host makes *before* parsing the
+/// figure — it selects the runtime. A forged document must not be able to
+/// under-declare: a "schema 3" artifact carrying controls would render on a
+/// schema-4 runtime while a host that correctly selected a schema-3 runtime
+/// from the declaration watches it rejected for the unknown field. Both
+/// import and inspection refuse a declaration below what the features demand.
+#[cfg(feature = "portable")]
+pub(crate) fn required_schema(has_meta: bool, has_timeline: bool, has_controls: bool) -> u32 {
+    if has_controls {
+        4
+    } else if has_timeline {
+        3
+    } else if has_meta {
+        2
+    } else {
+        1
+    }
+}
 
 // Without the `portable` feature the artifact machinery is absent, but the
 // public `Scale`/`Locator`/`Formatter` traits still name the wire forms below,

@@ -247,6 +247,30 @@ impl Track {
         self.times.is_empty()
     }
 
+    /// Check the invariants [`Track::new`] establishes, for tracks that did
+    /// not come through it — a deserialized artifact is attacker-shaped bytes,
+    /// and [`Track::sample`] indexes on the promise that `values` really is
+    /// `times.len() * stride` long and `times` really is nonempty and ordered.
+    /// Import calls this so a forged track is an error, never a panic.
+    /// Returns the complaint bare; callers wrap it with where they found it.
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if self.times.is_empty() {
+            return Err("has no keyframes".to_string());
+        }
+        if !self.times.windows(2).all(|w| w[0] < w[1]) {
+            return Err("keyframe times are not strictly increasing".to_string());
+        }
+        if self.times.len().checked_mul(self.stride) != Some(self.values.len()) {
+            return Err(format!(
+                "declares {} keyframes of stride {} but carries {} values",
+                self.times.len(),
+                self.stride,
+                self.values.len()
+            ));
+        }
+        Ok(())
+    }
+
     /// The values this track takes at time `t`, clamped to the keyframe range.
     ///
     /// Before the first keyframe the first frame holds; after the last, the
@@ -319,6 +343,16 @@ impl Timeline {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.tracks.is_empty()
+    }
+
+    /// Check every track's invariants; see [`Track::validate`].
+    pub(crate) fn validate(&self) -> Result<(), PortableError> {
+        for (i, track) in self.tracks.iter().enumerate() {
+            track
+                .validate()
+                .map_err(|e| PortableError::Malformed(format!("timeline track {i}: {e}")))?;
+        }
+        Ok(())
     }
 
     /// Normalize `t` into the timeline: wrapped when looping, clamped when not.

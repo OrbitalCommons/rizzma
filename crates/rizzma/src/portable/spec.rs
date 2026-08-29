@@ -72,6 +72,11 @@ pub(crate) struct PortableSpec {
     /// predate it, so it stays optional while those remain loadable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) timeline: Option<crate::portable::Timeline>,
+    /// User-driven parameters, when the figure has any. Absent before schema
+    /// 4, which introduced them, so the field stays defaulted while older
+    /// artifacts remain loadable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) controls: Vec<crate::portable::Control>,
     /// Typed views into the binary chunk.
     pub(crate) accessors: Vec<Accessor>,
 }

@@ -13,6 +13,7 @@
 use serde::Deserialize;
 
 use super::container;
+use super::meta::ControlRef;
 use super::{GeneratorRef, Limits, Meta, Metadata, PortableError, RendererRef};
 
 /// The subset of the spec document inspection needs.
@@ -27,6 +28,15 @@ struct Header {
     renderer: RendererRef,
     #[serde(default)]
     meta: Option<Meta>,
+    /// Presence only — inspection needs the timeline's existence for the
+    /// schema-floor check, not its keyframes.
+    #[serde(default)]
+    timeline: Option<serde::de::IgnoredAny>,
+    /// Manifest fields only: serde skips each control's tracks and grids
+    /// rather than allocating them, keeping inspection proportional to the
+    /// manifest, not the keyframe data.
+    #[serde(default)]
+    controls: Vec<ControlRef>,
 }
 
 /// Read an artifact's metadata without building a figure or rendering it.
@@ -99,12 +109,72 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
         }
     }
 
+    // Schema is the compatibility decision — a host selects a runtime from
+    // the declaration — so features must not be able to under-declare it.
+    let required = super::required_schema(
+        header.meta.is_some(),
+        header.timeline.is_some(),
+        !header.controls.is_empty(),
+    );
+    if header.schema < required {
+        return Err(PortableError::Malformed(format!(
+            "declares schema {} but carries features requiring schema {required}",
+            header.schema
+        )));
+    }
+
+    // Each control becomes host-materialized state — a persisted manifest
+    // entry, a DOM slider — so the count and label size answer to their own
+    // budgets, not to whatever fits in the JSON allowance.
+    if header.controls.len() > limits.max_controls {
+        return Err(PortableError::Budget(format!(
+            "artifact declares {} controls, over the {} control limit",
+            header.controls.len(),
+            limits.max_controls
+        )));
+    }
+    if let Some(long) = header
+        .controls
+        .iter()
+        .find(|c| c.label.len() > limits.max_control_label_bytes)
+    {
+        return Err(PortableError::Budget(format!(
+            "a control label is {} bytes, over the {} byte limit",
+            long.label.len(),
+            limits.max_control_label_bytes
+        )));
+    }
+
+    for (i, c) in header.controls.iter().enumerate() {
+        // The same range invariants import enforces, minus the track data the
+        // header never parsed. A manifest a host would persist must not carry
+        // a range that makes every slider position nonsense.
+        if !(c.min.is_finite() && c.max.is_finite() && c.default.is_finite())
+            || c.min >= c.max
+            || !(c.min..=c.max).contains(&c.default)
+        {
+            return Err(PortableError::Malformed(format!(
+                "control {i} range [{}, {}] with default {} is not finite, \
+                 increasing, and containing",
+                c.min, c.max, c.default
+            )));
+        }
+        if let Some(step) = c.step
+            && !(step.is_finite() && step > 0.0)
+        {
+            return Err(PortableError::Malformed(format!(
+                "control {i} step {step} is not finite and positive"
+            )));
+        }
+    }
+
     Ok(Metadata {
         schema: header.schema,
         schema_supported: (super::SCHEMA_MIN..=super::SCHEMA_VERSION).contains(&header.schema),
         generator: header.generator,
         renderer: header.renderer,
         meta: header.meta,
+        controls: header.controls,
         chunks: dir,
         total_bytes: bytes.len(),
     })

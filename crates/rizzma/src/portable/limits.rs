@@ -23,11 +23,20 @@ pub struct Limits {
     /// Maximum backing-store pixels (width × height × device pixel ratio²) a
     /// consumer should rasterize for this figure.
     pub max_canvas_pixels: usize,
+    /// Maximum number of controls (schema 4) an artifact may declare.
+    ///
+    /// Each control becomes host-materialized state — a persisted manifest
+    /// entry, a DOM slider — so the bound belongs to the host, not to the
+    /// JSON budget the declarations happen to fit inside.
+    pub max_controls: usize,
+    /// Maximum UTF-8 bytes in one control's label.
+    pub max_control_label_bytes: usize,
 }
 
 impl Limits {
     /// The suggested host defaults: 10 MiB total, 16 chunks, 1 MiB of JSON,
-    /// 4 MiB of poster, and 2 megapixels of backing store.
+    /// 4 MiB of poster, 2 megapixels of backing store, 64 controls, and
+    /// 256-byte control labels.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -36,6 +45,8 @@ impl Limits {
             max_json_bytes: 1024 * 1024,
             max_poster_bytes: 4 * 1024 * 1024,
             max_canvas_pixels: 2_000_000,
+            max_controls: 64,
+            max_control_label_bytes: 256,
         }
     }
 
@@ -57,6 +68,20 @@ impl Limits {
     #[must_use]
     pub const fn with_max_canvas_pixels(mut self, pixels: usize) -> Self {
         self.max_canvas_pixels = pixels;
+        self
+    }
+
+    /// Set the control-count budget, returning `self` for chaining.
+    #[must_use]
+    pub const fn with_max_controls(mut self, controls: usize) -> Self {
+        self.max_controls = controls;
+        self
+    }
+
+    /// Set the per-label byte budget, returning `self` for chaining.
+    #[must_use]
+    pub const fn with_max_control_label_bytes(mut self, bytes: usize) -> Self {
+        self.max_control_label_bytes = bytes;
         self
     }
 }

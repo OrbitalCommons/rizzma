@@ -72,6 +72,8 @@ export function chunks(bytes) {
  * @param {Uint8Array} bytes
  * @returns {{schema: number, generator: object, renderer: object, meta: object|null,
  *            timeline: {duration: number, loop: boolean}|null,
+ *            controls: {label: string, min: number, max: number, default: number,
+ *                       step: number|null}[],
  *            poster: Uint8Array|null}}
  */
 export function readMetadata(bytes) {
@@ -90,6 +92,15 @@ export function readMetadata(bytes) {
     timeline: spec.timeline
       ? { duration: spec.timeline.duration, loop: spec.timeline.loop }
       : null,
+    // The slider manifest only — the track data stays in the artifact, so a
+    // host can lay out its controls before spending a renderer instantiation.
+    controls: (spec.controls ?? []).map((c) => ({
+      label: c.label,
+      min: c.min,
+      max: c.max,
+      default: c.default,
+      step: c.step ?? null,
+    })),
     poster: pstr ? bytes.subarray(pstr.offset, pstr.offset + pstr.length) : null,
   };
 }
@@ -137,12 +148,19 @@ async function digest(bytes) {
  *   one *you* recorded when you vetted these bytes, not the one the artifact
  *   claims.
  * @param {number} [options.maxBytes] artifact budget, default 10 MiB.
- * @param {boolean} [options.autoplay] start an animated figure playing. The
- *   host owns this decision and must pause on viewport exit, document hidden,
- *   and session-view unfocus — nothing else will (design/11 §7).
+ * @param {boolean} [options.autoplay] whether an animated figure starts
+ *   playing. **Defaults to true**: an animated figure's author animated it on
+ *   purpose, and a figure that arrives dead until a second click taught us the
+ *   opt-in default was wrong. Pass `false` to mount paused. Either way the
+ *   host owns playback while mounted and must pause on viewport exit,
+ *   document hidden, and session-view unfocus — nothing else will
+ *   (design/11 §7).
  * @returns {Promise<{figure: object, session: object, animated: boolean,
- *   duration: number, play: () => void, pause: () => void,
- *   seek: (t: number) => void, dispose: () => void}>}
+ *   duration: number, controls: {label: string, min: number, max: number,
+ *   default: number, step: number|null, value: number}[],
+ *   play: () => void, pause: () => void, seek: (t: number) => void,
+ *   setControl: (index: number, value: number) => void,
+ *   dispose: () => void}>}
  */
 export async function mount(canvas, bytes, options) {
   const renderer = options?.renderer;
@@ -231,6 +249,17 @@ export async function mount(canvas, bytes, options) {
     /** Whether this figure animates, and its duration in seconds. */
     animated: animated > 0,
     duration,
+    /** The slider manifest: `[{label, min, max, default, step, value}]`. The
+     *  host draws the sliders — they are host DOM, styled like the host,
+     *  exactly as play/pause is the host's (design/12 §5). */
+    controls: JSON.parse(session.controls()),
+    /** Move a control and repaint, riding the session's rAF coalescing —
+     *  dragging faster than the display refreshes does not stack frames.
+     *  Returns the position actually applied (clamped, snapped, defaulted
+     *  when non-finite): show that beside the slider, not what you sent. */
+    setControl(index, value) {
+      return session.setControl(index, value);
+    },
     /** Start (or restart, at the end of a non-looping run) playback. */
     play() {
       if (!(animated > 0) || playing) return;
@@ -259,6 +288,6 @@ export async function mount(canvas, bytes, options) {
       canvas.height = 0;
     },
   };
-  if (options?.autoplay && animated > 0) handle.play();
+  if (options?.autoplay !== false && animated > 0) handle.play();
   return handle;
 }

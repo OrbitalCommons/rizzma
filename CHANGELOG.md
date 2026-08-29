@@ -7,6 +7,65 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.12.0] - 2026-08-29
+
+### Added
+- **Controls: sliders other than time (schema 4)**. A figure can declare
+  `portable::Control`s — a labelled range with a default and optional step —
+  whose `Track`s are evaluated along the control's position instead of the
+  clock: the same keyframe machinery, because nothing about a keyframe axis is
+  inherently temporal. A control may also carry `portable::Grid`s, lattices of
+  frames over `(time, position)` sampled bilinearly, which is what lets a
+  slider reshape a figure **while it plays** — the wave keeps travelling as its
+  wavelength changes under the user's finger. Displayed state is a pure
+  function of `(t, control values)`, re-applied whole on every change, so
+  event order can never show (`design/12-controls.md`).
+- `Figure::add_control` / `set_control` / `controls` / `control_values`, the
+  same surface on the wasm session (`controls()` returns the slider manifest
+  as JSON, `setControl` rides the rAF-coalesced repaint), `Interactor::set_control`
+  under the same user-view-wins policy as `seek`, and `controls` in the mount
+  handle and `readMetadata`. Sliders themselves are host DOM: the `.riz.html`
+  live tier emits its own.
+- `Figure::is_animated`: true when the timeline has tracks **or** any control
+  carries a grid — a figure whose only time-dependence is a grid still plays.
+- `portable::ControlRef` and `Metadata::controls`: `inspect` reports the
+  typed control manifest (declaration order, layout fields only — serde skips
+  the track data rather than allocating it), with nonsense ranges refused at
+  inspection, so a host validates once and persists typed rather than poking
+  JSON.
+- `Limits::max_controls` (64) and `max_control_label_bytes` (256): the
+  control manifest becomes host-materialized state — a persisted entry, a DOM
+  slider — so it answers to its own budgets at both `inspect` and import, not
+  to whatever fits inside the JSON allowance.
+- **Accepted figures are total**: `add_control`, export, and import all
+  validate every driver target against the artists the figure actually has
+  (existence and stride compatibility), so `seek`/`set_control` on an accepted
+  figure cannot fail and a host never observes an applied-but-failed state.
+  `add_control` now returns `Result<usize>`; a failed `set_control` rolls the
+  control value back to the last successful application.
+- **Schema cannot be under-declared**: a document carrying controls must
+  declare schema ≥ 4, a timeline ≥ 3, meta ≥ 2 — enforced at inspection and
+  import, because schema is the compatibility decision hosts select runtimes
+  by. A forged "schema 3" artifact with controls previously rendered on new
+  runtimes while failing on the runtime the declaration selected.
+- Import validation for deserialized tracks, grids, and controls: a
+  hand-crafted artifact carrying a stride that disagrees with its value
+  count, an empty keyframe axis, or a lying lattice is now `Malformed` at
+  `from_portable` instead of a panic in `sample()`. The hole predates schema
+  4 — a forged schema-3 timeline panicked identically in 1.9 through 1.11.
+- `examples/portable_demo.rs`, the canonical demo: a travelling wave that
+  loops crisply (its final keyframe is byte-identical to its first, so the
+  wrap interpolates into a repaint rather than a jump) with a wavelength
+  slider, above a Gaussian pulse with a width slider.
+
+### Changed
+- **`mount()` autoplays animated figures by default**; pass `autoplay: false`
+  to mount paused. An animated figure's author animated it on purpose, and the
+  opt-in default produced figures that arrived dead until a second click. The
+  host's design/11 §7 pause obligations are unchanged.
+- `SCHEMA_VERSION` is 4. Schema-3 renderers refuse schema-4 artifacts loudly
+  and show the poster, as designed.
+
 ## [1.11.0] - 2026-08-29
 
 ### Added

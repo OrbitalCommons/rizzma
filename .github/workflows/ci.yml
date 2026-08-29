@@ -25,8 +25,11 @@ env:
   # The *runtime* bundle additionally renders `.riz` artifacts, which pulls in
   # serde_json and the wire model's derives — about 590 KiB. It is fetched once
   # per host and cached, never per figure, and a host that only shows posters
-  # never fetches it at all (that is what `rizzma-portable` is for). 3.15 MiB.
-  WASM_RUNTIME_SIZE_MAX_BYTES: 3303014
+  # never fetches it at all (that is what `rizzma-portable` is for). 3.2 MiB,
+  # raised from 3.15 for schema 4 (the Control/Grid wire derives, bilinear
+  # sampling, and control evaluation — the slider manifest is hand-formatted
+  # JSON precisely so this raise stayed under 8 KiB instead of 28).
+  WASM_RUNTIME_SIZE_MAX_BYTES: 3355443
 
 jobs:
   test:
