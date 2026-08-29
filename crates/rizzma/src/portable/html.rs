@@ -181,11 +181,10 @@ try {{
     slider.max = c.max;
     slider.step = c.step ?? (c.max - c.min) / 1000;
     slider.value = c.value;
-    const show = () => {{ value.textContent = slider.valueAsNumber.toPrecision(3); }};
-    show();
+    value.textContent = c.value.toPrecision(3);
     slider.addEventListener("input", () => {{
-      handle.setControl(i, slider.valueAsNumber);
-      show();
+      // Display what was applied (clamped, snapped), not what was sent.
+      value.textContent = handle.setControl(i, slider.valueAsNumber).toPrecision(3);
     }});
     label.append(name, slider, value);
     row.append(label);

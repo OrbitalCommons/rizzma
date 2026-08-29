@@ -336,7 +336,8 @@ impl Interactor {
     /// Move control `index` to `value` under the same view policy as
     /// [`Interactor::seek`]: controls may drive `xlim`/`ylim` exactly as
     /// timelines may, and a view the user has taken over wins against both
-    /// through one code path (design/12 §4).
+    /// through one code path (design/12 §4). Returns the position actually
+    /// applied, as [`Figure::set_control`] does.
     ///
     /// # Errors
     ///
@@ -346,7 +347,7 @@ impl Interactor {
         &mut self,
         index: usize,
         value: f64,
-    ) -> Result<(), crate::portable::PortableError> {
+    ) -> Result<f64, crate::portable::PortableError> {
         self.holding_user_view(|fig| fig.set_control(index, value))
     }
 
@@ -355,23 +356,23 @@ impl Interactor {
     /// track machinery keeps exactly one code path and the policy lives here,
     /// next to the state that defines it.
     #[cfg(feature = "portable")]
-    fn holding_user_view(
+    fn holding_user_view<R>(
         &mut self,
-        f: impl FnOnce(&mut Figure) -> Result<(), crate::portable::PortableError>,
-    ) -> Result<(), crate::portable::PortableError> {
+        f: impl FnOnce(&mut Figure) -> Result<R, crate::portable::PortableError>,
+    ) -> Result<R, crate::portable::PortableError> {
         let held: Vec<(usize, AxesLimits)> = self
             .user_view
             .iter()
             .filter(|&&i| i < self.fig.axes().len())
             .map(|&i| (i, self.fig.axes()[i].effective_limits()))
             .collect();
-        f(&mut self.fig)?;
+        let out = f(&mut self.fig)?;
         for (i, (xlim, ylim)) in held {
             let ax = &mut self.fig.axes_mut()[i];
             ax.set_xlim(xlim.0, xlim.1);
             ax.set_ylim(ylim.0, ylim.1);
         }
-        Ok(())
+        Ok(out)
     }
 
     fn hover(&self, x: f64, y: f64) -> Outcome {

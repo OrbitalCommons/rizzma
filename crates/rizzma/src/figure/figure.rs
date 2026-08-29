@@ -773,7 +773,10 @@ impl Figure {
     }
 
     /// Move control `index` to `value` — clamped into its range, snapped to
-    /// its step, defaulted when non-finite — and re-evaluate the figure.
+    /// its step, defaulted when non-finite — re-evaluate the figure, and
+    /// return the position actually applied. Echoing the canonical value is
+    /// what lets a host reflect the true slider position without reimplementing
+    /// the normalization policy.
     ///
     /// This is a pure function of the clock and the control vector, exactly as
     /// [`Figure::seek`] is: the same positions always produce the same figure,
@@ -785,15 +788,17 @@ impl Figure {
     /// if `index` is out of range, or as [`Figure::seek`] when a track
     /// addresses an artist that does not exist.
     #[cfg(feature = "portable")]
-    pub fn set_control(&mut self, index: usize, value: f64) -> Result<(), PortableError> {
+    pub fn set_control(&mut self, index: usize, value: f64) -> Result<f64, PortableError> {
         let control = self.controls.get(index).ok_or_else(|| {
             PortableError::Malformed(format!(
                 "control {index} does not exist; the figure declares {}",
                 self.controls.len()
             ))
         })?;
-        self.control_values[index] = control.normalize(value);
-        self.apply_state()
+        let applied = control.normalize(value);
+        self.control_values[index] = applied;
+        self.apply_state()?;
+        Ok(applied)
     }
 
     /// Serialize this figure to a **portable figure** (`.riz`): the semantic

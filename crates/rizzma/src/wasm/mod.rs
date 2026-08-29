@@ -339,7 +339,9 @@ impl WasmFigure {
     }
 
     /// Move control `index` to `value` (clamped, snapped, defaulted when
-    /// non-finite) and re-evaluate the figure.
+    /// non-finite), re-evaluate the figure, and return the position actually
+    /// applied — so a host reflects the canonical value without duplicating
+    /// the normalization policy.
     ///
     /// # Errors
     ///
@@ -347,7 +349,7 @@ impl WasmFigure {
     /// addresses an artist that does not exist.
     #[cfg(feature = "portable")]
     #[wasm_bindgen(js_name = setControl)]
-    pub fn set_control(&mut self, index: usize, value: f64) -> Result<(), JsValue> {
+    pub fn set_control(&mut self, index: usize, value: f64) -> Result<f64, JsValue> {
         self.fig
             .set_control(index, value)
             .map_err(|e| JsValue::from_str(&e.to_string()))
@@ -1102,7 +1104,9 @@ mod canvas {
             controls_manifest(self.state.borrow().interactor.figure())
         }
 
-        /// Move control `index` to `value` and schedule a repaint.
+        /// Move control `index` to `value`, schedule a repaint, and return
+        /// the position actually applied (clamped, snapped, defaulted when
+        /// non-finite) — the canonical value a host shows beside its slider.
         ///
         /// The same view policy and the same rAF coalescing as
         /// [`WasmSession::seek`]: axes the user has panned or zoomed keep the
@@ -1115,14 +1119,15 @@ mod canvas {
         /// addresses an artist that does not exist.
         #[cfg(feature = "portable")]
         #[wasm_bindgen(js_name = setControl)]
-        pub fn set_control(&self, index: usize, value: f64) -> Result<(), JsValue> {
-            self.state
+        pub fn set_control(&self, index: usize, value: f64) -> Result<f64, JsValue> {
+            let applied = self
+                .state
                 .borrow_mut()
                 .interactor
                 .set_control(index, value)
                 .map_err(|e| JsValue::from_str(&e.to_string()))?;
             schedule_redraw(&self.state);
-            Ok(())
+            Ok(applied)
         }
 
         /// The effective `[xlo, xhi, ylo, yhi]` limits of axes `axes` (the

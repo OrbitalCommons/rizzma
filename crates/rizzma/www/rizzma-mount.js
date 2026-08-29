@@ -254,9 +254,11 @@ export async function mount(canvas, bytes, options) {
      *  exactly as play/pause is the host's (design/12 §5). */
     controls: JSON.parse(session.controls()),
     /** Move a control and repaint, riding the session's rAF coalescing —
-     *  dragging faster than the display refreshes does not stack frames. */
+     *  dragging faster than the display refreshes does not stack frames.
+     *  Returns the position actually applied (clamped, snapped, defaulted
+     *  when non-finite): show that beside the slider, not what you sent. */
     setControl(index, value) {
-      session.setControl(index, value);
+      return session.setControl(index, value);
     },
     /** Start (or restart, at the end of a non-looping run) playback. */
     play() {

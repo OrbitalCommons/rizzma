@@ -1900,10 +1900,45 @@ fn inspect_reports_the_control_manifest_typed() {
     fig.add_control(c);
     let bytes = fig.to_portable().expect("export");
     let err = crate::portable::inspect(&bytes, &Limits::default())
-        .err()
-        .expect("nonsense range must not inspect");
+        .expect_err("nonsense range must not inspect");
     assert!(
         matches!(&err, PortableError::Malformed(m) if m.contains("control 0")),
         "{err}"
     );
+}
+
+#[test]
+fn set_control_echoes_the_position_actually_applied() {
+    use crate::portable::{Control, Interp, Target, Track};
+
+    // The echo is the normalization policy's single source of truth: a host
+    // shows what came back, never what it sent.
+    let mut fig = Figure::new(4.0, 3.0);
+    fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 0.0]);
+    let mut c = Control::new("n", 0.0, 10.0, 4.0)
+        .expect("control")
+        .with_step(2.0)
+        .expect("step");
+    c.push_track(
+        Track::new(
+            Target::LineY { axes: 0, index: 0 },
+            vec![0.0, 10.0],
+            vec![vec![0.0; 2], vec![10.0; 2]],
+            Interp::Linear,
+        )
+        .expect("track"),
+    );
+    fig.add_control(c);
+
+    assert_eq!(fig.set_control(0, 3.1).expect("set"), 4.0); // snapped up
+    assert_eq!(fig.set_control(0, 2.9).expect("set"), 2.0); // snapped down
+    assert_eq!(fig.set_control(0, -50.0).expect("set"), 0.0); // clamped
+    assert_eq!(fig.set_control(0, f64::NAN).expect("set"), 4.0); // defaulted
+    // The figure reflects the echoed value, not the requested one.
+    assert_eq!(fig.control_values(), &[4.0]);
+    assert_eq!(fig.axes()[0].line_data(0).unwrap().1, vec![4.0; 2]);
+
+    // The interactor echoes identically through the user-view wrapper.
+    let mut it = Interactor::new(fig);
+    assert_eq!(it.set_control(0, 9.9).expect("set"), 10.0);
 }
