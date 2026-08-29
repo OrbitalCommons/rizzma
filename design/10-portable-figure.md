@@ -141,7 +141,9 @@ instead of a blank page. A "linked live" tier that fetches the runtime by URL
 was considered and dropped: cross-origin fetches from `file://` are unreliable,
 and a wrapper that sometimes works is worse than a poster that always does.
 
-**The strip.** `portable::unwrap_html(bytes)` extracts by the exact marker,
+**The strip.** `portable::unwrap_html(bytes, &Limits)` extracts by the exact
+marker, bounds the decoded allocation against `max_total_bytes` **before**
+decoding (computed from the encoded length),
 requires it to appear exactly once, rejects invalid base64 — and its output
 then goes through the **full existing validation** as if it had arrived raw.
 The core `.riz` validator stays byte-strict and never sniffs: one parser never

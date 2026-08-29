@@ -1302,7 +1302,7 @@ fn wrap_then_unwrap_is_byte_identical() {
     // the canonical artifact, not a second format that can drift from it.
     let riz = animated_figure().to_portable().expect("export");
     let html = wrap_html(&riz, &Limits::default()).expect("wrap");
-    let recovered = unwrap_html(html.as_bytes()).expect("unwrap");
+    let recovered = unwrap_html(html.as_bytes(), &Limits::default()).expect("unwrap");
     assert!(
         recovered == riz,
         "strip must recover the exact artifact bytes"
@@ -1323,7 +1323,7 @@ fn the_live_tier_strips_identically_and_embeds_the_runtime() {
     };
     let html = wrap_html_live(&riz, &Limits::default(), &rt).expect("wrap");
 
-    assert!(unwrap_html(html.as_bytes()).expect("unwrap") == riz);
+    assert!(unwrap_html(html.as_bytes(), &Limits::default()).expect("unwrap") == riz);
     // Runtime assets travel under their own ids, base64'd, and are therefore
     // not part of the canonical carrier element.
     assert!(html.contains(r#"id="riz-rt-wasm""#));
@@ -1368,7 +1368,7 @@ fn artifact_text_cannot_inject_into_the_wrapper() {
     );
 
     // Hostile text changes nothing about the strip.
-    assert!(unwrap_html(html.as_bytes()).expect("unwrap") == riz);
+    assert!(unwrap_html(html.as_bytes(), &Limits::default()).expect("unwrap") == riz);
 }
 
 #[test]
@@ -1395,31 +1395,31 @@ fn unwrap_rejects_what_it_should() {
     let open = r#"<script type="application/vnd.rizzma.figure+base64" id="riz">"#;
 
     // No carrier at all.
-    match unwrap_html(b"<!doctype html><p>just a page</p>") {
+    match unwrap_html(b"<!doctype html><p>just a page</p>", &Limits::default()) {
         Err(PortableError::Malformed(m)) => assert!(m.contains("no portable-figure"), "{m}"),
         other => panic!("expected Malformed, got {other:?}"),
     }
     // Two carriers is ambiguous: refuse rather than guess which is canonical.
     let doubled = format!("{html}{open}AAAA</script>");
-    match unwrap_html(doubled.as_bytes()) {
+    match unwrap_html(doubled.as_bytes(), &Limits::default()) {
         Err(PortableError::Malformed(m)) => assert!(m.contains("more than one"), "{m}"),
         other => panic!("expected Malformed, got {other:?}"),
     }
     // Unterminated element.
     let cut = &html[..html.find(open).unwrap() + open.len() + 10];
     assert!(matches!(
-        unwrap_html(cut.as_bytes()),
+        unwrap_html(cut.as_bytes(), &Limits::default()),
         Err(PortableError::Malformed(_))
     ));
     // Corrupt base64.
     let broken = html.replacen(open, &format!("{open}!!"), 1);
-    match unwrap_html(broken.as_bytes()) {
+    match unwrap_html(broken.as_bytes(), &Limits::default()) {
         Err(PortableError::Malformed(m)) => assert!(m.contains("base64"), "{m}"),
         other => panic!("expected Malformed, got {other:?}"),
     }
     // Not UTF-8 at all.
     assert!(matches!(
-        unwrap_html(&[0xff, 0xfe, 0x00, 0x01]),
+        unwrap_html(&[0xff, 0xfe, 0x00, 0x01], &Limits::default()),
         Err(PortableError::Malformed(_))
     ));
 }
@@ -1443,5 +1443,34 @@ fn wrapping_does_not_launder_a_malformed_artifact() {
     match wrap_html(b"RZFGjunk", &Limits::default()) {
         Err(PortableError::Malformed(_)) => {}
         other => panic!("expected Malformed, got {other:?}"),
+    }
+}
+
+#[test]
+fn unwrap_is_budgeted_before_it_allocates() {
+    let riz = animated_figure().to_portable().expect("export");
+    let html = wrap_html(&riz, &Limits::default()).expect("wrap");
+
+    // Exactly at the boundary: allowed.
+    let exact = Limits::default().with_max_total_bytes(riz.len());
+    assert!(unwrap_html(html.as_bytes(), &exact).expect("exact fit") == riz);
+
+    // One byte under: refused as Budget, not Malformed.
+    let tight = Limits::default().with_max_total_bytes(riz.len() - 1);
+    match unwrap_html(html.as_bytes(), &tight) {
+        Err(PortableError::Budget(m)) => assert!(m.contains("over the"), "{m}"),
+        other => panic!("expected Budget, got {other:?}"),
+    }
+
+    // The proof the check precedes the decode: a carrier whose payload is
+    // over-budget AND invalid base64 must fail with Budget, because a decoder
+    // that ran first would have reported Malformed instead.
+    let open = r#"<script type="application/vnd.rizzma.figure+base64" id="riz">"#;
+    let junk = "!".repeat(4_096); // invalid base64, decoded upper bound ~3 KB
+    let page = format!("<!doctype html>{open}{junk}</script>");
+    let tiny = Limits::default().with_max_total_bytes(64);
+    match unwrap_html(page.as_bytes(), &tiny) {
+        Err(PortableError::Budget(_)) => {}
+        other => panic!("size must be checked before decoding; got {other:?}"),
     }
 }

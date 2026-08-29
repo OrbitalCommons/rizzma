@@ -182,16 +182,25 @@ try {{
 ///
 /// Strict by design: the carrier element must appear **exactly once**, and its
 /// content must be valid standard-alphabet base64 with no whitespace. The
-/// returned bytes have received **no validation** — pass them through
+/// returned bytes have received **no artifact validation** — pass them through
 /// [`inspect`]/import exactly as if they had arrived raw. That separation is
 /// what keeps the core validator sniff-free: one parser never accepts both the
 /// wrapped and the raw form.
 ///
+/// `limits` bounds the allocation, like every other entry point that parses
+/// attacker-influenced bytes: the payload's decoded size is computed from its
+/// encoded length and checked against `limits.max_total_bytes` **before any
+/// decode allocates**, so an oversized carrier is refused for the price of a
+/// subtraction, not an out-of-memory. Nothing else in this function allocates
+/// proportionally to the input — the scans borrow.
+///
 /// # Errors
 ///
-/// [`PortableError::Malformed`] when the marker is missing or duplicated, the
-/// element is unterminated, or the base64 does not decode.
-pub fn unwrap_html(html: &[u8]) -> Result<Vec<u8>, PortableError> {
+/// [`PortableError::Budget`] when the decoded artifact would exceed
+/// `limits.max_total_bytes`; [`PortableError::Malformed`] when the marker is
+/// missing or duplicated, the element is unterminated, or the base64 does not
+/// decode.
+pub fn unwrap_html(html: &[u8], limits: &Limits) -> Result<Vec<u8>, PortableError> {
     let text = std::str::from_utf8(html)
         .map_err(|_| PortableError::Malformed("wrapper is not valid UTF-8".to_string()))?;
     let Some(start) = text.find(OPEN) else {
@@ -211,8 +220,32 @@ pub fn unwrap_html(html: &[u8]) -> Result<Vec<u8>, PortableError> {
         ));
     };
     let payload = &text[payload_start..payload_start + rel_end];
-    B64.decode(payload)
-        .map_err(|e| PortableError::Malformed(format!("carrier base64 does not decode: {e}")))
+
+    // Exact decoded size from the encoded length, before allocating anything:
+    // 3 bytes per 4-char group, minus the trailing padding. `len / 4 * 3`
+    // cannot overflow (it is smaller than `len`), and a length that is not a
+    // multiple of 4 is left for the decoder to reject as malformed.
+    let padding = payload.bytes().rev().take_while(|&b| b == b'=').count();
+    let decoded_upper = payload.len() / 4 * 3;
+    let decoded_exact = decoded_upper.saturating_sub(padding);
+    if decoded_exact > limits.max_total_bytes {
+        return Err(PortableError::Budget(format!(
+            "carrier decodes to {decoded_exact} bytes, over the {} byte limit",
+            limits.max_total_bytes
+        )));
+    }
+
+    let bytes = B64
+        .decode(payload)
+        .map_err(|e| PortableError::Malformed(format!("carrier base64 does not decode: {e}")))?;
+    if bytes.len() > limits.max_total_bytes {
+        return Err(PortableError::Budget(format!(
+            "carrier decoded to {} bytes, over the {} byte limit",
+            bytes.len(),
+            limits.max_total_bytes
+        )));
+    }
+    Ok(bytes)
 }
 
 /// Whether `bytes` look like a raw artifact rather than a wrapper.
