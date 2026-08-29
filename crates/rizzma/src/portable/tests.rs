@@ -1925,7 +1925,8 @@ fn inspect_reports_the_control_manifest_typed() {
     fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
     let mut c = crate::portable::Control::new("ok", 0.0, 1.0, 0.5).expect("control");
     c.default = 9.0;
-    fig.add_control(c);
+    fig.add_control(c)
+        .expect("targets are fine; the range is the forgery");
     let bytes = fig.to_portable().expect("export");
     let err = crate::portable::inspect(&bytes, &Limits::default())
         .expect_err("nonsense range must not inspect");
@@ -1956,7 +1957,7 @@ fn set_control_echoes_the_position_actually_applied() {
         )
         .expect("track"),
     );
-    fig.add_control(c);
+    fig.add_control(c).expect("add");
 
     assert_eq!(fig.set_control(0, 3.1).expect("set"), 4.0); // snapped up
     assert_eq!(fig.set_control(0, 2.9).expect("set"), 2.0); // snapped down
