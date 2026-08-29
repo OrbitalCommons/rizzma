@@ -1462,15 +1462,55 @@ fn unwrap_is_budgeted_before_it_allocates() {
         other => panic!("expected Budget, got {other:?}"),
     }
 
-    // The proof the check precedes the decode: a carrier whose payload is
-    // over-budget AND invalid base64 must fail with Budget, because a decoder
-    // that ran first would have reported Malformed instead.
+    // The proof the budget check precedes the decode: a carrier whose payload
+    // is over-budget, valid in SHAPE (length % 4 == 0, sane padding) but
+    // invalid in alphabet, must fail with Budget — a decoder that ran first
+    // would have reported Malformed instead.
     let open = r#"<script type="application/vnd.rizzma.figure+base64" id="riz">"#;
-    let junk = "!".repeat(4_096); // invalid base64, decoded upper bound ~3 KB
+    let junk = "!".repeat(4_096);
     let page = format!("<!doctype html>{open}{junk}</script>");
     let tiny = Limits::default().with_max_total_bytes(64);
     match unwrap_html(page.as_bytes(), &tiny) {
         Err(PortableError::Budget(_)) => {}
         other => panic!("size must be checked before decoding; got {other:?}"),
+    }
+}
+
+#[test]
+fn padding_cannot_bypass_the_budget() {
+    // The bypass a review caught in the first budgeted version: a payload of
+    // nothing but '=' made padding == len, the saturating subtraction computed
+    // a decoded size of zero, and any budget passed — while the decoder could
+    // still reserve proportionally to the encoded input. Shape validation now
+    // refuses it outright, allocation-free.
+    let open = r#"<script type="application/vnd.rizzma.figure+base64" id="riz">"#;
+    let tiny = Limits::default().with_max_total_bytes(64);
+
+    // All padding, length divisible by 4: refused for its shape.
+    let all_eq = format!("<!doctype html>{open}{}</script>", "=".repeat(4_096));
+    match unwrap_html(all_eq.as_bytes(), &tiny) {
+        Err(PortableError::Malformed(m)) => assert!(m.contains("padding"), "{m}"),
+        other => panic!("all-padding payload must be Malformed pre-decode, got {other:?}"),
+    }
+
+    // Padding buried mid-payload: also a shape violation.
+    let mid_eq = format!("<!doctype html>{open}AA==AAAA</script>");
+    match unwrap_html(mid_eq.as_bytes(), &tiny) {
+        Err(PortableError::Malformed(m)) => assert!(m.contains("padding"), "{m}"),
+        other => panic!("mid-payload padding must be Malformed, got {other:?}"),
+    }
+
+    // Length not divisible by 4: refused before any size arithmetic.
+    let ragged = format!("<!doctype html>{open}AAAAA</script>");
+    match unwrap_html(ragged.as_bytes(), &tiny) {
+        Err(PortableError::Malformed(m)) => assert!(m.contains("multiple of 4"), "{m}"),
+        other => panic!("ragged length must be Malformed, got {other:?}"),
+    }
+
+    // Three trailing '=' with valid length: more padding than base64 allows.
+    let over_pad = format!("<!doctype html>{open}AAAAA===</script>");
+    match unwrap_html(over_pad.as_bytes(), &tiny) {
+        Err(PortableError::Malformed(m)) => assert!(m.contains("padding"), "{m}"),
+        other => panic!("triple padding must be Malformed, got {other:?}"),
     }
 }

@@ -221,13 +221,34 @@ pub fn unwrap_html(html: &[u8], limits: &Limits) -> Result<Vec<u8>, PortableErro
     };
     let payload = &text[payload_start..payload_start + rel_end];
 
-    // Exact decoded size from the encoded length, before allocating anything:
-    // 3 bytes per 4-char group, minus the trailing padding. `len / 4 * 3`
-    // cannot overflow (it is smaller than `len`), and a length that is not a
-    // multiple of 4 is left for the decoder to reject as malformed.
+    // Validate the base64 *shape* allocation-free before trusting any size
+    // arithmetic. An earlier revision subtracted the padding count with a
+    // saturating sub — defensive-looking, and a bypass: a payload of nothing
+    // but `=` made the computed size zero and sailed past every budget while
+    // the decoder could still reserve proportionally to the encoded input.
+    // Shape first, then the subtraction is plain arithmetic on known-good
+    // numbers.
+    if !payload.len().is_multiple_of(4) {
+        return Err(PortableError::Malformed(format!(
+            "carrier base64 length {} is not a multiple of 4",
+            payload.len()
+        )));
+    }
     let padding = payload.bytes().rev().take_while(|&b| b == b'=').count();
-    let decoded_upper = payload.len() / 4 * 3;
-    let decoded_exact = decoded_upper.saturating_sub(padding);
+    if padding > 2 {
+        return Err(PortableError::Malformed(
+            "carrier base64 has more than two padding characters".to_string(),
+        ));
+    }
+    if payload[..payload.len() - padding].contains('=') {
+        return Err(PortableError::Malformed(
+            "carrier base64 has padding before the end".to_string(),
+        ));
+    }
+    // Alphabet validity is the decoder's to reject: with the shape proven, its
+    // allocation is bounded by the budget below, so a bad character costs a
+    // bounded buffer, never an unbounded one.
+    let decoded_exact = payload.len() / 4 * 3 - padding;
     if decoded_exact > limits.max_total_bytes {
         return Err(PortableError::Budget(format!(
             "carrier decodes to {decoded_exact} bytes, over the {} byte limit",
