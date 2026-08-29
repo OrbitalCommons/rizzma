@@ -1046,6 +1046,18 @@ impl Figure {
                 max: crate::portable::SCHEMA_VERSION,
             });
         }
+        // Serde checked the shapes of the JSON; it cannot check the promises
+        // the sampling code indexes on — a stride agreeing with the value
+        // count, axes nonempty and ordered. A forged artifact must be an
+        // error here, never a panic in `sample` later.
+        if let Some(timeline) = &spec.timeline {
+            timeline.validate()?;
+        }
+        for (i, control) in spec.controls.iter().enumerate() {
+            control.validate().map_err(|e| {
+                crate::portable::PortableError::Malformed(format!("control {i} {e}"))
+            })?;
+        }
         let reader = crate::portable::data::BankReader::new(bin, &spec.accessors);
         let fig = spec.figure;
         Ok(Figure {

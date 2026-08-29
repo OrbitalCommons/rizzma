@@ -109,6 +109,40 @@ impl Grid {
         })
     }
 
+    /// Check the invariants [`Grid::new`] establishes, for grids that did not
+    /// come through it — a deserialized artifact is attacker-shaped bytes, and
+    /// [`Grid::sample`] indexes on the promise that `values` really is
+    /// `times.len() * positions.len() * stride` long and both axes really are
+    /// nonempty and ordered. Import calls this so a forged grid is an error,
+    /// never a panic. Returns the complaint bare; callers wrap it with where
+    /// they found it.
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        for (name, axis) in [("times", &self.times), ("positions", &self.positions)] {
+            if axis.is_empty() {
+                return Err(format!("has an empty {name} axis"));
+            }
+            if !axis.windows(2).all(|w| w[0] < w[1]) {
+                return Err(format!("{name} are not strictly increasing"));
+            }
+        }
+        if self
+            .times
+            .len()
+            .checked_mul(self.positions.len())
+            .and_then(|n| n.checked_mul(self.stride))
+            != Some(self.values.len())
+        {
+            return Err(format!(
+                "declares a {} x {} lattice of stride {} but carries {} values",
+                self.times.len(),
+                self.positions.len(),
+                self.stride,
+                self.values.len()
+            ));
+        }
+        Ok(())
+    }
+
     /// The values this grid takes at time `t` and control position `p`,
     /// clamped to the lattice on both axes.
     #[must_use]
@@ -238,6 +272,34 @@ impl Control {
     pub fn push_grid(&mut self, grid: Grid) -> &mut Self {
         self.grids.push(grid);
         self
+    }
+
+    /// Check the invariants the constructors establish, for controls that did
+    /// not come through them; see [`Grid::validate`]. A control whose range or
+    /// step is nonsense would make [`Control::normalize`] return nonsense, so
+    /// those are invariants too, not merely constructor courtesy.
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if !(self.min.is_finite() && self.max.is_finite() && self.default.is_finite())
+            || self.min >= self.max
+            || !(self.min..=self.max).contains(&self.default)
+        {
+            return Err(format!(
+                "range [{}, {}] with default {} is not finite, increasing, and containing",
+                self.min, self.max, self.default
+            ));
+        }
+        if let Some(step) = self.step
+            && !(step.is_finite() && step > 0.0)
+        {
+            return Err(format!("step {step} is not finite and positive"));
+        }
+        for (i, track) in self.tracks.iter().enumerate() {
+            track.validate().map_err(|e| format!("track {i} {e}"))?;
+        }
+        for (i, grid) in self.grids.iter().enumerate() {
+            grid.validate().map_err(|e| format!("grid {i} {e}"))?;
+        }
+        Ok(())
     }
 
     /// Normalize a requested position: clamped into the range, snapped to

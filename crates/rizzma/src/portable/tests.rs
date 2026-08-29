@@ -1780,3 +1780,86 @@ fn the_live_wrapper_emits_host_side_sliders() {
     let poster = crate::portable::wrap_html(&riz, &limits).expect("wrap");
     assert!(!poster.contains("setControl"));
 }
+
+#[test]
+fn forged_tracks_and_grids_are_an_import_error_not_a_panic() {
+    use crate::portable::{Control, Grid, Interp, Target, Track};
+
+    // The constructors refuse these shapes, but a deserialized artifact never
+    // met a constructor — the pub fields let this test forge exactly what a
+    // hand-crafted JSON chunk could carry. Before import validation, each of
+    // these panicked in sample(): indexing values[] past its end, or times[0]
+    // of an empty axis.
+    let target = Target::LineY { axes: 0, index: 0 };
+    let base = |fig: &mut Figure| {
+        fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 0.0]);
+    };
+
+    // A stride that lies about the value count.
+    let mut fig = Figure::new(4.0, 3.0);
+    base(&mut fig);
+    let mut tl = Timeline::new(1.0);
+    tl.push(Track {
+        target,
+        times: vec![0.0, 1.0],
+        values: vec![0.0, 0.0], // 2 values, claims 2 keyframes of stride 2
+        stride: 2,
+        interp: Interp::Linear,
+    });
+    fig.set_timeline(tl);
+    let bytes = fig.to_portable().expect("export");
+    let Err(err) = Figure::from_portable(&bytes) else {
+        panic!("a lying stride must not import");
+    };
+    assert!(
+        matches!(&err, PortableError::Malformed(m) if m.contains("stride")),
+        "{err}"
+    );
+
+    // An empty keyframe axis.
+    let mut fig = Figure::new(4.0, 3.0);
+    base(&mut fig);
+    let mut tl = Timeline::new(1.0);
+    tl.push(Track {
+        target,
+        times: vec![],
+        values: vec![],
+        stride: 0,
+        interp: Interp::Linear,
+    });
+    fig.set_timeline(tl);
+    let bytes = fig.to_portable().expect("export");
+    assert!(Figure::from_portable(&bytes).is_err());
+
+    // A grid lattice that lies about its value count, inside a control.
+    let mut fig = Figure::new(4.0, 3.0);
+    base(&mut fig);
+    fig.set_timeline(Timeline::new(1.0));
+    let mut c = Control::new("forged", 0.0, 1.0, 0.0).expect("control");
+    c.push_grid(Grid {
+        target,
+        times: vec![0.0, 1.0],
+        positions: vec![0.0, 1.0],
+        values: vec![0.0; 3], // claims 2 x 2 x stride 2 = 8
+        stride: 2,
+        interp: Interp::Linear,
+    });
+    fig.add_control(c);
+    let bytes = fig.to_portable().expect("export");
+    let Err(err) = Figure::from_portable(&bytes) else {
+        panic!("a lying lattice must not import");
+    };
+    assert!(
+        matches!(&err, PortableError::Malformed(m) if m.contains("lattice")),
+        "{err}"
+    );
+
+    // A control whose range is nonsense (normalize would return nonsense).
+    let mut fig = Figure::new(4.0, 3.0);
+    base(&mut fig);
+    let mut c = Control::new("ok", 0.0, 1.0, 0.5).expect("control");
+    c.min = f64::NAN;
+    fig.add_control(c);
+    let bytes = fig.to_portable().expect("export");
+    assert!(Figure::from_portable(&bytes).is_err());
+}
