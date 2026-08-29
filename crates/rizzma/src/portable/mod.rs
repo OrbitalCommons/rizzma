@@ -50,6 +50,8 @@ pub(crate) mod data;
 #[cfg(feature = "portable")]
 mod error;
 #[cfg(feature = "portable")]
+mod html;
+#[cfg(feature = "portable")]
 mod inspect;
 #[cfg(feature = "portable")]
 mod limits;
@@ -66,6 +68,8 @@ mod tests;
 pub use container::ChunkRef;
 #[cfg(feature = "portable")]
 pub use error::PortableError;
+#[cfg(feature = "portable")]
+pub use html::{HtmlRuntime, is_raw_riz, unwrap_html, wrap_html, wrap_html_live};
 #[cfg(feature = "portable")]
 pub use inspect::inspect;
 #[cfg(feature = "portable")]
