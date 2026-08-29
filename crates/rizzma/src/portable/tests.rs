@@ -1541,7 +1541,7 @@ fn controlled_figure() -> Figure {
         )
         .expect("grid"),
     );
-    fig.add_control(shape);
+    fig.add_control(shape).expect("add");
 
     // Track: line 1 is flat at the control's value.
     let mut level = Control::new("level", 0.0, 10.0, 1.0).expect("control");
@@ -1554,7 +1554,7 @@ fn controlled_figure() -> Figure {
         )
         .expect("track"),
     );
-    fig.add_control(level);
+    fig.add_control(level).expect("add");
     fig
 }
 
@@ -1744,7 +1744,9 @@ fn bad_control_indices_and_targets_fail_loudly() {
         Err(PortableError::Malformed(_))
     ));
 
-    // A control track addressing a line that does not exist.
+    // A control track addressing a line that does not exist is refused at
+    // declaration — add_control is one of the three acceptance gates (with
+    // export and import) that make an accepted figure total.
     let mut fig = Figure::new(4.0, 3.0);
     fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 0.0]);
     let mut c = Control::new("ghost", 0.0, 1.0, 0.0).expect("control");
@@ -1757,9 +1759,28 @@ fn bad_control_indices_and_targets_fail_loudly() {
         )
         .expect("track"),
     );
-    fig.add_control(c);
-    let err = fig.set_control(0, 0.5).unwrap_err();
-    assert!(err.to_string().contains("control 0 track 0"), "{err}");
+    let err = match fig.add_control(c) {
+        Err(e) => e,
+        Ok(_) => panic!("a ghost target must not be accepted"),
+    };
+    assert!(err.to_string().contains("line 7"), "{err}");
+
+    // And a stride disagreeing with the artist is refused the same way.
+    let mut c = Control::new("wide", 0.0, 1.0, 0.0).expect("control");
+    c.push_track(
+        Track::new(
+            Target::LineY { axes: 0, index: 0 },
+            vec![0.0],
+            vec![vec![0.0; 5]], // the line holds 2 points
+            Interp::Linear,
+        )
+        .expect("track"),
+    );
+    let err = match fig.add_control(c) {
+        Err(e) => e,
+        Ok(_) => panic!("a lying stride must not be accepted"),
+    };
+    assert!(err.to_string().contains("stride 5"), "{err}");
 }
 
 #[test]
@@ -1783,32 +1804,28 @@ fn the_live_wrapper_emits_host_side_sliders() {
 
 #[test]
 fn forged_tracks_and_grids_are_an_import_error_not_a_panic() {
-    use crate::portable::{Control, Grid, Interp, Target, Track};
+    use crate::portable::{Timeline, Track};
 
-    // The constructors refuse these shapes, but a deserialized artifact never
-    // met a constructor — the pub fields let this test forge exactly what a
-    // hand-crafted JSON chunk could carry. Before import validation, each of
-    // these panicked in sample(): indexing values[] past its end, or times[0]
-    // of an empty axis.
-    let target = Target::LineY { axes: 0, index: 0 };
-    let base = |fig: &mut Figure| {
-        fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 0.0]);
-    };
+    // Honest export refuses these figures outright, so the forgery happens at
+    // the byte level — patching the JSON chunk of a valid artifact, exactly
+    // what a hand-crafted file delivers. Before import validation, each
+    // panicked in sample(): indexing values[] past its end, or times[0] of an
+    // empty axis.
+    let mut fig = animated_figure();
+    fig.set_timeline({
+        let mut tl = Timeline::new(2.0);
+        tl.push(
+            Track::line_y(0, 0, vec![0.0, 2.0], vec![vec![0.0; 3], vec![1.0; 3]]).expect("track"),
+        );
+        tl
+    });
+    let bytes = fig.to_portable().expect("export");
 
     // A stride that lies about the value count.
-    let mut fig = Figure::new(4.0, 3.0);
-    base(&mut fig);
-    let mut tl = Timeline::new(1.0);
-    tl.push(Track {
-        target,
-        times: vec![0.0, 1.0],
-        values: vec![0.0, 0.0], // 2 values, claims 2 keyframes of stride 2
-        stride: 2,
-        interp: Interp::Linear,
+    let forged = reforge_json(&bytes, |json| {
+        json.replace("\"stride\":3", "\"stride\":300")
     });
-    fig.set_timeline(tl);
-    let bytes = fig.to_portable().expect("export");
-    let Err(err) = Figure::from_portable(&bytes) else {
+    let Err(err) = Figure::from_portable(&forged) else {
         panic!("a lying stride must not import");
     };
     assert!(
@@ -1817,36 +1834,19 @@ fn forged_tracks_and_grids_are_an_import_error_not_a_panic() {
     );
 
     // An empty keyframe axis.
-    let mut fig = Figure::new(4.0, 3.0);
-    base(&mut fig);
-    let mut tl = Timeline::new(1.0);
-    tl.push(Track {
-        target,
-        times: vec![],
-        values: vec![],
-        stride: 0,
-        interp: Interp::Linear,
+    let forged = reforge_json(&bytes, |json| {
+        json.replace("\"times\":[0.0,2.0]", "\"times\":[]")
     });
-    fig.set_timeline(tl);
-    let bytes = fig.to_portable().expect("export");
-    assert!(Figure::from_portable(&bytes).is_err());
+    assert!(Figure::from_portable(&forged).is_err());
 
-    // A grid lattice that lies about its value count, inside a control.
-    let mut fig = Figure::new(4.0, 3.0);
-    base(&mut fig);
-    fig.set_timeline(Timeline::new(1.0));
-    let mut c = Control::new("forged", 0.0, 1.0, 0.0).expect("control");
-    c.push_grid(Grid {
-        target,
-        times: vec![0.0, 1.0],
-        positions: vec![0.0, 1.0],
-        values: vec![0.0; 3], // claims 2 x 2 x stride 2 = 8
-        stride: 2,
-        interp: Interp::Linear,
-    });
-    fig.add_control(c);
+    // A control grid whose lattice lies about its value count, forged into a
+    // control-bearing artifact.
+    let fig = controlled_figure();
     let bytes = fig.to_portable().expect("export");
-    let Err(err) = Figure::from_portable(&bytes) else {
+    let forged = reforge_json(&bytes, |json| {
+        json.replace("\"positions\":[0.0,4.0]", "\"positions\":[0.0,2.0,4.0]")
+    });
+    let Err(err) = Figure::from_portable(&forged) else {
         panic!("a lying lattice must not import");
     };
     assert!(
@@ -1854,14 +1854,42 @@ fn forged_tracks_and_grids_are_an_import_error_not_a_panic() {
         "{err}"
     );
 
-    // A control whose range is nonsense (normalize would return nonsense).
-    let mut fig = Figure::new(4.0, 3.0);
-    base(&mut fig);
-    let mut c = Control::new("ok", 0.0, 1.0, 0.5).expect("control");
-    c.min = f64::NAN;
-    fig.add_control(c);
-    let bytes = fig.to_portable().expect("export");
-    assert!(Figure::from_portable(&bytes).is_err());
+    // A control range gone non-finite.
+    let forged = reforge_json(&bytes, |json| {
+        json.replace(
+            "\"label\":\"level\",\"min\":0.0",
+            "\"label\":\"level\",\"min\":null",
+        )
+    });
+    assert!(Figure::from_portable(&forged).is_err());
+}
+
+/// Rebuild `bytes` with its JSON chunk passed through `patch` — the test
+/// harness for hand-crafted artifacts that no honest exporter will produce.
+fn reforge_json(bytes: &[u8], patch: impl Fn(String) -> String) -> Vec<u8> {
+    use crate::portable::container;
+    let dir = container::directory(bytes, &Limits::default()).expect("directory");
+    let json = std::str::from_utf8(
+        container::chunk(bytes, &dir, container::TAG_JSON).expect("json chunk"),
+    )
+    .expect("utf8");
+    let patched = patch(json.to_string());
+    assert_ne!(json, patched, "the patch must change the document");
+    let chunks: Vec<([u8; 4], Vec<u8>)> = dir
+        .iter()
+        .map(|c| {
+            let payload = if c.tag == container::TAG_JSON {
+                patched.clone().into_bytes()
+            } else {
+                container::chunk(bytes, &dir, c.tag)
+                    .expect("chunk")
+                    .to_vec()
+            };
+            (c.tag, payload)
+        })
+        .collect();
+    let borrowed: Vec<([u8; 4], &[u8])> = chunks.iter().map(|(t, p)| (*t, p.as_slice())).collect();
+    container::write(&borrowed)
 }
 
 #[test]
@@ -1941,4 +1969,98 @@ fn set_control_echoes_the_position_actually_applied() {
     // The interactor echoes identically through the user-view wrapper.
     let mut it = Interactor::new(fig);
     assert_eq!(it.set_control(0, 9.9).expect("set"), 10.0);
+}
+
+#[test]
+fn schema_cannot_be_under_declared() {
+    // Schema is the compatibility decision: a host selects a runtime from the
+    // declaration. A forged "schema 3" document carrying controls would render
+    // on a schema-4 runtime while a host that correctly picked a schema-3
+    // runtime watches it rejected for the unknown field. Both inspection and
+    // import refuse the lie.
+    let bytes = controlled_figure().to_portable().expect("export");
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":4", "\"schema\":3"));
+
+    for result in [
+        Figure::from_portable(&forged).map(|_| ()),
+        crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
+    ] {
+        let Err(err) = result else {
+            panic!("an under-declared schema must not be accepted");
+        };
+        assert!(
+            matches!(&err, PortableError::Malformed(m) if m.contains("requiring schema 4")),
+            "{err}"
+        );
+    }
+
+    // The same floor applies one level down: a timeline needs schema 3.
+    let bytes = animated_figure().to_portable().expect("export");
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":4", "\"schema\":2"));
+    let Err(err) = Figure::from_portable(&forged) else {
+        panic!("a timeline under schema 3 must not import");
+    };
+    assert!(
+        matches!(&err, PortableError::Malformed(m) if m.contains("requiring schema 3")),
+        "{err}"
+    );
+    assert!(crate::portable::inspect(&forged, &Limits::default()).is_err());
+}
+
+#[test]
+fn the_control_manifest_answers_to_its_own_budgets() {
+    use crate::portable::Control;
+
+    // Each control becomes host-materialized state — a persisted manifest
+    // entry, a DOM slider — so count and label size answer to their own
+    // limits, not to whatever the JSON allowance happens to admit.
+    let mut fig = Figure::new(4.0, 3.0);
+    fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    for i in 0..3 {
+        fig.add_control(Control::new(&format!("c{i}"), 0.0, 1.0, 0.5).expect("control"))
+            .expect("add");
+    }
+    let bytes = fig.to_portable().expect("export");
+
+    let tight = Limits::default().with_max_controls(2);
+    for result in [
+        Figure::from_portable_limited(&bytes, &tight).map(|_| ()),
+        crate::portable::inspect(&bytes, &tight).map(|_| ()),
+    ] {
+        let Err(err) = result else {
+            panic!("3 controls must not pass a 2-control budget");
+        };
+        assert!(
+            matches!(&err, PortableError::Budget(m) if m.contains("3 controls")),
+            "{err}"
+        );
+    }
+    // Exactly at the limit passes.
+    let exact = Limits::default().with_max_controls(3);
+    assert!(crate::portable::inspect(&bytes, &exact).is_ok());
+    assert!(Figure::from_portable_limited(&bytes, &exact).is_ok());
+
+    // Labels: at the byte limit passes, one byte over refuses.
+    let mut fig = Figure::new(4.0, 3.0);
+    fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    fig.add_control(Control::new("12345678", 0.0, 1.0, 0.5).expect("control"))
+        .expect("add");
+    let bytes = fig.to_portable().expect("export");
+    assert!(
+        crate::portable::inspect(&bytes, &Limits::default().with_max_control_label_bytes(8))
+            .is_ok()
+    );
+    let tight = Limits::default().with_max_control_label_bytes(7);
+    for result in [
+        Figure::from_portable_limited(&bytes, &tight).map(|_| ()),
+        crate::portable::inspect(&bytes, &tight).map(|_| ()),
+    ] {
+        let Err(err) = result else {
+            panic!("an 8-byte label must not pass a 7-byte budget");
+        };
+        assert!(
+            matches!(&err, PortableError::Budget(m) if m.contains("label")),
+            "{err}"
+        );
+    }
 }

@@ -33,6 +33,21 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   the track data rather than allocating it), with nonsense ranges refused at
   inspection, so a host validates once and persists typed rather than poking
   JSON.
+- `Limits::max_controls` (64) and `max_control_label_bytes` (256): the
+  control manifest becomes host-materialized state — a persisted entry, a DOM
+  slider — so it answers to its own budgets at both `inspect` and import, not
+  to whatever fits inside the JSON allowance.
+- **Accepted figures are total**: `add_control`, export, and import all
+  validate every driver target against the artists the figure actually has
+  (existence and stride compatibility), so `seek`/`set_control` on an accepted
+  figure cannot fail and a host never observes an applied-but-failed state.
+  `add_control` now returns `Result<usize>`; a failed `set_control` rolls the
+  control value back to the last successful application.
+- **Schema cannot be under-declared**: a document carrying controls must
+  declare schema ≥ 4, a timeline ≥ 3, meta ≥ 2 — enforced at inspection and
+  import, because schema is the compatibility decision hosts select runtimes
+  by. A forged "schema 3" artifact with controls previously rendered on new
+  runtimes while failing on the runtime the declaration selected.
 - Import validation for deserialized tracks, grids, and controls: a
   hand-crafted artifact carrying a stride that disagrees with its value
   count, an empty keyframe axis, or a lying lattice is now `Malformed` at

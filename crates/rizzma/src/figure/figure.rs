@@ -747,15 +747,119 @@ impl Figure {
             || (self.timeline.is_some() && self.controls.iter().any(|c| !c.grids.is_empty()))
     }
 
+    /// Check that `target` addresses an artist this figure has and that
+    /// `stride` fits what that artist accepts — the promise that lets an
+    /// accepted figure never fail during [`Figure::seek`] or
+    /// [`Figure::set_control`]. Returns the complaint bare; callers wrap it.
+    #[cfg(feature = "portable")]
+    fn validate_driver_target(
+        &self,
+        target: crate::portable::Target,
+        stride: usize,
+    ) -> Result<(), String> {
+        use crate::portable::Target;
+
+        let axes_index = target.axes();
+        let Some(ax) = self.axes.get(axes_index) else {
+            return Err(format!("animates axes {axes_index}, which does not exist"));
+        };
+        match target {
+            Target::LineX { index, .. } | Target::LineY { index, .. } => {
+                let Some((x, _)) = ax.line_data(index) else {
+                    return Err(format!("animates line {index}, which does not exist"));
+                };
+                if stride != x.len() {
+                    return Err(format!(
+                        "has stride {stride} but line {index} holds {} points",
+                        x.len()
+                    ));
+                }
+            }
+            Target::Offsets { index, .. } => {
+                if index >= ax.collection_count() {
+                    return Err(format!("animates collection {index}, which does not exist"));
+                }
+                if !stride.is_multiple_of(2) {
+                    return Err(format!(
+                        "has stride {stride} for scatter offsets, which come in pairs"
+                    ));
+                }
+            }
+            Target::ImageData { index, .. } => {
+                let Some((rows, cols)) = ax.image_shape(index) else {
+                    return Err(format!("animates image {index}, which does not exist"));
+                };
+                if stride != rows * cols {
+                    return Err(format!(
+                        "has stride {stride} but image {index} is {rows}x{cols}"
+                    ));
+                }
+            }
+            Target::Xlim { .. } | Target::Ylim { .. } => {
+                if stride != 2 {
+                    return Err(format!(
+                        "has stride {stride} for view limits, which are [min, max]"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Check every timeline track and every control track and grid against
+    /// the artists this figure actually has. Export and import both call
+    /// this, which is what makes an *accepted* figure total: sampling can
+    /// never fail on it, so a host that trusts the acceptance never sees an
+    /// applied-but-failed state.
+    #[cfg(feature = "portable")]
+    pub(crate) fn validate_drivers(&self) -> Result<(), String> {
+        if let Some(timeline) = &self.timeline {
+            for (i, track) in timeline.tracks.iter().enumerate() {
+                self.validate_driver_target(track.target, track.stride)
+                    .map_err(|e| format!("timeline track {i} {e}"))?;
+            }
+        }
+        for (ci, control) in self.controls.iter().enumerate() {
+            for (i, track) in control.tracks.iter().enumerate() {
+                self.validate_driver_target(track.target, track.stride)
+                    .map_err(|e| format!("control {ci} track {i} {e}"))?;
+            }
+            for (i, grid) in control.grids.iter().enumerate() {
+                self.validate_driver_target(grid.target, grid.stride)
+                    .map_err(|e| format!("control {ci} grid {i} {e}"))?;
+            }
+        }
+        Ok(())
+    }
+
     /// Declare a user-driven parameter (schema 4), returning its index for
     /// [`Figure::set_control`]. The control starts at its default; the base
     /// artist data should be what its tracks produce there, since that is
     /// what a schema-3 host — and the poster — will show.
+    ///
+    /// # Errors
+    ///
+    /// [`PortableError::Unsupported`](crate::portable::PortableError::Unsupported)
+    /// when the control's tracks or grids address artists this figure does
+    /// not have, or with a stride those artists cannot take. Declare controls
+    /// after the artists they drive: refusing here is what lets
+    /// [`Figure::set_control`] on an accepted figure never fail.
     #[cfg(feature = "portable")]
-    pub fn add_control(&mut self, control: crate::portable::Control) -> usize {
+    pub fn add_control(
+        &mut self,
+        control: crate::portable::Control,
+    ) -> Result<usize, PortableError> {
+        for (i, track) in control.tracks.iter().enumerate() {
+            self.validate_driver_target(track.target, track.stride)
+                .map_err(|e| PortableError::Unsupported(format!("control track {i} {e}")))?;
+        }
+        for (i, grid) in control.grids.iter().enumerate() {
+            self.validate_driver_target(grid.target, grid.stride)
+                .map_err(|e| PortableError::Unsupported(format!("control grid {i} {e}")))?;
+        }
         self.control_values.push(control.default);
         self.controls.push(control);
-        self.controls.len() - 1
+        Ok(self.controls.len() - 1)
     }
 
     /// The controls this figure declares, in declaration order.
@@ -796,8 +900,17 @@ impl Figure {
             ))
         })?;
         let applied = control.normalize(value);
+        let previous = self.control_values[index];
         self.control_values[index] = applied;
-        self.apply_state()?;
+        if let Err(e) = self.apply_state() {
+            // Unreachable for accepted figures — export, import, and
+            // add_control all validate drivers — but a live author can still
+            // reach it through a bad timeline set before this call. Keep the
+            // control vector telling the truth about the last successful
+            // application rather than recording a position that never took.
+            self.control_values[index] = previous;
+            return Err(e);
+        }
         Ok(applied)
     }
 
@@ -855,6 +968,11 @@ impl Figure {
         &self,
         cfg: &crate::portable::PortableConfig,
     ) -> Result<Vec<u8>, PortableError> {
+        // Refuse to export a figure whose drivers cannot all apply: a track
+        // addressing a missing artist would otherwise travel and fail on
+        // every consumer. Loud here, where the author can fix it.
+        self.validate_drivers()
+            .map_err(PortableError::Unsupported)?;
         let mut bank = crate::portable::data::BankWriter::new();
         let axes = self
             .axes
@@ -1051,6 +1169,39 @@ impl Figure {
                 max: crate::portable::SCHEMA_VERSION,
             });
         }
+        // Schema is the compatibility decision — a host selects a runtime
+        // from the declaration — so features must not under-declare it.
+        let required = crate::portable::required_schema(
+            spec.meta.is_some(),
+            spec.timeline.is_some(),
+            !spec.controls.is_empty(),
+        );
+        if spec.schema < required {
+            return Err(PortableError::Malformed(format!(
+                "declares schema {} but carries features requiring schema {required}",
+                spec.schema
+            )));
+        }
+        // The control manifest becomes host-materialized state, so it answers
+        // to its own budgets, not the JSON allowance it fit inside.
+        if spec.controls.len() > limits.max_controls {
+            return Err(PortableError::Budget(format!(
+                "artifact declares {} controls, over the {} control limit",
+                spec.controls.len(),
+                limits.max_controls
+            )));
+        }
+        if let Some(long) = spec
+            .controls
+            .iter()
+            .find(|c| c.label.len() > limits.max_control_label_bytes)
+        {
+            return Err(PortableError::Budget(format!(
+                "a control label is {} bytes, over the {} byte limit",
+                long.label.len(),
+                limits.max_control_label_bytes
+            )));
+        }
         // Serde checked the shapes of the JSON; it cannot check the promises
         // the sampling code indexes on — a stride agreeing with the value
         // count, axes nonempty and ordered. A forged artifact must be an
@@ -1065,7 +1216,7 @@ impl Figure {
         }
         let reader = crate::portable::data::BankReader::new(bin, &spec.accessors);
         let fig = spec.figure;
-        Ok(Figure {
+        let restored = Figure {
             width_in: fig.width_in,
             height_in: fig.height_in,
             dpi: fig.dpi,
@@ -1086,7 +1237,14 @@ impl Figure {
             control_values: spec.controls.iter().map(|c| c.default).collect(),
             controls: spec.controls,
             time: 0.0,
-        })
+        };
+        // Only now can targets be checked against the artists that exist. An
+        // accepted figure is total: seek and set_control cannot fail on it,
+        // so a host trusting this acceptance never sees applied-but-failed.
+        restored
+            .validate_drivers()
+            .map_err(PortableError::Malformed)?;
+        Ok(restored)
     }
 
     /// Open this figure in the system browser as an interactive viewer

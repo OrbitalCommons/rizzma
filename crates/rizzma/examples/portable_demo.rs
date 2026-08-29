@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .collect(),
         Interp::Linear,
     )?);
-    fig.add_control(wavelength);
+    fig.add_control(wavelength)?;
 
     let mut width = Control::new("pulse width", 0.3, 2.5, 0.8)?;
     width.push_track(Track::new(
@@ -80,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sigmas.iter().map(|&s| pulse(&x, s)).collect(),
         Interp::Linear,
     )?);
-    fig.add_control(width);
+    fig.add_control(width)?;
 
     let riz = fig.to_portable()?;
     std::fs::write("demo.riz", &riz)?;

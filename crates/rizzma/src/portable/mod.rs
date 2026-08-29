@@ -96,6 +96,27 @@ pub const SCHEMA_VERSION: u32 = 4;
 #[cfg(feature = "portable")]
 pub const SCHEMA_MIN: u32 = 1;
 
+/// The schema a document's features require it to declare, at minimum.
+///
+/// Schema is the compatibility decision a host makes *before* parsing the
+/// figure — it selects the runtime. A forged document must not be able to
+/// under-declare: a "schema 3" artifact carrying controls would render on a
+/// schema-4 runtime while a host that correctly selected a schema-3 runtime
+/// from the declaration watches it rejected for the unknown field. Both
+/// import and inspection refuse a declaration below what the features demand.
+#[cfg(feature = "portable")]
+pub(crate) fn required_schema(has_meta: bool, has_timeline: bool, has_controls: bool) -> u32 {
+    if has_controls {
+        4
+    } else if has_timeline {
+        3
+    } else if has_meta {
+        2
+    } else {
+        1
+    }
+}
+
 // Without the `portable` feature the artifact machinery is absent, but the
 // public `Scale`/`Locator`/`Formatter` traits still name the wire forms below,
 // so those stay compiled either way.
