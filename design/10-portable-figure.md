@@ -90,9 +90,66 @@ additionally carries bytes that hash to it. A host should **always** prefer its
 own vetted copy of a compatible renderer and ignore the inlined bytes — the
 digest identifies, it does not authorize (§7).
 
-`Figure::save_html(path)` additionally wraps a self-contained artifact plus the
-loader (§6) in one HTML file — the strongest "just open it" deliverable, and the
-completion of design/09's Phase 3.
+`Figure::save_html(path)` additionally wraps the artifact in one HTML file — the
+strongest "just open it" deliverable, and the completion of design/09's Phase 3.
+The wrapper is **reversible** (§3.1): the HTML file *is* the carrier of the
+canonical `.riz`, recoverable byte-for-byte, rather than a second export format
+that can drift from it.
+
+### 3.1 The HTML wrapper (`.riz.html`)
+
+One file that a browser opens and a host ingests. Sound only in one shape —
+**HTML outside, the untouched artifact inside, base64-encoded** — and the
+reasons the alternatives fail are worth recording:
+
+- A true polyglot (`RZFG` bytes first, HTML appended) breaks every strict
+  reader: the container requires magic at byte 0 and `declared_len ==
+  file_len`. Loosening either invites content-sniffing, which is how polyglot
+  smuggling works.
+- Raw binary embedded in HTML (comment or tag) is a **script-injection
+  vector**: `f64` data can contain any byte sequence, including `-->` or
+  `<script`, so an attacker could choose *plot values* that break out of the
+  container markup. Artifact bytes must be inert in the page, which means
+  encoded. Base64's alphabet contains no `<` or `>`, so it cannot close a tag
+  early — inert by construction.
+
+**Format.** `text/html`, extension `.riz.html`. The canonical artifact travels
+in exactly one element:
+
+```html
+<script type="application/vnd.rizzma.figure+base64" id="riz">…base64…</script>
+```
+
+The base64 is standard-alphabet with no whitespace. Any additional payloads —
+the live tier's runtime assets — use *different* ids and are not part of the
+canonical artifact. Title and alt text drawn from the artifact are HTML-escaped
+at wrap time, and the viewer script never assigns artifact-derived strings via
+`innerHTML`, so a re-wrapped third-party artifact cannot inject.
+
+**Two tiers, same strip:**
+
+| tier | the page shows | overhead over the raw `.riz` |
+|---|---|---:|
+| **poster** (default) | the embedded `PSTR` + alt text, offline, no wasm | ~1.5 KB + 33 % base64 |
+| **live** | the interactive figure via an embedded runtime | + runtime assets, base64'd (~2.9 MB) |
+
+The live tier embeds caller-supplied runtime assets — the embedder chooses the
+renderer, exactly as a mounting host does (§7); the exporter never fetches one.
+It renders the poster first and upgrades to live, so a browser without
+`crypto.subtle` (needed by the loader's digest cache) degrades to the poster
+instead of a blank page. A "linked live" tier that fetches the runtime by URL
+was considered and dropped: cross-origin fetches from `file://` are unreliable,
+and a wrapper that sometimes works is worse than a poster that always does.
+
+**The strip.** `portable::unwrap_html(bytes, &Limits)` extracts by the exact
+marker, bounds the decoded allocation against `max_total_bytes` **before**
+decoding (computed from the encoded length),
+requires it to appear exactly once, rejects invalid base64 — and its output
+then goes through the **full existing validation** as if it had arrived raw.
+The core `.riz` validator stays byte-strict and never sniffs: one parser never
+accepts both forms, which is the property that keeps the polyglot attack class
+closed. A host that accepts `.riz.html` does so as an explicit, distinct step:
+unwrap, then validate, then treat as any other artifact.
 
 ## 4. The spec: a wire model, not serde on the live types
 
@@ -403,7 +460,8 @@ impl Figure {
 
     // P2, when there is a second profile to choose and a reason to tune.
     pub fn to_portable_with(&self, cfg: &PortableConfig) -> Result<Vec<u8>, PortableError>;
-    pub fn save_html(&self, path: impl AsRef<Path>) -> …;  // self-contained + loader
+    pub fn save_html(&self, path: impl AsRef<Path>) -> …;      // poster-tier .riz.html
+    pub fn save_html_live(&self, path, rt: &HtmlRuntime) -> …;  // + embedded runtime
 }
 pub struct PortableConfig { profile: Profile /* Linked | SelfContained */,
                             quantize_f32: bool, /* … */ }
@@ -629,7 +687,7 @@ Actions, kept out of the artifact-format work so each lands independently:
 |---|---|---|
 | **P0** ✅ | `crate::portable` wire model + container + native `to/from_portable` + golden identity & rejection tests | 1 |
 | **P1** ✅ | the four host prerequisites below, then `WasmFigure::from_portable` + `rizzma-mount.js`; the linked profile through **rizzma's own browser runtime** — no host integration exists yet | 2 |
-| **P2** | self-contained profile (`WASM` chunk), `save_html`, size program (§11) | 1 |
+| **P2** | the reversible `.riz.html` wrapper (§3.1: `save_html`, `save_html_live`, `unwrap_html`); self-contained `WASM`-chunk profile and the size program (§11) remain | 1 |
 | **P3** | timeline + transport controls; font subsetting with alphabet closure + `FONT` chunk | 3 |
 
 P0 is pure native Rust — no browser, no JS — and already proves the hard 80%:

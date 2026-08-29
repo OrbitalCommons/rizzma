@@ -1289,3 +1289,228 @@ fn a_static_figure_ignores_interactor_seek() {
     it.seek(3.0).expect("seek is a no-op without a timeline");
     assert!(it.figure().encode_png().unwrap() == before);
 }
+
+// ---------------------------------------------------------------------------
+// The reversible HTML wrapper: one file a browser opens and a host ingests.
+// ---------------------------------------------------------------------------
+
+use crate::portable::{HtmlRuntime, is_raw_riz, unwrap_html, wrap_html, wrap_html_live};
+
+#[test]
+fn wrap_then_unwrap_is_byte_identical() {
+    // The property the whole feature rests on: the HTML file IS the carrier of
+    // the canonical artifact, not a second format that can drift from it.
+    let riz = animated_figure().to_portable().expect("export");
+    let html = wrap_html(&riz, &Limits::default()).expect("wrap");
+    let recovered = unwrap_html(html.as_bytes(), &Limits::default()).expect("unwrap");
+    assert!(
+        recovered == riz,
+        "strip must recover the exact artifact bytes"
+    );
+
+    // And the recovered bytes pass full validation as if they arrived raw.
+    let restored = Figure::from_portable(&recovered).expect("import after unwrap");
+    assert!(restored.encode_png().unwrap() == animated_figure().encode_png().unwrap());
+}
+
+#[test]
+fn the_live_tier_strips_identically_and_embeds_the_runtime() {
+    let riz = animated_figure().to_portable().expect("export");
+    let rt = HtmlRuntime {
+        wasm: b"\0asm-fake-renderer-bytes",
+        glue: "export default function init() {}",
+        loader: "export function mount() {}",
+    };
+    let html = wrap_html_live(&riz, &Limits::default(), &rt).expect("wrap");
+
+    assert!(unwrap_html(html.as_bytes(), &Limits::default()).expect("unwrap") == riz);
+    // Runtime assets travel under their own ids, base64'd, and are therefore
+    // not part of the canonical carrier element.
+    assert!(html.contains(r#"id="riz-rt-wasm""#));
+    assert!(html.contains(r#"id="riz-rt-glue""#));
+    assert!(html.contains(r#"id="riz-rt-loader""#));
+    assert!(
+        !html.contains("export default function init"),
+        "runtime source must be base64, never raw in markup"
+    );
+}
+
+#[test]
+fn artifact_text_cannot_inject_into_the_wrapper() {
+    // Title and alt come from the artifact and could be attacker-influenced in
+    // a re-wrapping tool; they must land escaped, never as live markup.
+    let mut fig = Figure::new(3.0, 2.0);
+    let ax = fig.add_subplot(1, 1, 1);
+    ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
+    ax.set_title(r#"</script><script>alert(1)</script>"#);
+    let cfg = PortableConfig::default().with_alt(r#""><img onerror=alert(2) src=x>"#);
+    let riz = fig.to_portable_with(&cfg).expect("export");
+
+    let html = wrap_html(&riz, &Limits::default()).expect("wrap");
+    assert!(
+        !html.contains("<script>alert"),
+        "title must not close the carrier and open a script"
+    );
+    // `onerror=alert` may appear *inside* the quoted attribute value — that is
+    // inert. What must not survive is the closing quote itself: the sequence
+    // that would end the attribute and start a real element.
+    assert!(
+        !html.contains(r#""><img"#),
+        "alt's quote must be escaped so the attribute cannot be closed"
+    );
+    assert!(
+        html.contains("&quot;&gt;&lt;img"),
+        "escaped alt should be present as text"
+    );
+    assert!(
+        html.contains("&lt;/script&gt;"),
+        "escaped title should be present as text"
+    );
+
+    // Hostile text changes nothing about the strip.
+    assert!(unwrap_html(html.as_bytes(), &Limits::default()).expect("unwrap") == riz);
+}
+
+#[test]
+fn base64_data_cannot_terminate_the_carrier_early() {
+    // The reason encoding is a security property: whatever bytes the artifact
+    // holds, the encoded payload contains no '<' and cannot close the tag.
+    let riz = animated_figure().to_portable().expect("export");
+    let html = wrap_html(&riz, &Limits::default()).expect("wrap");
+    let open = r#"<script type="application/vnd.rizzma.figure+base64" id="riz">"#;
+    let start = html.find(open).expect("carrier") + open.len();
+    let end = html[start..].find("</script>").expect("terminator") + start;
+    assert!(
+        html[start..end]
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "+/=".contains(c)),
+        "carrier payload must be pure base64"
+    );
+}
+
+#[test]
+fn unwrap_rejects_what_it_should() {
+    let riz = animated_figure().to_portable().expect("export");
+    let html = wrap_html(&riz, &Limits::default()).expect("wrap");
+    let open = r#"<script type="application/vnd.rizzma.figure+base64" id="riz">"#;
+
+    // No carrier at all.
+    match unwrap_html(b"<!doctype html><p>just a page</p>", &Limits::default()) {
+        Err(PortableError::Malformed(m)) => assert!(m.contains("no portable-figure"), "{m}"),
+        other => panic!("expected Malformed, got {other:?}"),
+    }
+    // Two carriers is ambiguous: refuse rather than guess which is canonical.
+    let doubled = format!("{html}{open}AAAA</script>");
+    match unwrap_html(doubled.as_bytes(), &Limits::default()) {
+        Err(PortableError::Malformed(m)) => assert!(m.contains("more than one"), "{m}"),
+        other => panic!("expected Malformed, got {other:?}"),
+    }
+    // Unterminated element.
+    let cut = &html[..html.find(open).unwrap() + open.len() + 10];
+    assert!(matches!(
+        unwrap_html(cut.as_bytes(), &Limits::default()),
+        Err(PortableError::Malformed(_))
+    ));
+    // Corrupt base64.
+    let broken = html.replacen(open, &format!("{open}!!"), 1);
+    match unwrap_html(broken.as_bytes(), &Limits::default()) {
+        Err(PortableError::Malformed(m)) => assert!(m.contains("base64"), "{m}"),
+        other => panic!("expected Malformed, got {other:?}"),
+    }
+    // Not UTF-8 at all.
+    assert!(matches!(
+        unwrap_html(&[0xff, 0xfe, 0x00, 0x01], &Limits::default()),
+        Err(PortableError::Malformed(_))
+    ));
+}
+
+#[test]
+fn raw_vs_wrapped_is_a_declared_branch_not_a_sniff() {
+    let riz = animated_figure().to_portable().expect("export");
+    let html = wrap_html(&riz, &Limits::default()).expect("wrap");
+    assert!(is_raw_riz(&riz));
+    assert!(!is_raw_riz(html.as_bytes()));
+    // And the strict reader refuses the wrapped form outright: one parser
+    // never accepts both, which is what keeps polyglot smuggling closed.
+    assert!(matches!(
+        crate::portable::inspect(html.as_bytes(), &Limits::default()),
+        Err(PortableError::Malformed(_))
+    ));
+}
+
+#[test]
+fn wrapping_does_not_launder_a_malformed_artifact() {
+    match wrap_html(b"RZFGjunk", &Limits::default()) {
+        Err(PortableError::Malformed(_)) => {}
+        other => panic!("expected Malformed, got {other:?}"),
+    }
+}
+
+#[test]
+fn unwrap_is_budgeted_before_it_allocates() {
+    let riz = animated_figure().to_portable().expect("export");
+    let html = wrap_html(&riz, &Limits::default()).expect("wrap");
+
+    // Exactly at the boundary: allowed.
+    let exact = Limits::default().with_max_total_bytes(riz.len());
+    assert!(unwrap_html(html.as_bytes(), &exact).expect("exact fit") == riz);
+
+    // One byte under: refused as Budget, not Malformed.
+    let tight = Limits::default().with_max_total_bytes(riz.len() - 1);
+    match unwrap_html(html.as_bytes(), &tight) {
+        Err(PortableError::Budget(m)) => assert!(m.contains("over the"), "{m}"),
+        other => panic!("expected Budget, got {other:?}"),
+    }
+
+    // The proof the budget check precedes the decode: a carrier whose payload
+    // is over-budget, valid in SHAPE (length % 4 == 0, sane padding) but
+    // invalid in alphabet, must fail with Budget — a decoder that ran first
+    // would have reported Malformed instead.
+    let open = r#"<script type="application/vnd.rizzma.figure+base64" id="riz">"#;
+    let junk = "!".repeat(4_096);
+    let page = format!("<!doctype html>{open}{junk}</script>");
+    let tiny = Limits::default().with_max_total_bytes(64);
+    match unwrap_html(page.as_bytes(), &tiny) {
+        Err(PortableError::Budget(_)) => {}
+        other => panic!("size must be checked before decoding; got {other:?}"),
+    }
+}
+
+#[test]
+fn padding_cannot_bypass_the_budget() {
+    // The bypass a review caught in the first budgeted version: a payload of
+    // nothing but '=' made padding == len, the saturating subtraction computed
+    // a decoded size of zero, and any budget passed — while the decoder could
+    // still reserve proportionally to the encoded input. Shape validation now
+    // refuses it outright, allocation-free.
+    let open = r#"<script type="application/vnd.rizzma.figure+base64" id="riz">"#;
+    let tiny = Limits::default().with_max_total_bytes(64);
+
+    // All padding, length divisible by 4: refused for its shape.
+    let all_eq = format!("<!doctype html>{open}{}</script>", "=".repeat(4_096));
+    match unwrap_html(all_eq.as_bytes(), &tiny) {
+        Err(PortableError::Malformed(m)) => assert!(m.contains("padding"), "{m}"),
+        other => panic!("all-padding payload must be Malformed pre-decode, got {other:?}"),
+    }
+
+    // Padding buried mid-payload: also a shape violation.
+    let mid_eq = format!("<!doctype html>{open}AA==AAAA</script>");
+    match unwrap_html(mid_eq.as_bytes(), &tiny) {
+        Err(PortableError::Malformed(m)) => assert!(m.contains("padding"), "{m}"),
+        other => panic!("mid-payload padding must be Malformed, got {other:?}"),
+    }
+
+    // Length not divisible by 4: refused before any size arithmetic.
+    let ragged = format!("<!doctype html>{open}AAAAA</script>");
+    match unwrap_html(ragged.as_bytes(), &tiny) {
+        Err(PortableError::Malformed(m)) => assert!(m.contains("multiple of 4"), "{m}"),
+        other => panic!("ragged length must be Malformed, got {other:?}"),
+    }
+
+    // Three trailing '=' with valid length: more padding than base64 allows.
+    let over_pad = format!("<!doctype html>{open}AAAAA===</script>");
+    match unwrap_html(over_pad.as_bytes(), &tiny) {
+        Err(PortableError::Malformed(m)) => assert!(m.contains("padding"), "{m}"),
+        other => panic!("triple padding must be Malformed, got {other:?}"),
+    }
+}

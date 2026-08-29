@@ -7,6 +7,28 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.11.0] - 2026-08-29
+
+### Added
+- **The reversible HTML wrapper (`.riz.html`)**: one file a browser opens and a
+  host ingests. `Figure::save_html` writes a poster-tier page (the embedded
+  poster and alt text, offline, ~1.5 KB plus base64's 33 % over the raw
+  artifact); `Figure::save_html_live` embeds a caller-supplied runtime so the
+  file pans, zooms, and animates when double-clicked, degrading to the poster
+  where wasm cannot start. In both tiers the canonical `.riz` travels inside,
+  **recoverable byte-for-byte** with `portable::unwrap_html` — the HTML file is
+  the carrier of the artifact, not a second format that can drift from it.
+  `portable::{wrap_html, wrap_html_live, is_raw_riz}` operate on raw bytes for
+  tooling.
+
+  The shape is deliberate (`design/10` §3.1): a true polyglot would force
+  strict readers to sniff, and raw binary in markup would let attacker-chosen
+  *plot values* spell `-->` or `<script` and break out — so the artifact is
+  base64, whose alphabet cannot close a tag. Title and alt text are escaped at
+  wrap time, the viewer never assigns artifact-derived strings via `innerHTML`,
+  unwrapping requires the carrier element exactly once, and the core `.riz`
+  validator remains byte-strict: one parser never accepts both forms.
+
 ## [1.10.0] - 2026-08-27
 
 ### Added

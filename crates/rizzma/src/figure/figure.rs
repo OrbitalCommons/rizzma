@@ -818,6 +818,46 @@ impl Figure {
         Ok(())
     }
 
+    /// Write this figure as a poster-tier `.riz.html`: one file a browser
+    /// opens (showing the embedded poster and alt text, offline) and a host
+    /// ingests — the canonical artifact is carried inside, recoverable
+    /// byte-for-byte with [`portable::unwrap_html`](crate::portable::unwrap_html).
+    ///
+    /// # Errors
+    ///
+    /// As [`Figure::to_portable`], plus I/O errors writing the file.
+    #[cfg(feature = "portable")]
+    pub fn save_html<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), PortableError> {
+        let bytes = self.to_portable()?;
+        let html = crate::portable::wrap_html(&bytes, &crate::portable::Limits::default())?;
+        std::fs::write(path, html)?;
+        Ok(())
+    }
+
+    /// Write this figure as a live-tier `.riz.html` with an embedded,
+    /// caller-supplied runtime: double-click it and the figure pans, zooms,
+    /// and animates, entirely offline. The poster still renders first, so an
+    /// environment where wasm cannot start degrades to the poster.
+    ///
+    /// The caller chooses the runtime, exactly as a mounting host does — pass
+    /// the three published assets whose digests `runtime.json` pins.
+    ///
+    /// # Errors
+    ///
+    /// As [`Figure::save_html`].
+    #[cfg(feature = "portable")]
+    pub fn save_html_live<P: AsRef<std::path::Path>>(
+        &self,
+        path: P,
+        rt: &crate::portable::HtmlRuntime<'_>,
+    ) -> Result<(), PortableError> {
+        let bytes = self.to_portable()?;
+        let html =
+            crate::portable::wrap_html_live(&bytes, &crate::portable::Limits::default(), rt)?;
+        std::fs::write(path, html)?;
+        Ok(())
+    }
+
     /// Reconstruct a figure from portable-figure bytes produced by
     /// [`Figure::to_portable`].
     ///
