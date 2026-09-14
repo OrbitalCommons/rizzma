@@ -32,6 +32,12 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   figures, whose wire model already reserved the slot. The explicit
   `legend(entries)` remains for legends that are not one-to-one with
   artists. (#304, #286)
+- **Explicit band colors: `Axes::stackplot_with_colors` and
+  `fill_between_with_color`.** State the fill colors locally, mirroring
+  `plot_with_color`: the property cycle is neither consulted nor advanced, so
+  an overlaid line keeps its expected cycle color and a per-category palette
+  (`end_turn` green, `error` red, …) no longer requires `set_prop_cycle` as a
+  side effect on the axes. (#306)
 
 ### Fixed
 - Position-indexed formatters (`FixedFormatter`) now pair label `i` with the

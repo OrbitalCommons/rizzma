@@ -10,6 +10,7 @@
 //! line/patch methods.
 
 use crate::artist::Patch;
+use crate::core::color::Rgba;
 
 use crate::figure::Axes;
 
@@ -46,6 +47,60 @@ impl Axes {
     pub fn stackplot(&mut self, x: &[f64], ys: &[&[f64]]) {
         // The stack grows from the zero baseline: pin it.
         self.sticky_y.push(0.0);
+        Self::check_stack_lengths(x, ys);
+        if x.is_empty() {
+            return;
+        }
+        let colors: Vec<Rgba> = ys.iter().map(|_| self.next_cycle_color()).collect();
+        self.stack_bands(x, ys, &colors);
+    }
+
+    /// Draw a stacked area chart with an explicit color per band.
+    ///
+    /// Like [`stackplot`](Axes::stackplot), but band `i` is filled with
+    /// `colors[i % colors.len()]` — the property cycle is neither consulted nor
+    /// advanced, so anything plotted afterwards on the same axes is unaffected
+    /// (matplotlib's `stackplot(..., colors=[...])`). Colors are used exactly
+    /// as given; pass a translucent [`Rgba`] for a see-through band. Fewer
+    /// colors than series wrap around.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any series in `ys` does not have the same length as `x`, or
+    /// if `colors` is empty while `ys` is not.
+    ///
+    /// ```
+    /// use rizzma::core::{Bbox, Rgba};
+    /// use rizzma::figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// let x = [0.0, 1.0, 2.0];
+    /// let end_turn = [5.0, 6.0, 4.0];
+    /// let error = [1.0, 0.0, 2.0];
+    /// ax.stackplot_with_colors(&x, &[&end_turn, &error], &[Rgba::GREEN, Rgba::RED]);
+    /// // The cycle was not touched: a following line still gets C0.
+    /// let c0 = ax.cycle_color(0);
+    /// assert_eq!(ax.plot(&x, &end_turn).color(), c0);
+    /// ```
+    pub fn stackplot_with_colors(&mut self, x: &[f64], ys: &[&[f64]], colors: &[Rgba]) {
+        // The stack grows from the zero baseline: pin it.
+        self.sticky_y.push(0.0);
+        Self::check_stack_lengths(x, ys);
+        assert!(
+            !colors.is_empty() || ys.is_empty(),
+            "stackplot_with_colors needs at least one color for {} series",
+            ys.len()
+        );
+        if x.is_empty() {
+            return;
+        }
+        let colors: Vec<Rgba> = (0..ys.len()).map(|i| colors[i % colors.len()]).collect();
+        self.stack_bands(x, ys, &colors);
+    }
+
+    /// Panic with a pointed message unless every series in `ys` is as long as
+    /// `x`.
+    fn check_stack_lengths(x: &[f64], ys: &[&[f64]]) {
         for (i, series) in ys.iter().enumerate() {
             assert!(
                 series.len() == x.len(),
@@ -54,13 +109,16 @@ impl Axes {
                 x.len()
             );
         }
-        if x.is_empty() {
-            return;
-        }
+    }
 
+    /// Push one closed band patch per series, cumulatively stacked from
+    /// `y = 0`, filling band `i` with `colors[i]`. Callers have validated the
+    /// lengths (`colors.len() == ys.len()`, every series as long as `x`, and
+    /// `x` non-empty).
+    fn stack_bands(&mut self, x: &[f64], ys: &[&[f64]], colors: &[Rgba]) {
         // Running cumulative baseline, starting at y = 0 under the first series.
         let mut baseline = vec![0.0; x.len()];
-        for series in ys {
+        for (series, &face) in ys.iter().zip(colors) {
             // The new cumulative top for this band.
             let top: Vec<f64> = baseline
                 .iter()
@@ -78,7 +136,6 @@ impl Axes {
                 points.push([xi, b]);
             }
 
-            let face = self.next_cycle_color();
             let patch = Patch::polygon(&points)
                 .facecolor(Some(face))
                 .edgecolor(None);
@@ -144,6 +201,47 @@ mod tests {
             let verts = p.path().vertices();
             assert_eq!(verts.first(), verts.last());
         }
+    }
+
+    #[test]
+    fn stackplot_with_colors_uses_colors_in_order_and_wraps() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        let x = [0.0, 1.0, 2.0];
+        let a = [1.0, 2.0, 1.0];
+        let b = [1.0, 1.0, 2.0];
+        let c = [0.5, 0.5, 0.5];
+        ax.stackplot_with_colors(&x, &[&a, &b, &c], &[Rgba::GREEN, Rgba::RED]);
+        let faces: Vec<Option<Rgba>> = ax.patches.iter().map(Patch::face).collect();
+        assert_eq!(
+            faces,
+            vec![Some(Rgba::GREEN), Some(Rgba::RED), Some(Rgba::GREEN)]
+        );
+        // Explicit colors bypass the cycle entirely: the next cycled artist
+        // still gets C0.
+        let c0 = ax.cycle_color(0);
+        assert_eq!(ax.plot(&x, &a).color(), c0);
+    }
+
+    #[test]
+    fn stackplot_advances_the_cycle_once_per_band() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        let x = [0.0, 1.0];
+        let a = [1.0, 1.0];
+        let b = [1.0, 1.0];
+        let (c0, c1, c2) = (ax.cycle_color(0), ax.cycle_color(1), ax.cycle_color(2));
+        ax.stackplot(&x, &[&a, &b]);
+        let faces: Vec<Option<Rgba>> = ax.patches.iter().map(Patch::face).collect();
+        assert_eq!(faces, vec![Some(c0), Some(c1)]);
+        assert_eq!(ax.plot(&x, &a).color(), c2);
+    }
+
+    #[test]
+    #[should_panic(expected = "at least one color")]
+    fn stackplot_with_colors_rejects_empty_palette() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        let x = [0.0, 1.0];
+        let a = [1.0, 1.0];
+        ax.stackplot_with_colors(&x, &[&a], &[]);
     }
 
     #[test]
