@@ -342,18 +342,7 @@ impl Axis {
         font: &FontSource,
     ) {
         let (vmin, vmax) = data_lim;
-        let (lo_v, hi_v) = if vmin <= vmax {
-            (vmin, vmax)
-        } else {
-            (vmax, vmin)
-        };
-
-        let ticks: Vec<f64> = self
-            .locator
-            .tick_values(vmin, vmax)
-            .into_iter()
-            .filter(|&t| t >= lo_v && t <= hi_v)
-            .collect();
+        let (ticks, labels) = self.visible_ticks(data_lim);
 
         let stroke_gc = GraphicsContext::new()
             .with_stroke(self.color)
@@ -369,9 +358,33 @@ impl Axis {
         self.draw_spine(renderer, axes_bbox, &stroke_gc);
         self.draw_ticks(renderer, axes_bbox, &ticks, (vmin, vmax), &stroke_gc, s);
         if self.tick_labels_visible {
-            self.draw_tick_labels(renderer, axes_bbox, &ticks, (vmin, vmax), font, s);
-            self.draw_axis_label(renderer, axes_bbox, &ticks, font, s);
+            self.draw_tick_labels(renderer, axes_bbox, &ticks, &labels, (vmin, vmax), font, s);
+            self.draw_axis_label(renderer, axes_bbox, &labels, font, s);
         }
+    }
+
+    /// The major ticks within `lim` paired with their labels.
+    ///
+    /// The locator runs over the full limits and the formatter labels *every*
+    /// location it returns before out-of-range ticks are dropped, so a
+    /// position-indexed formatter such as
+    /// [`FixedFormatter`](crate::axis::ticker::FixedFormatter) pairs label `i`
+    /// with the locator's `i`-th position regardless of which positions are
+    /// currently in view. This is the order matplotlib's `Axis._update_ticks`
+    /// uses (format, then clip to the view interval).
+    pub(crate) fn visible_ticks(&self, lim: (f64, f64)) -> (Vec<f64>, Vec<String>) {
+        let (vmin, vmax) = lim;
+        let (lo_v, hi_v) = if vmin <= vmax {
+            (vmin, vmax)
+        } else {
+            (vmax, vmin)
+        };
+        let all = self.locator.tick_values(vmin, vmax);
+        let labels = self.formatter.format_ticks(&all);
+        all.into_iter()
+            .zip(labels)
+            .filter(|&(t, _)| t >= lo_v && t <= hi_v)
+            .unzip()
     }
 
     /// The outward extent, in pixels, this axis' decoration (ticks, tick
@@ -383,20 +396,9 @@ impl Axis {
             // Only the outward tick marks occupy space.
             return self.tick_length * s;
         }
-        let (vmin, vmax) = lim;
-        let (lo_v, hi_v) = if vmin <= vmax {
-            (vmin, vmax)
-        } else {
-            (vmax, vmin)
-        };
-        let ticks: Vec<f64> = self
-            .locator
-            .tick_values(vmin, vmax)
-            .into_iter()
-            .filter(|&t| t >= lo_v && t <= hi_v)
-            .collect();
+        let (_, labels) = self.visible_ticks(lim);
         let mut extent = (self.tick_length + self.tick_label_pad) * s
-            + self.tick_label_band_extent(&ticks, font, s);
+            + self.tick_label_band_extent(&labels, font, s);
         if let Some(label) = &self.label
             && !label.is_empty()
         {
@@ -439,13 +441,7 @@ impl Axis {
         if !span.is_finite() || span <= 0.0 {
             return (0.0, 0.0);
         }
-        let ticks: Vec<f64> = self
-            .locator
-            .tick_values(vmin, vmax)
-            .into_iter()
-            .filter(|&t| t >= lo_v && t <= hi_v)
-            .collect();
-        let labels = self.formatter.format_ticks(&ticks);
+        let (ticks, labels) = self.visible_ticks(lim);
         let (mut low, mut high) = (0.0f64, 0.0f64);
         for (&t, label) in ticks.iter().zip(&labels) {
             if label.is_empty() {
@@ -554,18 +550,21 @@ impl Axis {
     }
 
     /// Fill each tick label just outside its tick, centered on the tick.
+    /// Draw one label per tick; `labels` is index-aligned with `ticks` (see
+    /// [`Axis::visible_ticks`]) and empty strings are skipped.
+    #[allow(clippy::too_many_arguments)]
     fn draw_tick_labels(
         &self,
         renderer: &mut dyn Renderer,
         axes_bbox: &Bbox,
         ticks: &[f64],
+        labels: &[String],
         lim: (f64, f64),
         font: &FontSource,
         s: f64,
     ) {
         let (vmin, vmax) = lim;
         let gc = GraphicsContext::new();
-        let labels = self.formatter.format_ticks(ticks);
         for (&t, text) in ticks.iter().zip(labels.iter()) {
             if text.is_empty() {
                 continue;
@@ -614,9 +613,10 @@ impl Axis {
         }
     }
 
-    fn tick_label_band_extent(&self, ticks: &[f64], font: &FontSource, s: f64) -> f64 {
-        self.formatter
-            .format_ticks(ticks)
+    /// The thickness of the tick-label band: the tallest label along a
+    /// horizontal axis, the widest along a vertical one.
+    fn tick_label_band_extent(&self, labels: &[String], font: &FontSource, s: f64) -> f64 {
+        labels
             .iter()
             .filter(|label| !label.is_empty())
             .map(|label| {
@@ -636,7 +636,7 @@ impl Axis {
         &self,
         renderer: &mut dyn Renderer,
         axes_bbox: &Bbox,
-        ticks: &[f64],
+        tick_labels: &[String],
         font: &FontSource,
         s: f64,
     ) {
@@ -648,7 +648,7 @@ impl Axis {
         }
         let gc = GraphicsContext::new();
         let rich = layout_rich_text(font, label, self.axis_label_size * s);
-        let tick_label_extent = self.tick_label_band_extent(ticks, font, s);
+        let tick_label_extent = self.tick_label_band_extent(tick_labels, font, s);
         let label_offset =
             (self.tick_length + self.tick_label_pad + self.axis_label_pad) * s + tick_label_extent;
         let transform = match self.side {
@@ -772,6 +772,25 @@ impl Axis {
 mod tests {
     use super::*;
     use crate::axis::ticker::{FixedFormatter, FixedLocator, NullLocator};
+
+    /// Fixed labels are paired with fixed positions by index in the locator's
+    /// full output, not among the ticks that happen to be in view: clipping
+    /// the first position out of range must drop its label with it.
+    #[test]
+    fn visible_ticks_pairs_labels_before_range_filter() {
+        let mut axis = Axis::new(AxisSide::Bottom);
+        axis.set_locator(Box::new(FixedLocator::new(vec![-1.0, 0.0, 1.0, 2.0])));
+        axis.set_formatter(Box::new(FixedFormatter::from_labels(["a", "b", "c", "d"])));
+
+        let (ticks, labels) = axis.visible_ticks((0.0, 2.0));
+        assert_eq!(ticks, vec![0.0, 1.0, 2.0]);
+        assert_eq!(labels, vec!["b", "c", "d"]);
+
+        // Inverted limits clip the same way.
+        let (ticks, labels) = axis.visible_ticks((2.0, 0.0));
+        assert_eq!(ticks, vec![0.0, 1.0, 2.0]);
+        assert_eq!(labels, vec!["b", "c", "d"]);
+    }
 
     /// A [`Renderer`] that counts `draw_path` calls and records the bbox of each
     /// path's vertices (after applying the transform), for assertions.
