@@ -7,7 +7,7 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
-## [Unreleased]
+## [1.13.0] - 2026-09-14
 
 ### Added
 - **`Line2D` in-place setters.** `set_color`, `set_linewidth`, `set_dashes`,
