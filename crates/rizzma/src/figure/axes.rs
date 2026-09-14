@@ -639,8 +639,8 @@ impl Axes {
     /// The line is created with the next property-cycle color (C0, C1, C2, …
     /// across successive calls), advancing the per-axes cycle. To pick a
     /// specific color instead, use [`plot_with_color`](Axes::plot_with_color),
-    /// or overwrite the returned handle, e.g.
-    /// `*ax.plot(x, y) = Line2D::new(x, y).with_color(c)`.
+    /// or restyle the returned handle with the `set_*` setters, e.g.
+    /// `ax.plot(x, y).set_color(c).set_linewidth(2.0)`.
     pub fn plot(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
         let color = self.next_cycle_color();
         self.stick_x_extremes(x);
@@ -706,6 +706,32 @@ impl Axes {
     #[must_use]
     pub fn line_count(&self) -> usize {
         self.lines.len()
+    }
+
+    /// The [`Line2D`] artists on this axes, in the order they were added.
+    #[must_use]
+    pub fn lines(&self) -> &[Line2D] {
+        &self.lines
+    }
+
+    /// Mutable access to the [`Line2D`] artists on this axes, in the order
+    /// they were added, for restyling after the fact:
+    ///
+    /// ```
+    /// use rizzma::artist::Artist;
+    /// use rizzma::core::Bbox;
+    /// use rizzma::figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
+    /// ax.plot(&[0.0, 1.0], &[1.0, 0.0]);
+    /// for line in ax.lines_mut() {
+    ///     line.set_visible(false);
+    /// }
+    /// assert!(ax.lines().iter().all(|l| !l.visible()));
+    /// ```
+    pub fn lines_mut(&mut self) -> &mut [Line2D] {
+        &mut self.lines
     }
 
     /// Show or hide the x axis' tick labels and axis label (tick marks and

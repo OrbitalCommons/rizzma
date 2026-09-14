@@ -11,9 +11,13 @@ use crate::artist::Artist;
 
 /// A 2D line: a stroked polyline through paired `x`/`y` data.
 ///
-/// Constructed with [`Line2D::new`], then customized with the builder-style
-/// setters. The defaults mirror matplotlib: opaque black, `1.5`-point width,
-/// butt caps, miter joins, visible, and zorder `2.0`.
+/// Constructed with [`Line2D::new`], then customized either with the
+/// consuming `with_*` builders (`Line2D::new(x, y).with_color(c)`) or, on a
+/// line that already lives on an axes, with the `&mut self` `set_*` setters
+/// (`ax.plot(&x, &y).set_color(c)`). Each `with_*` delegates to its `set_*`
+/// twin, so the two families are always in sync. The defaults mirror
+/// matplotlib: opaque black, `1.5`-point width, butt caps, miter joins,
+/// visible, and zorder `2.0`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Line2D {
     /// X coordinates of the data points, in data space.
@@ -73,17 +77,60 @@ impl Line2D {
         self
     }
 
+    /// Set the stroke color in place.
+    pub fn set_color(&mut self, color: Rgba) -> &mut Self {
+        self.color = color;
+        self
+    }
+
+    /// Set the stroke width in points in place.
+    pub fn set_linewidth(&mut self, linewidth: f64) -> &mut Self {
+        self.linewidth = linewidth;
+        self
+    }
+
+    /// Set the dash pattern as `(offset, on_off_lengths)` in points in place;
+    /// `None` draws a solid stroke.
+    pub fn set_dashes(&mut self, dashes: Option<(f64, Vec<f64>)>) -> &mut Self {
+        self.dashes = dashes;
+        self
+    }
+
+    /// Set the line cap style in place.
+    pub fn set_cap(&mut self, cap: CapStyle) -> &mut Self {
+        self.cap = cap;
+        self
+    }
+
+    /// Set the line join style in place.
+    pub fn set_join(&mut self, join: JoinStyle) -> &mut Self {
+        self.join = join;
+        self
+    }
+
+    /// Show or hide the line in place.
+    pub fn set_visible(&mut self, visible: bool) -> &mut Self {
+        self.visible = visible;
+        self
+    }
+
+    /// Set the stacking order in place; higher draws on top.
+    pub fn set_zorder(&mut self, zorder: f64) -> &mut Self {
+        self.zorder = zorder;
+        self
+    }
+
     /// Set the stroke color, returning `self` for chaining.
     #[must_use]
     pub fn with_color(mut self, color: Rgba) -> Self {
-        self.color = color;
+        self.set_color(color);
         self
     }
 
     /// Set the stroke width in points, returning `self` for chaining.
     #[must_use]
     pub fn with_linewidth(mut self, linewidth: f64) -> Self {
-        self.linewidth = linewidth;
+        self.set_linewidth(linewidth);
         self
     }
 
@@ -91,35 +138,35 @@ impl Line2D {
     /// `self` for chaining.
     #[must_use]
     pub fn with_dashes(mut self, dashes: Option<(f64, Vec<f64>)>) -> Self {
-        self.dashes = dashes;
+        self.set_dashes(dashes);
         self
     }
 
     /// Set the line cap style, returning `self` for chaining.
     #[must_use]
     pub fn with_cap(mut self, cap: CapStyle) -> Self {
-        self.cap = cap;
+        self.set_cap(cap);
         self
     }
 
     /// Set the line join style, returning `self` for chaining.
     #[must_use]
     pub fn with_join(mut self, join: JoinStyle) -> Self {
-        self.join = join;
+        self.set_join(join);
         self
     }
 
     /// Set whether the line is drawn, returning `self` for chaining.
     #[must_use]
     pub fn with_visible(mut self, visible: bool) -> Self {
-        self.visible = visible;
+        self.set_visible(visible);
         self
     }
 
     /// Set the stacking order, returning `self` for chaining.
     #[must_use]
     pub fn with_zorder(mut self, zorder: f64) -> Self {
-        self.zorder = zorder;
+        self.set_zorder(zorder);
         self
     }
 
@@ -241,6 +288,34 @@ impl Line2D {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The `set_*` setters and the `with_*` builders must produce identical
+    /// lines, so styling through a `&mut Line2D` handle is never a second-class
+    /// path.
+    #[test]
+    fn set_and_with_setters_agree() {
+        let built = Line2D::new(vec![0.0, 1.0], vec![0.0, 1.0])
+            .with_color(Rgba::RED)
+            .with_linewidth(3.0)
+            .with_dashes(Some((0.0, vec![4.0, 2.0])))
+            .with_cap(CapStyle::Round)
+            .with_join(JoinStyle::Round)
+            .with_visible(false)
+            .with_zorder(7.0);
+
+        let mut set = Line2D::new(vec![0.0, 1.0], vec![0.0, 1.0]);
+        set.set_color(Rgba::RED)
+            .set_linewidth(3.0)
+            .set_dashes(Some((0.0, vec![4.0, 2.0])))
+            .set_cap(CapStyle::Round)
+            .set_join(JoinStyle::Round)
+            .set_visible(false)
+            .set_zorder(7.0);
+
+        assert_eq!(built, set);
+        assert_eq!(set.color(), Rgba::RED);
+        assert!(!set.visible());
+    }
 
     /// A [`Renderer`] that records, per `draw_path` call, the path's vertex
     /// count and the stroke color from the [`GraphicsContext`].
