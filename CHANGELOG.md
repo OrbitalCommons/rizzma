@@ -40,6 +40,13 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   side effect on the axes. (#306)
 
 ### Fixed
+- `Line2D` breaks its stroke at non-finite samples. A `NaN` (or `±inf`) in
+  `x` or `y` now lifts the pen — the points on either side are not joined —
+  matching matplotlib's idiom for a series with missing data. Previously the
+  raw coordinates went straight to the renderer, joining across the gap or
+  producing an undefined vertex depending on the backend. `data_extents`
+  already ignored those samples; drawing is now consistent with it. The new
+  `Line2D::path` exposes the gap-aware path. (#302)
 - Position-indexed formatters (`FixedFormatter`) now pair label `i` with the
   locator's `i`-th position even when earlier positions fall outside the
   view; labels were previously assigned after out-of-range ticks were

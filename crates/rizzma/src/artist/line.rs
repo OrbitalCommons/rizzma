@@ -2,9 +2,11 @@
 //!
 //! Mirrors matplotlib's `Line2D` for the stroke-only case (markers are deferred
 //! to a follow-up). Drawing zips the `x`/`y` data into points, builds a
-//! [`Path::from_polyline`], and strokes it through the [`Renderer`].
+//! [`Path`] via [`Line2D::path`] — one subpath per run of finite points, so a
+//! `NaN` is a gap in the stroke rather than a joined vertex — and strokes it
+//! through the [`Renderer`].
 
-use crate::core::{Affine2D, Bbox, Path, color::Rgba};
+use crate::core::{Affine2D, Bbox, Path, PathCode, color::Rgba};
 use crate::render::{CapStyle, GraphicsContext, JoinStyle, Renderer};
 
 use crate::artist::Artist;
@@ -50,7 +52,9 @@ impl Line2D {
     /// visible, and zorder `2.0`.
     ///
     /// The `x` and `y` vectors are paired index-wise at draw time; only the
-    /// common prefix is drawn if they differ in length.
+    /// common prefix is drawn if they differ in length. A non-finite `x` or `y`
+    /// (`NaN`, `±inf`) breaks the stroke: the points before and after it are
+    /// not joined, matplotlib's idiom for a series with missing samples.
     #[must_use]
     pub fn new(xdata: Vec<f64>, ydata: Vec<f64>) -> Self {
         Self {
@@ -208,6 +212,35 @@ impl Line2D {
             .collect()
     }
 
+    /// The data-space stroke path: one subpath per run of two or more
+    /// consecutive finite points.
+    ///
+    /// A non-finite `x` or `y` ends the current run without adding a vertex,
+    /// so the stroke lifts across the gap instead of joining its neighbours
+    /// (matplotlib treats `NaN` as a break). Isolated finite points between
+    /// gaps have no stroke and are dropped. Without gaps the result is the
+    /// plain implicit polyline (`codes` is `None`); with gaps every vertex is
+    /// coded, each run opening with a [`PathCode::MoveTo`].
+    #[must_use]
+    pub fn path(&self) -> Path {
+        let points = self.points();
+        if points.iter().all(|[x, y]| x.is_finite() && y.is_finite()) {
+            return Path::from_polyline(&points);
+        }
+
+        let mut vertices: Vec<[f64; 2]> = Vec::with_capacity(points.len());
+        let mut codes: Vec<PathCode> = Vec::with_capacity(points.len());
+        for run in points
+            .split(|[x, y]| !x.is_finite() || !y.is_finite())
+            .filter(|run| run.len() >= 2)
+        {
+            vertices.extend_from_slice(run);
+            codes.push(PathCode::MoveTo);
+            codes.extend(std::iter::repeat_n(PathCode::LineTo, run.len() - 1));
+        }
+        Path::new(vertices, Some(codes))
+    }
+
     /// Draw this line's stroke style against an already-built data-space path.
     ///
     /// This lets an owning axes pre-transform nonlinear-scale geometry while
@@ -233,12 +266,7 @@ impl Artist for Line2D {
         if !self.visible {
             return;
         }
-        let points = self.points();
-        if points.len() < 2 {
-            return;
-        }
-        let path = Path::from_polyline(&points);
-        self.draw_path(renderer, &path, transform);
+        self.draw_path(renderer, &self.path(), transform);
     }
 
     fn zorder(&self) -> f64 {
@@ -317,6 +345,82 @@ impl Line2D {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_without_gaps_is_the_implicit_polyline() {
+        let line = Line2D::new(vec![0.0, 1.0, 2.0], vec![0.0, 1.0, 0.5]);
+        let path = line.path();
+        assert_eq!(path.vertices(), &[[0.0, 0.0], [1.0, 1.0], [2.0, 0.5]]);
+        assert!(path.codes().is_none());
+    }
+
+    #[test]
+    fn nan_splits_the_stroke_into_subpaths() {
+        // 0-1 joined, gap, 3-4 joined: the stroke must not bridge 1.0 -> 3.0.
+        let line = Line2D::new(
+            vec![0.0, 1.0, 2.0, 3.0, 4.0],
+            vec![0.0, 1.0, f64::NAN, 3.0, 4.0],
+        );
+        let path = line.path();
+        assert_eq!(
+            path.vertices(),
+            &[[0.0, 0.0], [1.0, 1.0], [3.0, 3.0], [4.0, 4.0]]
+        );
+        assert_eq!(
+            path.codes(),
+            Some(
+                [
+                    PathCode::MoveTo,
+                    PathCode::LineTo,
+                    PathCode::MoveTo,
+                    PathCode::LineTo,
+                ]
+                .as_slice()
+            )
+        );
+        let subpaths = path.flatten(0.1);
+        assert_eq!(subpaths.len(), 2, "one flattened polyline per finite run");
+    }
+
+    #[test]
+    fn non_finite_x_and_isolated_points_are_gaps_too() {
+        // inf in x breaks the run; the lone finite point at index 3 has no
+        // stroke and is dropped; the trailing pair survives.
+        let line = Line2D::new(
+            vec![0.0, 1.0, f64::INFINITY, 3.0, f64::NAN, 5.0, 6.0],
+            vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        );
+        let path = line.path();
+        assert_eq!(
+            path.vertices(),
+            &[[0.0, 0.0], [1.0, 1.0], [5.0, 5.0], [6.0, 6.0]]
+        );
+        // Extents still ignore only the non-finite samples themselves.
+        let e = line.data_extents().unwrap();
+        assert_eq!((e.xmin(), e.xmax()), (0.0, 6.0));
+    }
+
+    #[test]
+    fn all_gaps_draws_nothing() {
+        let line = Line2D::new(vec![0.0, 1.0], vec![f64::NAN, f64::NAN]);
+        assert!(line.path().vertices().is_empty());
+        let mut r = MockRenderer::default();
+        line.draw(&mut r, &Affine2D::identity());
+        assert!(r.calls.is_empty());
+    }
+
+    #[test]
+    fn gapped_line_strokes_only_finite_vertices() {
+        let line = Line2D::new(
+            vec![0.0, 1.0, 2.0, 3.0, 4.0],
+            vec![0.0, 1.0, f64::NAN, 3.0, 4.0],
+        );
+        let mut r = MockRenderer::default();
+        line.draw(&mut r, &Affine2D::identity());
+        // One draw_path call carrying the four finite vertices (two runs).
+        assert_eq!(r.calls.len(), 1);
+        assert_eq!(r.calls[0].0, 4);
+    }
 
     /// The `set_*` setters and the `with_*` builders must produce identical
     /// lines, so styling through a `&mut Line2D` handle is never a second-class
