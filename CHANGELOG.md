@@ -7,6 +7,17 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [Unreleased]
+
+### Added
+- **`Line2D` in-place setters.** `set_color`, `set_linewidth`, `set_dashes`,
+  `set_cap`, `set_join`, `set_visible`, and `set_zorder` take `&mut self`, so
+  the `&mut Line2D` returned by `Axes::plot` can actually be styled
+  (`ax.plot(&x, &y).set_color(c)`) instead of overwritten wholesale. The
+  consuming `with_*` builders now delegate to them. `Axes::lines` /
+  `Axes::lines_mut` expose the plotted lines for post-hoc restyling, e.g.
+  toggling visibility without rebuilding the figure. (#305)
+
 ## [1.12.0] - 2026-08-29
 
 ### Added
