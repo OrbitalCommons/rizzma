@@ -38,6 +38,10 @@ pub struct Line2D {
     visible: bool,
     /// Stacking order; higher draws on top.
     zorder: f64,
+    /// Legend label, collected by
+    /// [`Axes::legend_auto`](crate::figure::Axes::legend_auto); `None` for an
+    /// anonymous line.
+    label: Option<String>,
 }
 
 impl Line2D {
@@ -59,7 +63,14 @@ impl Line2D {
             join: JoinStyle::Miter,
             visible: true,
             zorder: 2.0,
+            label: None,
         }
+    }
+
+    /// The legend label, if any.
+    #[must_use]
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
     }
 
     /// The stroke color.
@@ -120,6 +131,15 @@ impl Line2D {
         self
     }
 
+    /// Set the legend label in place. Labels are collected by
+    /// [`Axes::legend_auto`](crate::figure::Axes::legend_auto); a label
+    /// starting with `_` is kept on the line but never shown in a legend, as
+    /// in matplotlib.
+    pub fn set_label(&mut self, label: impl Into<String>) -> &mut Self {
+        self.label = Some(label.into());
+        self
+    }
+
     /// Set the stroke color, returning `self` for chaining.
     #[must_use]
     pub fn with_color(mut self, color: Rgba) -> Self {
@@ -167,6 +187,14 @@ impl Line2D {
     #[must_use]
     pub fn with_zorder(mut self, zorder: f64) -> Self {
         self.set_zorder(zorder);
+        self
+    }
+
+    /// Set the legend label, returning `self` for chaining; see
+    /// [`set_label`](Line2D::set_label).
+    #[must_use]
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.set_label(label);
         self
     }
 
@@ -262,7 +290,7 @@ impl Line2D {
             join: self.join,
             visible: self.visible,
             zorder: self.zorder,
-            label: None,
+            label: self.label.clone(),
         }
     }
 
@@ -281,6 +309,7 @@ impl Line2D {
             join: spec.join,
             visible: spec.visible,
             zorder: spec.zorder,
+            label: spec.label.clone(),
         })
     }
 }
@@ -301,7 +330,8 @@ mod tests {
             .with_cap(CapStyle::Round)
             .with_join(JoinStyle::Round)
             .with_visible(false)
-            .with_zorder(7.0);
+            .with_zorder(7.0)
+            .with_label("p50");
 
         let mut set = Line2D::new(vec![0.0, 1.0], vec![0.0, 1.0]);
         set.set_color(Rgba::RED)
@@ -310,11 +340,14 @@ mod tests {
             .set_cap(CapStyle::Round)
             .set_join(JoinStyle::Round)
             .set_visible(false)
-            .set_zorder(7.0);
+            .set_zorder(7.0)
+            .set_label("p50");
 
         assert_eq!(built, set);
         assert_eq!(set.color(), Rgba::RED);
         assert!(!set.visible());
+        assert_eq!(set.label(), Some("p50"));
+        assert_eq!(Line2D::new(vec![], vec![]).label(), None);
     }
 
     /// A [`Renderer`] that records, per `draw_path` call, the path's vertex

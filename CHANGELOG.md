@@ -22,6 +22,16 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   arbitrary strings (category names, release ids, …) without implementing
   `Locator` / `Formatter` by hand — a `FixedLocator` / `FixedFormatter` pair,
   as in matplotlib. (#303)
+- **Per-artist labels and `Axes::legend_auto`.** `Line2D` and `Patch` carry
+  an optional legend label (`with_label` / `set_label` / `label`), and
+  `legend_auto()` builds the legend from them — matplotlib's bare
+  `ax.legend()`. Entries are keyed on the artist's own color, so restyling a
+  series can no longer leave a confidently wrong legend; `_`-prefixed and
+  empty labels are skipped and a label shared by several artists (a series
+  split into runs) yields one row. Labels round-trip through portable
+  figures, whose wire model already reserved the slot. The explicit
+  `legend(entries)` remains for legends that are not one-to-one with
+  artists. (#304, #286)
 
 ### Fixed
 - Position-indexed formatters (`FixedFormatter`) now pair label `i` with the
