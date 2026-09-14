@@ -17,6 +17,18 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   consuming `with_*` builders now delegate to them. `Axes::lines` /
   `Axes::lines_mut` expose the plotted lines for post-hoc restyling, e.g.
   toggling visibility without rebuilding the figure. (#305)
+- **Explicit ticks: `Axes::set_xticks` / `set_xticklabels` and the `y`
+  twins.** Pin major ticks to exact data positions and label them with
+  arbitrary strings (category names, release ids, …) without implementing
+  `Locator` / `Formatter` by hand — a `FixedLocator` / `FixedFormatter` pair,
+  as in matplotlib. (#303)
+
+### Fixed
+- Position-indexed formatters (`FixedFormatter`) now pair label `i` with the
+  locator's `i`-th position even when earlier positions fall outside the
+  view; labels were previously assigned after out-of-range ticks were
+  dropped, shifting every remaining label. Matches matplotlib's
+  format-then-clip order.
 
 ## [1.12.0] - 2026-08-29
 

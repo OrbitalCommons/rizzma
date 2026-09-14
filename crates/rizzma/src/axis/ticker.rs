@@ -90,9 +90,9 @@ pub trait Locator: Send + Sync {
 /// Format a tick value into a label string.
 ///
 /// This is the Rust analogue of matplotlib's `Formatter` base class. `pos` is
-/// the index of the tick among the visible ticks (matplotlib passes `None` in
-/// some contexts), and is used by position-based formatters such as
-/// [`FixedFormatter`].
+/// the index of the tick in the locator's full output — before ticks outside
+/// the view are clipped (matplotlib passes `None` in some contexts) — and is
+/// used by position-based formatters such as [`FixedFormatter`].
 pub trait Formatter: Send + Sync {
     /// Return the label for `value` at the optional position index `pos`.
     fn format(&self, value: f64, pos: Option<usize>) -> String;

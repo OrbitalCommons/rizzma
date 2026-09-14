@@ -19,8 +19,9 @@ use crate::axis::axis::{Axis, AxisSide};
 use crate::axis::dates::{AutoDateLocator, ConciseDateFormatter};
 use crate::axis::scale::{AsinhScale, LinearScale, LogScale, LogitScale, Scale, SymlogScale};
 use crate::axis::ticker::{
-    AsinhFormatterMathtext, AsinhLocator, AutoLocator, LogFormatterMathtext, LogLocator,
-    LogitFormatterMathtext, LogitLocator, ScalarFormatter, SymlogFormatterMathtext, SymlogLocator,
+    AsinhFormatterMathtext, AsinhLocator, AutoLocator, FixedFormatter, FixedLocator,
+    LogFormatterMathtext, LogLocator, LogitFormatterMathtext, LogitLocator, ScalarFormatter,
+    SymlogFormatterMathtext, SymlogLocator,
 };
 use crate::core::color::{DEFAULT_COLOR_CYCLE, Rgba};
 use crate::core::rcparams::RcParams;
@@ -1300,6 +1301,64 @@ impl Axes {
             .set_scale(Box::new(LinearScale::new()))
             .set_locator(Box::new(AutoDateLocator::new()))
             .set_formatter(Box::new(ConciseDateFormatter::new()));
+        self
+    }
+
+    /// Pin the x-axis major ticks to exactly `ticks` (data coordinates).
+    ///
+    /// Installs a [`FixedLocator`] in place of the automatic one, mirroring
+    /// matplotlib's `set_xticks`. The formatter is left alone, so the fixed
+    /// positions still get numeric labels until
+    /// [`set_xticklabels`](Axes::set_xticklabels) supplies explicit text. The
+    /// axis limits are not changed: ticks outside the current view are simply
+    /// not drawn.
+    ///
+    /// ```
+    /// use rizzma::core::Bbox;
+    /// use rizzma::figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.plot(&[0.0, 1.0, 2.0], &[3.0, 1.0, 2.0]);
+    /// ax.set_xticks(&[0.0, 1.0, 2.0])
+    ///     .set_xticklabels(&["opus", "sonnet", "haiku"]);
+    /// ```
+    pub fn set_xticks(&mut self, ticks: &[f64]) -> &mut Self {
+        self.xaxis
+            .set_locator(Box::new(FixedLocator::new(ticks.to_vec())));
+        self
+    }
+
+    /// Label the x-axis major ticks with exactly `labels`, one per position.
+    ///
+    /// Installs a [`FixedFormatter`], mirroring matplotlib's `set_xticklabels`.
+    /// Label `i` is drawn at the locator's `i`-th tick, so this is meant to
+    /// follow [`set_xticks`](Axes::set_xticks) with a slice of the same
+    /// length; positions past the end of `labels` draw unlabelled. Pairing it
+    /// with an automatic locator produces data-dependent, meaningless
+    /// pairings, exactly as in matplotlib.
+    pub fn set_xticklabels<S: AsRef<str>>(&mut self, labels: &[S]) -> &mut Self {
+        self.xaxis
+            .set_formatter(Box::new(FixedFormatter::from_labels(
+                labels.iter().map(AsRef::as_ref),
+            )));
+        self
+    }
+
+    /// Pin the y-axis major ticks to exactly `ticks` (data coordinates); see
+    /// [`set_xticks`](Axes::set_xticks).
+    pub fn set_yticks(&mut self, ticks: &[f64]) -> &mut Self {
+        self.yaxis
+            .set_locator(Box::new(FixedLocator::new(ticks.to_vec())));
+        self
+    }
+
+    /// Label the y-axis major ticks with exactly `labels`, one per position;
+    /// see [`set_xticklabels`](Axes::set_xticklabels).
+    pub fn set_yticklabels<S: AsRef<str>>(&mut self, labels: &[S]) -> &mut Self {
+        self.yaxis
+            .set_formatter(Box::new(FixedFormatter::from_labels(
+                labels.iter().map(AsRef::as_ref),
+            )));
         self
     }
 
@@ -2964,6 +3023,28 @@ mod tests {
         y_axes.asinhy(&[-1.0, 0.0, 1.0], &[-10.0, 0.0, 10.0]);
         assert_eq!(y_axes.xscale, ScaleSpec::Linear);
         assert_eq!(y_axes.yscale, ScaleSpec::Asinh { linear_width: 1.0 });
+    }
+
+    #[test]
+    fn explicit_ticks_and_labels_pair_by_position() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        ax.set_xticks(&[0.0, 1.0, 2.0])
+            .set_xticklabels(&["opus", "sonnet", "haiku"]);
+        ax.set_yticks(&[10.0, 20.0])
+            .set_yticklabels(&[String::from("low"), String::from("high")]);
+
+        let (xt, xl) = ax.xaxis.visible_ticks((0.0, 2.0));
+        assert_eq!(xt, vec![0.0, 1.0, 2.0]);
+        assert_eq!(xl, vec!["opus", "sonnet", "haiku"]);
+
+        // Ticks outside the view are dropped together with their labels.
+        let (xt, xl) = ax.xaxis.visible_ticks((0.5, 2.5));
+        assert_eq!(xt, vec![1.0, 2.0]);
+        assert_eq!(xl, vec!["sonnet", "haiku"]);
+
+        let (yt, yl) = ax.yaxis.visible_ticks((0.0, 30.0));
+        assert_eq!(yt, vec![10.0, 20.0]);
+        assert_eq!(yl, vec!["low", "high"]);
     }
 
     #[test]
