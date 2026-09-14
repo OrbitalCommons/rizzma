@@ -105,6 +105,39 @@ impl Axes {
     /// (alpha `0.4`) with no edge. Only the common prefix of the three slices is
     /// used.
     pub fn fill_between(&mut self, x: &[f64], y1: &[f64], y2: &[f64]) {
+        let face = self
+            .cycle_color(self.prop_cycle_index)
+            .with_alpha(FILL_ALPHA);
+        self.fill_between_face(x, y1, y2, face);
+    }
+
+    /// Fill the region between the curves `(x, y1)` and `(x, y2)` with an
+    /// explicit face `color`.
+    ///
+    /// Like [`fill_between`](Axes::fill_between), but the property cycle is
+    /// not consulted and `color` is used exactly as given (no alpha is
+    /// applied; pass a translucent [`Rgba`] for the usual see-through band).
+    ///
+    /// ```
+    /// use rizzma::core::{Bbox, Rgba};
+    /// use rizzma::figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// let x = [0.0, 1.0, 2.0];
+    /// let lo = [0.0, 1.0, 0.5];
+    /// let hi = [1.0, 2.0, 1.5];
+    /// ax.fill_between_with_color(&x, &lo, &hi, Rgba::RED.with_alpha(0.3));
+    /// let limits = ax.data_limits().expect("the band contributes data limits");
+    /// assert_eq!((limits.ymin(), limits.ymax()), (0.0, 2.0));
+    /// ```
+    pub fn fill_between_with_color(&mut self, x: &[f64], y1: &[f64], y2: &[f64], color: Rgba) {
+        self.fill_between_face(x, y1, y2, color);
+    }
+
+    /// Shared body of the `fill_between` family: one closed polygon tracing
+    /// `(x, y1)` forward then `(x, y2)` back, filled with `face`, no edge.
+    /// Only the common prefix of the three slices is used.
+    fn fill_between_face(&mut self, x: &[f64], y1: &[f64], y2: &[f64], face: Rgba) {
         let n = x.len().min(y1.len()).min(y2.len());
         if n == 0 {
             return;
@@ -116,9 +149,6 @@ impl Axes {
         for i in (0..n).rev() {
             points.push([x[i], y2[i]]);
         }
-        let face = self
-            .cycle_color(self.prop_cycle_index)
-            .with_alpha(FILL_ALPHA);
         let patch = Patch::polygon(&points)
             .facecolor(Some(face))
             .edgecolor(None);
@@ -250,6 +280,24 @@ mod tests {
     use super::*;
     use crate::artist::Artist;
     use crate::core::Bbox;
+
+    #[test]
+    fn fill_between_with_color_uses_the_color_verbatim() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        let x = [0.0, 1.0, 2.0];
+        let lo = [0.0, 1.0, 0.5];
+        let hi = [1.0, 2.0, 1.5];
+        let ink = Rgba::RED.with_alpha(0.3);
+        ax.fill_between_with_color(&x, &lo, &hi, ink);
+        assert_eq!(ax.patches.len(), 1);
+        assert_eq!(ax.patches[0].face(), Some(ink));
+        // The default variant still tints the cycle color instead.
+        ax.fill_between(&x, &lo, &hi);
+        assert_eq!(
+            ax.patches[1].face(),
+            Some(ax.cycle_color(0).with_alpha(FILL_ALPHA))
+        );
+    }
 
     fn approx(a: f64, b: f64) {
         assert!((a - b).abs() < 1e-9, "expected {b}, got {a}");
