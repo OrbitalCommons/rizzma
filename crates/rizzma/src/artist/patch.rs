@@ -56,6 +56,10 @@ pub struct Patch {
     visible: bool,
     /// Stacking order; higher draws on top.
     zorder: f64,
+    /// Legend label, collected by
+    /// [`Axes::legend_auto`](crate::figure::Axes::legend_auto); `None` for an
+    /// anonymous patch.
+    label: Option<String>,
 }
 
 impl Patch {
@@ -74,6 +78,7 @@ impl Patch {
             join: JoinStyle::Miter,
             visible: true,
             zorder: 1.0,
+            label: None,
         }
     }
 
@@ -195,6 +200,12 @@ impl Patch {
         Self::new(Path::from_polyline(&verts)).facecolor(None)
     }
 
+    /// The fill color, or `None` when unfilled (matplotlib's `get_facecolor`).
+    #[must_use]
+    pub fn face(&self) -> Option<Rgba> {
+        self.facecolor
+    }
+
     /// Set the fill color (or `None` for unfilled), returning `self` for
     /// chaining.
     #[must_use]
@@ -238,6 +249,34 @@ impl Patch {
     pub fn with_visible(mut self, visible: bool) -> Self {
         self.visible = visible;
         self
+    }
+
+    /// Set the legend label, returning `self` for chaining. Labels are
+    /// collected by [`Axes::legend_auto`](crate::figure::Axes::legend_auto),
+    /// which keys the entry on the face color (or the edge color when
+    /// unfilled); a label starting with `_` is never shown, as in matplotlib.
+    #[must_use]
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.set_label(label);
+        self
+    }
+
+    /// Set the legend label in place; see [`with_label`](Patch::with_label).
+    pub fn set_label(&mut self, label: impl Into<String>) -> &mut Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// The legend label, if any.
+    #[must_use]
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
+    /// The edge (stroke) color, or `None` when the patch has no edge.
+    #[must_use]
+    pub fn edge(&self) -> Option<Rgba> {
+        self.edgecolor
     }
 
     /// The data-space path traced by this patch.
@@ -302,7 +341,7 @@ impl Patch {
             join: self.join,
             visible: self.visible,
             zorder: self.zorder,
-            label: None,
+            label: self.label.clone(),
         }
     }
 
@@ -321,6 +360,7 @@ impl Patch {
             join: spec.join,
             visible: spec.visible,
             zorder: spec.zorder,
+            label: spec.label.clone(),
         })
     }
 }

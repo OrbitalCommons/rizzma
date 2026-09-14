@@ -1,9 +1,10 @@
 //! Axes legend: a small keyed box of color samples and labels.
 //!
-//! [`Axes::legend`] stores a list of `(color, label)` entries; [`Axes::draw`]
-//! renders them as a boxed key in the upper-right corner inside the axes. Each
-//! row pairs a short colored line sample with its label, drawn via
-//! [`FontSource::text_to_path`].
+//! [`Axes::legend`] stores a list of `(color, label)` entries and
+//! [`Axes::legend_auto`] derives them from the artists' own labels;
+//! [`Axes::draw`] renders them as a boxed key in the upper-right corner inside
+//! the axes. Each row pairs a short colored line sample with its label, drawn
+//! via [`FontSource::text_to_path`].
 
 use crate::core::{Affine2D, Bbox, Path, color::Rgba};
 use crate::render::{GraphicsContext, Renderer};
@@ -60,14 +61,71 @@ impl Axes {
     /// Add a legend keyed by explicit `(color, label)` entries.
     ///
     /// The legend is drawn as a boxed key in the upper-right corner inside the
-    /// axes, one row per entry. Calling this replaces any previously set legend.
+    /// axes, one row per entry. Calling this replaces any previously set
+    /// entries. For a legend that follows the artists themselves, label them
+    /// and call [`legend_auto`](Axes::legend_auto) instead.
     ///
-    // TODO: auto-collect from artist labels + best-location search.
+    // TODO: best-location search.
     pub fn legend(&mut self, entries: Vec<(Rgba, String)>) -> &mut Self {
         self.legend = entries
             .into_iter()
             .map(|(color, label)| LegendEntry { color, label })
             .collect();
+        self
+    }
+
+    /// Build the legend from the artists' own labels — matplotlib's bare
+    /// `ax.legend()`.
+    ///
+    /// Walks every [`Line2D`](crate::artist::Line2D), then every
+    /// [`Patch`](crate::artist::Patch), in insertion order and adds one row per
+    /// labelled artist, keyed by the artist's color: a line's stroke, a patch's
+    /// face (or its edge when unfilled). Because the color is read from the
+    /// artist, the legend cannot drift from the plot when a series is restyled.
+    ///
+    /// Skipped, as in matplotlib: unlabelled artists, empty labels, and labels
+    /// starting with `_`. A label shared by several artists — a series split
+    /// into runs, or one line per interval — yields a single row colored by its
+    /// first artist, so callers need not de-duplicate. Replaces any previously
+    /// set entries; the title and location are kept.
+    ///
+    /// ```
+    /// use rizzma::artist::Line2D;
+    /// use rizzma::core::{Bbox, Rgba};
+    /// use rizzma::figure::Axes;
+    ///
+    /// let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+    /// ax.plot(&[0.0, 1.0], &[0.0, 1.0]).set_label("p50");
+    /// ax.add_line(Line2D::new(vec![0.0, 1.0], vec![1.0, 2.0])
+    ///     .with_color(Rgba::RED)
+    ///     .with_label("p95"));
+    /// ax.plot(&[0.0, 1.0], &[2.0, 3.0]).set_label("_guide");
+    /// ax.legend_auto();
+    /// ```
+    pub fn legend_auto(&mut self) -> &mut Self {
+        let lines = self
+            .lines
+            .iter()
+            .filter_map(|line| line.label().map(|label| (line.color(), label)));
+        let patches = self.patches.iter().filter_map(|patch| {
+            let color = patch.face().or_else(|| patch.edge())?;
+            patch.label().map(|label| (color, label))
+        });
+
+        let mut entries: Vec<LegendEntry> = Vec::new();
+        for (color, label) in lines.chain(patches) {
+            if label.is_empty() || label.starts_with('_') {
+                continue;
+            }
+            if entries.iter().any(|e| e.label == label) {
+                continue;
+            }
+            entries.push(LegendEntry {
+                color,
+                label: label.to_owned(),
+            });
+        }
+        self.legend = entries;
         self
     }
 
@@ -248,6 +306,92 @@ fn rect_path(bbox: &Bbox) -> Path {
 
 #[cfg(test)]
 mod tests {
+    use super::Axes;
+    use crate::artist::{Line2D, Patch};
+    use crate::core::Bbox;
+
+    #[test]
+    fn legend_auto_collects_labelled_artists_in_order() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        ax.plot(&[0.0, 1.0], &[0.0, 1.0]).set_label("p50");
+        let c0 = ax.lines()[0].color();
+        ax.add_line(
+            Line2D::new(vec![0.0, 1.0], vec![1.0, 2.0])
+                .with_color(Rgba::RED)
+                .with_label("p95"),
+        );
+        // Anonymous, empty, and underscore-prefixed labels are skipped.
+        ax.plot(&[0.0, 1.0], &[2.0, 3.0]);
+        ax.plot(&[0.0, 1.0], &[2.0, 3.0]).set_label("");
+        ax.plot(&[0.0, 1.0], &[2.0, 3.0]).set_label("_guide");
+        // Patches follow lines and key on the face color.
+        ax.add_patch(
+            Patch::rectangle(0.0, 0.0, 1.0, 1.0)
+                .facecolor(Some(Rgba::GREEN))
+                .with_label("band"),
+        );
+        ax.add_patch(
+            Patch::rectangle(0.0, 0.0, 1.0, 1.0)
+                .facecolor(None)
+                .edgecolor(Some(Rgba::BLUE))
+                .with_label("outline"),
+        );
+
+        ax.legend_auto();
+        let rows: Vec<(Rgba, &str)> = ax
+            .legend
+            .iter()
+            .map(|e| (e.color, e.label.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (c0, "p50"),
+                (Rgba::RED, "p95"),
+                (Rgba::GREEN, "band"),
+                (Rgba::BLUE, "outline"),
+            ]
+        );
+    }
+
+    #[test]
+    fn legend_auto_dedups_by_label_and_tracks_restyling() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        // One logical series drawn as three runs.
+        for run in 0..3 {
+            let x0 = f64::from(run) * 2.0;
+            ax.add_line(
+                Line2D::new(vec![x0, x0 + 1.0], vec![0.0, 1.0])
+                    .with_color(Rgba::RED)
+                    .with_label("camera"),
+            );
+        }
+        ax.legend_auto();
+        assert_eq!(ax.legend.len(), 1);
+        assert_eq!(ax.legend[0].color, Rgba::RED);
+
+        // Recoloring the series and rebuilding follows the artist.
+        for line in ax.lines_mut() {
+            line.set_color(Rgba::BLUE);
+        }
+        ax.legend_auto();
+        assert_eq!(ax.legend.len(), 1);
+        assert_eq!(ax.legend[0].color, Rgba::BLUE);
+    }
+
+    #[test]
+    fn legend_auto_keeps_title_and_location() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        ax.legend_with_title(vec![(Rgba::RED, "stale".to_owned())], "Channels");
+        ax.legend_location = LegendLocation::LowerLeft;
+        ax.plot(&[0.0, 1.0], &[0.0, 1.0]).set_label("fresh");
+        ax.legend_auto();
+        assert_eq!(ax.legend.len(), 1);
+        assert_eq!(ax.legend[0].label, "fresh");
+        assert_eq!(ax.legend_title.as_deref(), Some("Channels"));
+        assert_eq!(ax.legend_location, LegendLocation::LowerLeft);
+    }
+
     use super::LegendLocation;
     use crate::core::color::Rgba;
     use crate::figure::Figure;

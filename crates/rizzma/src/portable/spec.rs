@@ -187,7 +187,7 @@ pub(crate) struct LineSpec {
     pub(crate) join: JoinStyle,
     pub(crate) visible: bool,
     pub(crate) zorder: f64,
-    /// Reserved for per-artist legend labels (issue #286); always `None` today.
+    /// Per-artist legend label, collected by `Axes::legend_auto`.
     pub(crate) label: Option<String>,
 }
 
@@ -205,7 +205,7 @@ pub(crate) struct PatchSpec {
     pub(crate) join: JoinStyle,
     pub(crate) visible: bool,
     pub(crate) zorder: f64,
-    /// Reserved for per-artist legend labels (issue #286); always `None` today.
+    /// Per-artist legend label, collected by `Axes::legend_auto`.
     pub(crate) label: Option<String>,
 }
 
