@@ -495,8 +495,8 @@ impl DrawableArtist<'_> {
     ) {
         match self {
             DrawableArtist::Line(line) => {
-                let points = line.points();
-                let path = Path::from_polyline(&points);
+                // `path()` already lifts the pen across non-finite samples.
+                let path = line.path();
                 let path = mapper.map_path_cow(&path);
                 line.draw_path(renderer, path.as_ref(), transform);
             }

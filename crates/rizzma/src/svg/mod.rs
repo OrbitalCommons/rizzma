@@ -443,6 +443,37 @@ mod tests {
     }
 
     #[test]
+    fn nan_in_line_data_lifts_the_pen() {
+        // Through the full figure pipeline: a NaN sample must yield a second
+        // `M` (moveto) in the line's path data, not a segment across the gap.
+        use crate::artist::Line2D;
+        use crate::figure::Figure;
+        let mut fig = Figure::new(4.0, 3.0);
+        let ax = fig.add_subplot(1, 1, 1);
+        ax.set_axis_off();
+        ax.add_line(Line2D::new(
+            vec![0.0, 1.0, 2.0, 3.0, 4.0],
+            vec![0.0, 1.0, f64::NAN, 3.0, 4.0],
+        ));
+        let svg = fig.to_svg();
+        let line_path = svg
+            .split("<path ")
+            .find(|p| p.contains("fill=\"none\"") && p.contains("stroke=\""))
+            .expect("a stroked line path");
+        let d = line_path
+            .split("d=\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .expect("path data");
+        assert_eq!(d.matches('M').count(), 2, "expected two subpaths in {d}");
+        assert_eq!(
+            d.matches('L').count(),
+            2,
+            "expected one lineto per run in {d}"
+        );
+    }
+
+    #[test]
     fn stroked_polyline_emits_stroke_attrs() {
         let mut r = SvgRenderer::new(100.0, 100.0, 72.0);
         let line = Path::from_polyline(&[[10.0, 50.0], [90.0, 50.0]]);
