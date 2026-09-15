@@ -328,6 +328,12 @@ pub struct Axes {
     xlim: Option<(f64, f64)>,
     /// Explicit y data limits `(min, max)`, or `None` to autoscale.
     ylim: Option<(f64, f64)>,
+    /// Whether autoscaled x limits are drawn descending (matplotlib's
+    /// `xaxis_inverted`). Explicit `xlim` carries its own direction.
+    xinverted: bool,
+    /// Whether autoscaled y limits are drawn descending; see
+    /// [`xinverted`](Axes::xinverted).
+    yinverted: bool,
     /// Fractional margin added on each side when autoscaling.
     margins: f64,
     /// X-axis scale state.
@@ -522,6 +528,8 @@ impl Axes {
             position,
             xlim: None,
             ylim: None,
+            xinverted: false,
+            yinverted: false,
             layout_envelope: None,
             sticky_x: Vec::new(),
             sticky_y: Vec::new(),
@@ -852,9 +860,13 @@ impl Axes {
         self
     }
 
-    /// Reverse the direction of the x-axis while preserving its current limits.
+    /// Reverse the direction of the x-axis.
     ///
-    /// Calling this method again restores the previous direction.
+    /// Explicit limits are swapped in place. Autoscaled limits stay
+    /// autoscaled and are drawn descending, so data plotted after this call
+    /// is still framed (matplotlib's behaviour, and the order a magnitude
+    /// plot is written in). Calling this method again restores the previous
+    /// direction.
     ///
     /// ![inverted axes](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_inverted_axes.png)
     ///
@@ -868,17 +880,20 @@ impl Axes {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn invert_xaxis(&mut self) -> &mut Self {
-        let ((lo, hi), _) = self.effective_limits();
-        self.xlim = Some((hi, lo));
+        match self.xlim {
+            Some((lo, hi)) => self.xlim = Some((hi, lo)),
+            None => self.xinverted = !self.xinverted,
+        }
         self
     }
 
-    /// Reverse the direction of the y-axis while preserving its current limits.
-    ///
-    /// Calling this method again restores the previous direction.
+    /// Reverse the direction of the y-axis; see
+    /// [`invert_xaxis`](Axes::invert_xaxis).
     pub fn invert_yaxis(&mut self) -> &mut Self {
-        let (_, (lo, hi)) = self.effective_limits();
-        self.ylim = Some((hi, lo));
+        match self.ylim {
+            Some((lo, hi)) => self.ylim = Some((hi, lo)),
+            None => self.yinverted = !self.yinverted,
+        }
         self
     }
 
@@ -1767,8 +1782,9 @@ impl Axes {
     ///
     /// Explicit limits are used when set; otherwise the data limits are
     /// expanded by the axes `margins` on each side. With no data at all
-    /// the fallback range is `(0.0, 1.0)`. Zero-width ranges are nudged apart so
-    /// the data transform never divides by zero.
+    /// the fallback range is `(0.0, 1.0)`. An inverted axis reverses its
+    /// autoscaled range. Zero-width ranges are nudged apart so the data
+    /// transform never divides by zero.
     #[must_use]
     pub fn effective_limits(&self) -> ((f64, f64), (f64, f64)) {
         let data = self.data_limits();
@@ -1776,15 +1792,19 @@ impl Axes {
         // A scope sweeps edge-to-edge: no x margin, so the trace meets the
         // bezel exactly (y keeps its headroom for the corner readouts).
         let x_margin = if self.scope { 0.0 } else { self.margins };
+        let directed =
+            |(lo, hi): (f64, f64), inverted: bool| if inverted { (hi, lo) } else { (lo, hi) };
         let xlim = self.xlim.unwrap_or_else(|| {
-            data.map_or((0.0, 1.0), |b| {
+            let auto = data.map_or((0.0, 1.0), |b| {
                 expand_range_sticky(b.xmin(), b.xmax(), x_margin, &sticky_x)
-            })
+            });
+            directed(auto, self.xinverted)
         });
         let ylim = self.ylim.unwrap_or_else(|| {
-            data.map_or((0.0, 1.0), |b| {
+            let auto = data.map_or((0.0, 1.0), |b| {
                 expand_range_sticky(b.ymin(), b.ymax(), self.margins, &sticky_y)
-            })
+            });
+            directed(auto, self.yinverted)
         });
         (guard_range(xlim), guard_range(ylim))
     }
@@ -2644,6 +2664,8 @@ impl Axes {
             sticky_y: self.sticky_y.clone(),
             xlim: self.xlim,
             ylim: self.ylim,
+            xinverted: self.xinverted,
+            yinverted: self.yinverted,
             margins: self.margins,
             xscale: self.xscale.to_portable(),
             yscale: self.yscale.to_portable(),
@@ -2699,6 +2721,8 @@ impl Axes {
             sticky_y: spec.sticky_y.clone(),
             xlim: spec.xlim,
             ylim: spec.ylim,
+            xinverted: spec.xinverted,
+            yinverted: spec.yinverted,
             margins: spec.margins,
             xscale: ScaleSpec::from_portable(spec.xscale),
             yscale: ScaleSpec::from_portable(spec.yscale),
@@ -3424,7 +3448,7 @@ mod tests {
     }
 
     #[test]
-    fn invert_axes_freezes_current_autoscale_range() {
+    fn invert_axes_reverse_current_autoscale_range() {
         let mut axes = Axes::new(Bbox::unit());
         axes.plot(&[0.0, 10.0], &[2.0, 6.0]);
         let (before_x, before_y) = axes.effective_limits();
@@ -3433,6 +3457,24 @@ mod tests {
         let (after_x, after_y) = axes.effective_limits();
         assert_eq!(after_x, (before_x.1, before_x.0));
         assert_eq!(after_y, (before_y.1, before_y.0));
+    }
+
+    #[test]
+    fn invert_before_data_keeps_autoscaling() {
+        // Magnitude plots invert first and plot after; the view must still
+        // frame data added later rather than freezing the empty (0, 1) range.
+        let mut axes = Axes::new(Bbox::unit());
+        axes.invert_yaxis();
+        axes.plot(&[0.0, 10.0], &[12.0, 18.0]);
+        let mut reference = Axes::new(Bbox::unit());
+        reference.plot(&[0.0, 10.0], &[12.0, 18.0]);
+
+        let ((x_lo, x_hi), (y_lo, y_hi)) = reference.effective_limits();
+        assert_eq!(axes.effective_limits(), ((x_lo, x_hi), (y_hi, y_lo)));
+
+        axes.plot(&[0.0], &[25.0]);
+        let (_, (top, bottom)) = axes.effective_limits();
+        assert!(top >= 25.0 && bottom <= 12.0, "late data stays framed");
     }
 
     #[test]
