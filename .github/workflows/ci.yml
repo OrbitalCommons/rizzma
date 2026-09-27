@@ -36,7 +36,7 @@ jobs:
     name: fmt + clippy + test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # rustup honors rust-toolchain.toml, installing the pinned stable
       # (channel + rustfmt/clippy components) automatically.
@@ -83,7 +83,7 @@ jobs:
     name: wasm size budget
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # rustup honors rust-toolchain.toml, installing the pinned stable
       # toolchain automatically.
@@ -120,7 +120,7 @@ jobs:
     env:
       WASM_PACK_VERSION: 0.15.0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # rustup honors rust-toolchain.toml, installing the pinned stable
       # toolchain automatically.
