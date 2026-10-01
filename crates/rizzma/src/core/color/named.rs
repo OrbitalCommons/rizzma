@@ -254,9 +254,7 @@ fn lookup_cycle(spec: &str) -> Option<Rgba> {
 /// or if `alpha` is outside `0.0..=1.0`.
 #[must_use]
 pub fn to_rgba(spec: &str, alpha: Option<f64>) -> Option<Rgba> {
-    if let Some(a) = alpha
-        && !(0.0..=1.0).contains(&a)
-    {
+    if alpha.is_some_and(|a| !(0.0..=1.0).contains(&a)) {
         return None;
     }
     // "none" is always fully transparent and ignores alpha.
@@ -284,18 +282,16 @@ fn resolve_spec(spec: &str) -> Option<Rgba> {
     }
     // Named colors are matched case-insensitively as a fallback.
     let lower = spec.to_ascii_lowercase();
-    if lower != spec
-        && let Some(c) = lookup_named(&lower)
-    {
-        return Some(c);
+    if lower != spec {
+        if let Some(c) = lookup_named(&lower) {
+            return Some(c);
+        }
     }
     if let Some(c) = lookup_cycle(spec) {
         return Some(c);
     }
     // Grayscale float string such as "0.5".
-    if let Ok(v) = spec.parse::<f64>()
-        && (0.0..=1.0).contains(&v)
-    {
+    if let Some(v) = spec.parse::<f64>().ok().filter(|v| (0.0..=1.0).contains(v)) {
         return Some(Rgba::rgb(v, v, v));
     }
     None

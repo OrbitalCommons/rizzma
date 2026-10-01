@@ -7,6 +7,17 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.13.1] - 2026-10-01
+
+### Changed
+- **MSRV lowered from 1.96 to 1.85**, the first release with edition 2024, so
+  projects held to an older toolchain (e.g. by a supercomputer's module
+  system) can depend on rizzma. The 20 `if let … &&` chains and 6
+  `is_multiple_of` calls that needed newer Rust are rewritten with
+  `Option::filter` / nested `if` and `%`; behaviour is unchanged. A new CI
+  `msrv` job checks the library on 1.85 with all and with no default features.
+  The pinned development toolchain stays at 1.96.
+
 ## [1.13.0] - 2026-09-14
 
 ### Added

@@ -251,7 +251,7 @@ pub fn unwrap_html(html: &[u8], limits: &Limits) -> Result<Vec<u8>, PortableErro
     // the decoder could still reserve proportionally to the encoded input.
     // Shape first, then the subtraction is plain arithmetic on known-good
     // numbers.
-    if !payload.len().is_multiple_of(4) {
+    if payload.len() % 4 != 0 {
         return Err(PortableError::Malformed(format!(
             "carrier base64 length {} is not a multiple of 4",
             payload.len()

@@ -159,9 +159,7 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
                 c.min, c.max, c.default
             )));
         }
-        if let Some(step) = c.step
-            && !(step.is_finite() && step > 0.0)
-        {
+        if let Some(step) = c.step.filter(|step| !(step.is_finite() && *step > 0.0)) {
             return Err(PortableError::Malformed(format!(
                 "control {i} step {step} is not finite and positive"
             )));

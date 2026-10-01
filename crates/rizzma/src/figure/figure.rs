@@ -314,10 +314,9 @@ impl Figure {
             self.axes[follower].layout_envelope,
             self.axes[leader].layout_envelope,
         );
-        if let (Some(f), Some(l)) = (f_env, l_env)
-            && f.xmin() == l.xmin()
-            && f.xmax() == l.xmax()
-            && f.ymin() != l.ymin()
+        if let Some((f, l)) = f_env
+            .zip(l_env)
+            .filter(|(f, l)| f.xmin() == l.xmin() && f.xmax() == l.xmax() && f.ymin() != l.ymin())
         {
             let upper = if f.ymin() > l.ymin() {
                 follower
@@ -400,9 +399,10 @@ impl Figure {
         } else {
             pad
         };
-        if envelope.ymax() >= 1.0 - EDGE_EPS
-            && let Some(title) = &self.suptitle
-            && !title.is_empty()
+        if let Some(title) = self
+            .suptitle
+            .as_ref()
+            .filter(|title| envelope.ymax() >= 1.0 - EDGE_EPS && !title.is_empty())
         {
             let rich = layout_rich_text(&self.font, title, SUPTITLE_SIZE * s);
             pad_top += rich.ascent + rich.descent + SUPTITLE_PAD * 2.0 * s;
@@ -469,9 +469,7 @@ impl Figure {
         // Draw figure-level colorbars on top of the axes.
         self.draw_colorbars(renderer, w, h);
 
-        if let Some(title) = &self.suptitle
-            && !title.is_empty()
-        {
+        if let Some(title) = self.suptitle.as_ref().filter(|title| !title.is_empty()) {
             let s = renderer.decoration_scale();
             let rich = layout_rich_text(&self.font, title, SUPTITLE_SIZE * s);
             let shift = crate::core::Affine2D::from_translation(
@@ -701,7 +699,7 @@ impl Figure {
                     .map_err(|e| PortableError::Malformed(format!("{who}: {e}")))?;
             }
             Target::Offsets { index, .. } => {
-                if !values.len().is_multiple_of(2) {
+                if values.len() % 2 != 0 {
                     return Err(PortableError::Malformed(format!(
                         "{who} gives {} values for scatter offsets, which come in pairs",
                         values.len()
@@ -779,7 +777,7 @@ impl Figure {
                 if index >= ax.collection_count() {
                     return Err(format!("animates collection {index}, which does not exist"));
                 }
-                if !stride.is_multiple_of(2) {
+                if stride % 2 != 0 {
                     return Err(format!(
                         "has stride {stride} for scatter offsets, which come in pairs"
                     ));

@@ -399,9 +399,7 @@ impl Axis {
         let (_, labels) = self.visible_ticks(lim);
         let mut extent = (self.tick_length + self.tick_label_pad) * s
             + self.tick_label_band_extent(&labels, font, s);
-        if let Some(label) = &self.label
-            && !label.is_empty()
-        {
+        if let Some(label) = self.label.as_ref().filter(|label| !label.is_empty()) {
             let rich = layout_rich_text(font, label, self.axis_label_size * s);
             // The axis label sits past the tick labels by axis_label_pad; its
             // occupied thickness is its line height (width when the label is

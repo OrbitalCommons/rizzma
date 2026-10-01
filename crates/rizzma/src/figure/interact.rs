@@ -300,11 +300,11 @@ impl Interactor {
         // A linked axes draws its x from its leader: restore the leader's
         // captured home too, so double-click resets the whole shared group.
         let x_target = self.x_link_target(axes);
-        if x_target != axes
-            && let Some(((lxlo, lxhi), _)) = self.home.as_ref().and_then(|h| h.get(x_target))
-        {
-            let (lxlo, lxhi) = (*lxlo, *lxhi);
-            self.fig.axes_mut()[x_target].set_xlim(lxlo, lxhi);
+        if x_target != axes {
+            if let Some(((lxlo, lxhi), _)) = self.home.as_ref().and_then(|h| h.get(x_target)) {
+                let (lxlo, lxhi) = (*lxlo, *lxhi);
+                self.fig.axes_mut()[x_target].set_xlim(lxlo, lxhi);
+            }
         }
         // Double-click hands the view back: an animated axes' camera tracks
         // resume on the next seek.

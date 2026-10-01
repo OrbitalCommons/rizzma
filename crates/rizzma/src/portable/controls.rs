@@ -288,9 +288,7 @@ impl Control {
                 self.min, self.max, self.default
             ));
         }
-        if let Some(step) = self.step
-            && !(step.is_finite() && step > 0.0)
-        {
+        if let Some(step) = self.step.filter(|step| !(step.is_finite() && *step > 0.0)) {
             return Err(format!("step {step} is not finite and positive"));
         }
         for (i, track) in self.tracks.iter().enumerate() {

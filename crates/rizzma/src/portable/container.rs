@@ -77,7 +77,7 @@ pub fn write(chunks: &[([u8; 4], &[u8])]) -> Vec<u8> {
         out.extend_from_slice(&len.to_le_bytes());
         out.extend_from_slice(tag);
         out.extend_from_slice(payload);
-        while !out.len().is_multiple_of(ALIGN) {
+        while out.len() % ALIGN != 0 {
             out.push(0);
         }
     }
@@ -158,7 +158,7 @@ pub fn directory(bytes: &[u8], limits: &Limits) -> Result<Vec<ChunkRef>, Portabl
             len,
         });
         pos = end;
-        while !pos.is_multiple_of(ALIGN) {
+        while pos % ALIGN != 0 {
             match bytes.get(pos) {
                 Some(0) => pos += 1,
                 Some(_) => return Err(malformed("non-zero chunk padding")),

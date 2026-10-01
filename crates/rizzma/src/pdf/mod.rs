@@ -315,7 +315,7 @@ impl Renderer for PdfRenderer {
                 fmt_f(face.b)
             );
         }
-        if do_stroke && let Some(stroke) = gc.stroke {
+        if let Some(stroke) = gc.stroke.filter(|_| do_stroke) {
             let _ = writeln!(
                 block,
                 "{} {} {} RG",
