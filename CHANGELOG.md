@@ -7,6 +7,14 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.13.3] - 2026-10-01
+
+### Changed
+- Dropped the **Live demos** heading from the crate docs: the animated canvases
+  open the page and speak for themselves. The explanatory note about what they
+  are now sits *below* the grid rather than above it (and says "every cell above"
+  to match). Documentation only.
+
 ## [1.13.2] - 2026-10-01
 
 ### Changed

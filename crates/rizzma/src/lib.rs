@@ -1,13 +1,5 @@
 //! # Scientific communication reflects on the scientist, and your figures should carry the same *rizzma* as your ideas.
 //!
-//! ## Live demos
-//!
-//! On docs.rs every cell below is a real canvas driven by this crate compiled
-//! to WebAssembly — animated from Rust each frame, and interactive: wheel to
-//! zoom at the cursor, drag to pan, double-click to reset. (Elsewhere the
-//! cells fall back to static gallery images. More at
-//! <https://orbitalcommons.github.io/rizzma/demo/>.)
-//!
 //! <div class="rizzma-live-grid">
 //! <div class="rizzma-live" data-demo="beats">
 //!
@@ -55,6 +47,12 @@
 //!
 //! </div>
 //! </div>
+//!
+//! On docs.rs every cell above is a real canvas driven by this crate compiled
+//! to WebAssembly — animated from Rust each frame, and interactive: wheel to
+//! zoom at the cursor, drag to pan, double-click to reset. (Elsewhere the
+//! cells fall back to static gallery images. More at
+//! <https://orbitalcommons.github.io/rizzma/demo/>.)
 //!
 //! ## rizzma
 //!
