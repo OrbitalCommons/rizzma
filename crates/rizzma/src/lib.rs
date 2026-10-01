@@ -1,25 +1,5 @@
 //! # Scientific communication reflects on the scientist, and your figures should carry the same *rizzma* as your ideas.
 //!
-//! ## rizzma
-//!
-//! A single-crate Rust reimplementation of the good parts of matplotlib / pyplot,
-//! with first-class WebAssembly support.
-//!
-//! Everything lives in one publishable crate. The former workspace crates are now
-//! namespaced modules — [`figure`], [`pyplot`], [`axis`], [`artist`], [`mathtext`],
-//! the backends ([`skia`], [`svg`], [`pdf`]), and [`mplot3d`] — so you can reach any
-//! part of the API through a single dependency.
-//!
-//! ```
-//! use rizzma::Figure;
-//!
-//! let mut fig = Figure::new(4.0, 3.0);
-//! let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
-//! ax.plot(&[0.0, 1.0, 2.0], &[0.0, 1.0, 0.0]);
-//! let png = fig.encode_png().expect("encode");
-//! assert!(!png.is_empty());
-//! ```
-//!
 //! ## Live demos
 //!
 //! On docs.rs every cell below is a real canvas driven by this crate compiled
@@ -75,6 +55,26 @@
 //!
 //! </div>
 //! </div>
+//!
+//! ## rizzma
+//!
+//! A single-crate Rust reimplementation of the good parts of matplotlib / pyplot,
+//! with first-class WebAssembly support.
+//!
+//! Everything lives in one publishable crate. The former workspace crates are now
+//! namespaced modules — [`figure`], [`pyplot`], [`axis`], [`artist`], [`mathtext`],
+//! the backends ([`skia`], [`svg`], [`pdf`]), and [`mplot3d`] — so you can reach any
+//! part of the API through a single dependency.
+//!
+//! ```
+//! use rizzma::Figure;
+//!
+//! let mut fig = Figure::new(4.0, 3.0);
+//! let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+//! ax.plot(&[0.0, 1.0, 2.0], &[0.0, 1.0, 0.0]);
+//! let png = fig.encode_png().expect("encode");
+//! assert!(!png.is_empty());
+//! ```
 //!
 //! ## Features
 //!
