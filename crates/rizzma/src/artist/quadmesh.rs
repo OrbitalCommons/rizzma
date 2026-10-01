@@ -403,8 +403,10 @@ impl QuadMesh {
                 spec.facecolors.len()
             )));
         }
-        if let Some(vertex_colors) = &spec.vertex_colors
-            && vertex_colors.len() != coordinates.len()
+        if let Some(vertex_colors) = spec
+            .vertex_colors
+            .as_ref()
+            .filter(|vertex_colors| vertex_colors.len() != coordinates.len())
         {
             return Err(crate::portable::PortableError::Malformed(format!(
                 "mesh has {} corners but {} vertex colors",

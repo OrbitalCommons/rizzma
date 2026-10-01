@@ -499,9 +499,7 @@ impl<'a> Parser<'a> {
         let mut nodes = Vec::new();
 
         while self.pos < self.source.len() {
-            if let Some(term) = terminator
-                && self.peek_char() == Some(term)
-            {
+            if let Some(term) = terminator.filter(|&term| self.peek_char() == Some(term)) {
                 self.pos += term.len_utf8();
                 return Row { nodes };
             }

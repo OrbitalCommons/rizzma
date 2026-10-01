@@ -302,17 +302,17 @@ impl Renderer for SvgRenderer {
 
         // Stroke.
         let width = self.points_to_pixels(gc.line_width);
-        if let Some(stroke) = gc.stroke
-            && width > 0.0
-        {
+        if let Some(stroke) = gc.stroke.filter(|_| width > 0.0) {
             let _ = write!(attrs, " stroke=\"{}\"", rgb_func(stroke));
             let opacity = effective_opacity(stroke, gc.alpha);
             if opacity < 1.0 {
                 let _ = write!(attrs, " stroke-opacity=\"{}\"", fmt_f(opacity));
             }
             let _ = write!(attrs, " stroke-width=\"{}\"", fmt_f(width));
-            if let Some((offset, pattern)) = &gc.dashes
-                && !pattern.is_empty()
+            if let Some((offset, pattern)) = gc
+                .dashes
+                .as_ref()
+                .filter(|(_, pattern)| !pattern.is_empty())
             {
                 let scale = self.dpi / 72.0;
                 let array: Vec<String> = pattern.iter().map(|d| fmt_f(d * scale)).collect();

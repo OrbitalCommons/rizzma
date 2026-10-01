@@ -6,7 +6,7 @@
 [![Docs.rs](https://docs.rs/rizzma/badge.svg)](https://docs.rs/rizzma)
 [![Downloads](https://img.shields.io/crates/d/rizzma.svg)](https://crates.io/crates/rizzma)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
-[![Rust 1.96+](https://img.shields.io/badge/rust-1.96%2B-orange.svg)](rust-toolchain.toml)
+[![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](Cargo.toml)
 [![Edition 2024](https://img.shields.io/badge/edition-2024-93450a.svg)](Cargo.toml)
 [![CI](https://github.com/OrbitalCommons/rizzma/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OrbitalCommons/rizzma/actions/workflows/ci.yml)
 [![Gallery](https://github.com/OrbitalCommons/rizzma/actions/workflows/gallery.yml/badge.svg?branch=main)](https://github.com/OrbitalCommons/rizzma/actions/workflows/gallery.yml)

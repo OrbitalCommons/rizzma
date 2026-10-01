@@ -144,7 +144,7 @@ impl BankWriter {
 
     /// Pad with zero bytes until the write position is `align`-aligned.
     fn align_to(&mut self, align: usize) {
-        while !self.bytes.len().is_multiple_of(align) {
+        while self.bytes.len() % align != 0 {
             self.bytes.push(0);
         }
     }

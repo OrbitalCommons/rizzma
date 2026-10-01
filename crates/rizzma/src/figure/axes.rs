@@ -1967,9 +1967,7 @@ impl Axes {
             bottom = bottom.max(y_lo);
             top = self.secondary_extent(xlim, font, s).max(y_hi);
         }
-        if let Some(title) = &self.title
-            && !title.is_empty()
-        {
+        if let Some(title) = self.title.as_ref().filter(|title| !title.is_empty()) {
             let rich = layout_rich_text(font, title, DEFAULT_TITLE_SIZE * s);
             top += DEFAULT_TITLE_PAD * s + rich.ascent + rich.descent;
         }
@@ -2187,9 +2185,7 @@ impl Axes {
         // 7. Draw the title, centered above the axes. Math spans (`$...$`) are
         // laid out by the mathtext engine via `layout_rich_text`; plain titles
         // reduce to the previous single-string path.
-        if let Some(title) = &self.title
-            && !title.is_empty()
-        {
+        if let Some(title) = self.title.as_ref().filter(|title| !title.is_empty()) {
             let s = renderer.decoration_scale();
             let rich = layout_rich_text(font, title, DEFAULT_TITLE_SIZE * s);
             let cx = (axes_px.xmin() + axes_px.xmax()) / 2.0;

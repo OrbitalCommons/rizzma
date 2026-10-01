@@ -97,8 +97,10 @@ impl Patch {
     #[must_use]
     pub fn polygon(points: &[[f64; 2]]) -> Self {
         let mut verts = points.to_vec();
-        if let (Some(&first), Some(&last)) = (verts.first(), verts.last())
-            && first != last
+        if let Some(first) = verts
+            .first()
+            .copied()
+            .filter(|first| verts.last() != Some(first))
         {
             verts.push(first);
         }

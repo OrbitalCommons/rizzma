@@ -32,6 +32,26 @@ env:
   WASM_RUNTIME_SIZE_MAX_BYTES: 3355443
 
 jobs:
+  msrv:
+    name: msrv (1.85) library check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Dependents build the library on the `rust-version` in Cargo.toml. The
+      # dev-dependencies (resvg) need a newer Rust, so only the library is
+      # checked here; tests run on the pinned toolchain below.
+      - name: Install Rust 1.85
+        run: rustup toolchain install 1.85 --profile minimal
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check with all features
+        run: cargo +1.85 check -p rizzma --lib --all-features
+
+      - name: Check without default features
+        run: cargo +1.85 check -p rizzma --lib --no-default-features
+
   test:
     name: fmt + clippy + test
     runs-on: ubuntu-latest

@@ -81,9 +81,7 @@ fn build_line_style(
         }
         None => None,
     };
-    if let Some(w) = lw
-        && !(w.is_finite() && w >= 0.0)
-    {
+    if let Some(w) = lw.filter(|w| !(w.is_finite() && *w >= 0.0)) {
         return Err(format!(
             "linewidth must be finite and non-negative, got {w}"
         ));

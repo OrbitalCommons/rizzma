@@ -148,8 +148,9 @@ impl TextRun {
                     plain_start = i;
                     continue;
                 }
-            } else if source[i..].starts_with("\\[")
-                && let Some(close) = source[i + 2..].find("\\]")
+            } else if let Some(close) = source[i..]
+                .strip_prefix("\\[")
+                .and_then(|rest| rest.find("\\]"))
             {
                 let close = i + 2 + close;
                 let end = close + 2;

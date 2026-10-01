@@ -521,7 +521,9 @@ plan above stays the *intent* and this section is the *ground truth*).
 
 ### Locked decisions (Phase 0)
 - **Edition 2024, resolver 3.** Workspace pins the **current stable** toolchain via
-  `rust-toolchain.toml` (`rust-version = "1.96"`); bump in lockstep with new stables.
+  `rust-toolchain.toml`; bump in lockstep with new stables. The library's
+  `rust-version` (MSRV) is held at **1.85** for dependents on older toolchains,
+  checked by the CI `msrv` job.
 - **No `unsafe` by default**, clippy `all = warn` inherited via `[workspace.lints]`; CI
   runs `-D warnings`.
 - **Two extra crates beyond doc §2:** an umbrella **`rizzma`** crate (public facade +
