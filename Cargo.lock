@@ -1000,7 +1000,7 @@ dependencies = [
 
 [[package]]
 name = "rizzma"
-version = "1.13.3"
+version = "1.13.4"
 dependencies = [
  "base64",
  "chrono",
