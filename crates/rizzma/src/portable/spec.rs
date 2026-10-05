@@ -109,6 +109,8 @@ pub(crate) struct AxesSpec {
     pub(crate) sticky_y: Vec<f64>,
     pub(crate) xlim: Option<(f64, f64)>,
     pub(crate) ylim: Option<(f64, f64)>,
+    pub(crate) xinverted: bool,
+    pub(crate) yinverted: bool,
     pub(crate) margins: f64,
     pub(crate) xscale: ScaleWire,
     pub(crate) yscale: ScaleWire,

@@ -7,6 +7,15 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.13.4] - 2026-10-05
+
+### Fixed
+- **Inverting an axis before plotting no longer freezes its range.** `invert_xaxis` /
+  `invert_yaxis` copied the current autoscaled limits into fixed limits, so inverting empty
+  axes froze them at `(0, 1)`, and data plotted afterwards fell outside the view. Magnitude
+  plots, which invert first, drew nothing visible. Autoscaled axes now keep autoscaling and
+  apply the inversion afterwards, as matplotlib does; fixed limits are still swapped in place.
+
 ## [1.13.3] - 2026-10-01
 
 ### Changed
