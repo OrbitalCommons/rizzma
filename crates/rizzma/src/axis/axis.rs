@@ -23,7 +23,7 @@ use crate::render::{GraphicsContext, Renderer};
 use crate::text::FontSource;
 
 use crate::axis::scale::{LinearScale, Scale};
-use crate::axis::ticker::{AutoLocator, Formatter, Locator, ScalarFormatter};
+use crate::axis::ticker::{AutoLocator, AutoMinorLocator, Formatter, Locator, ScalarFormatter};
 
 /// Which edge of the axes rectangle an [`Axis`] is drawn along.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -90,7 +90,48 @@ pub struct Axis {
     /// layout. Hidden by `sharex` on the inner axes of a stacked pair
     /// (matplotlib's `label_outer`); tick marks and the spine stay visible.
     tick_labels_visible: bool,
+    /// The minor-tick locator; `None` draws no minor ticks.
+    minor_locator: Option<Box<dyn Locator>>,
+    /// Length of each minor tick mark, in pixels.
+    minor_tick_length: f64,
+    /// Stroke width of the minor ticks.
+    minor_tick_width: f64,
+    /// Whether to draw grid lines spanning the axes at each minor tick.
+    minor_grid: bool,
+    /// Minor grid line color (before `minor_grid_alpha` is applied).
+    minor_grid_color: Rgba,
+    /// Minor grid line stroke width.
+    minor_grid_linewidth: f64,
+    /// Minor grid line opacity in `0.0..=1.0`.
+    minor_grid_alpha: f64,
 }
+
+/// Snap the fixed coordinate of an axis-aligned stroke to the pixel grid, as
+/// matplotlib's `path.snap` does: a line an odd number of pixels wide is
+/// centred on a pixel and an even one on a pixel boundary, so a one-pixel
+/// line covers one pixel instead of smearing grey over two.
+pub(crate) fn snap_to_pixel(coord: f64, width_px: f64) -> f64 {
+    if !coord.is_finite() {
+        return coord;
+    }
+    if (width_px.round().max(1.0) as i64) % 2 == 1 {
+        coord.floor() + 0.5
+    } else {
+        coord.round()
+    }
+}
+
+/// Default minor tick length (matplotlib's `xtick.minor.size`).
+const DEFAULT_MINOR_TICK_LENGTH: f64 = 2.0;
+/// Default minor tick width (matplotlib's `xtick.minor.width`).
+const DEFAULT_MINOR_TICK_WIDTH: f64 = 0.6;
+/// Default grid ink, shared by the major and minor grids.
+const DEFAULT_GRID_COLOR: Rgba = Rgba {
+    r: 0.85,
+    g: 0.85,
+    b: 0.85,
+    a: 1.0,
+};
 
 impl Axis {
     /// Create an axis for `side` with sensible defaults: a [`LinearScale`], an
@@ -114,12 +155,111 @@ impl Axis {
             axis_label_pad: 4.0,
             grid: false,
             // 0.85 gray, matching the long-standing hardcoded grid ink.
-            grid_color: Rgba::rgb(0.85, 0.85, 0.85),
+            grid_color: DEFAULT_GRID_COLOR,
             grid_linewidth: 1.0,
             grid_alpha: 1.0,
             tick_direction: TickDirection::Out,
             tick_labels_visible: true,
+            minor_locator: None,
+            minor_tick_length: DEFAULT_MINOR_TICK_LENGTH,
+            minor_tick_width: DEFAULT_MINOR_TICK_WIDTH,
+            minor_grid: false,
+            minor_grid_color: DEFAULT_GRID_COLOR,
+            minor_grid_linewidth: 1.0,
+            minor_grid_alpha: 1.0,
         }
+    }
+
+    /// Move the ticks and tick labels of a horizontal axis to the top edge
+    /// (matplotlib's `xaxis.tick_top()`). Does nothing on a vertical axis.
+    pub fn tick_top(&mut self) -> &mut Self {
+        if self.side.is_horizontal() {
+            self.side = AxisSide::Top;
+        }
+        self
+    }
+
+    /// Move the ticks and tick labels of a horizontal axis back to the bottom
+    /// edge, undoing [`tick_top`](Axis::tick_top). Does nothing on a vertical
+    /// axis.
+    pub fn tick_bottom(&mut self) -> &mut Self {
+        if self.side.is_horizontal() {
+            self.side = AxisSide::Bottom;
+        }
+        self
+    }
+
+    /// Set the major tick length (px at 100 DPI) in place.
+    pub fn set_tick_length(&mut self, tick_length: f64) -> &mut Self {
+        self.tick_length = tick_length;
+        self
+    }
+
+    /// Set the stroke width of the spine and major ticks in place. Widths
+    /// below one are drawn as given (thin hairlines); zero hides them.
+    pub fn set_tick_width(&mut self, tick_width: f64) -> &mut Self {
+        self.tick_width = tick_width;
+        self
+    }
+
+    /// Set the tick label font size (px at 100 DPI) in place.
+    pub fn set_tick_label_size(&mut self, tick_label_size: f64) -> &mut Self {
+        self.tick_label_size = tick_label_size;
+        self
+    }
+
+    /// Set the padding between a tick and its label (px at 100 DPI) in place.
+    pub fn set_tick_label_pad(&mut self, tick_label_pad: f64) -> &mut Self {
+        self.tick_label_pad = tick_label_pad;
+        self
+    }
+
+    /// Place minor ticks with `locator` (matplotlib's
+    /// `set_minor_locator`). An [`AutoMinorLocator`] subdivides this axis'
+    /// actual major ticks, including fixed ones.
+    ///
+    /// [`AutoMinorLocator`]: crate::axis::ticker::AutoMinorLocator
+    pub fn set_minor_locator(&mut self, locator: Box<dyn Locator>) -> &mut Self {
+        self.minor_locator = Some(locator);
+        self
+    }
+
+    /// Turn on automatic minor ticks between the major ticks (matplotlib's
+    /// `minorticks_on`): an [`AutoMinorLocator`] with matplotlib's
+    /// subdivision choice.
+    ///
+    /// [`AutoMinorLocator`]: crate::axis::ticker::AutoMinorLocator
+    pub fn minorticks_on(&mut self) -> &mut Self {
+        self.set_minor_locator(Box::new(AutoMinorLocator::new()))
+    }
+
+    /// Remove the minor ticks (and so the minor grid).
+    pub fn minorticks_off(&mut self) -> &mut Self {
+        self.minor_locator = None;
+        self
+    }
+
+    /// Set the minor tick length (px at 100 DPI) and stroke width in place.
+    pub fn set_minor_tick_params(&mut self, length: f64, width: f64) -> &mut Self {
+        self.minor_tick_length = length;
+        self.minor_tick_width = width;
+        self
+    }
+
+    /// Enable or disable grid lines at the minor ticks (matplotlib's
+    /// `grid(which="minor")`). Draws nothing until minor ticks are on.
+    pub fn set_minor_grid(&mut self, grid: bool) -> &mut Self {
+        self.minor_grid = grid;
+        self
+    }
+
+    /// Set the minor grid line color, width, and opacity (`0.0..=1.0`) in
+    /// place.
+    pub fn set_minor_grid_style(&mut self, color: Rgba, linewidth: f64, alpha: f64) -> &mut Self {
+        self.minor_grid_color = color;
+        self.minor_grid_linewidth = linewidth;
+        self.minor_grid_alpha = alpha;
+        self
     }
 
     /// Show or hide the tick labels and axis label (tick marks and the spine
@@ -343,20 +483,56 @@ impl Axis {
     ) {
         let (vmin, vmax) = data_lim;
         let (ticks, labels) = self.visible_ticks(data_lim);
+        let minor_ticks = self.visible_minor_ticks(data_lim);
 
+        // Widths are drawn as given, so sub-unit hairlines stay thin; a
+        // non-positive width draws nothing.
         let stroke_gc = GraphicsContext::new()
             .with_stroke(self.color)
-            .with_line_width(self.tick_width.max(1.0));
+            .with_line_width(self.tick_width);
+        let minor_gc = GraphicsContext::new()
+            .with_stroke(self.color)
+            .with_line_width(self.minor_tick_width);
 
+        if self.minor_grid {
+            let style = (
+                self.minor_grid_color,
+                self.minor_grid_linewidth,
+                self.minor_grid_alpha,
+            );
+            self.draw_grid(renderer, axes_bbox, &minor_ticks, (vmin, vmax), style);
+        }
         if self.grid {
-            self.draw_grid(renderer, axes_bbox, &ticks, vmin, vmax);
+            let style = (self.grid_color, self.grid_linewidth, self.grid_alpha);
+            self.draw_grid(renderer, axes_bbox, &ticks, (vmin, vmax), style);
         }
 
         // Decoration geometry (ticks, label sizes, pads) is authored in px at
         // the default 100 DPI and scales with the renderer's DPI.
         let s = renderer.decoration_scale();
-        self.draw_spine(renderer, axes_bbox, &stroke_gc);
-        self.draw_ticks(renderer, axes_bbox, &ticks, (vmin, vmax), &stroke_gc, s);
+        if self.tick_width > 0.0 {
+            self.draw_spine(renderer, axes_bbox, &stroke_gc);
+            let length = self.tick_length * s;
+            self.draw_ticks(
+                renderer,
+                axes_bbox,
+                &ticks,
+                (vmin, vmax),
+                &stroke_gc,
+                length,
+            );
+        }
+        if self.minor_tick_width > 0.0 {
+            let length = self.minor_tick_length * s;
+            self.draw_ticks(
+                renderer,
+                axes_bbox,
+                &minor_ticks,
+                (vmin, vmax),
+                &minor_gc,
+                length,
+            );
+        }
         if self.tick_labels_visible {
             self.draw_tick_labels(renderer, axes_bbox, &ticks, &labels, (vmin, vmax), font, s);
             self.draw_axis_label(renderer, axes_bbox, &labels, font, s);
@@ -387,6 +563,37 @@ impl Axis {
             .unzip()
     }
 
+    /// The minor ticks within `lim`, excluding any that coincide with a major
+    /// tick. Empty when no minor locator is set.
+    pub(crate) fn visible_minor_ticks(&self, lim: (f64, f64)) -> Vec<f64> {
+        let Some(minor) = &self.minor_locator else {
+            return Vec::new();
+        };
+        let (vmin, vmax) = lim;
+        let (lo_v, hi_v) = if vmin <= vmax {
+            (vmin, vmax)
+        } else {
+            (vmax, vmin)
+        };
+        let major = self.locator.tick_values(vmin, vmax);
+        let tolerance = (hi_v - lo_v).abs() * 1e-9;
+        minor
+            .minor_tick_values(&major, vmin, vmax)
+            .into_iter()
+            .filter(|&t| t >= lo_v && t <= hi_v)
+            .filter(|&t| major.iter().all(|&m| (m - t).abs() > tolerance))
+            .collect()
+    }
+
+    /// The outward length of the longest drawn tick mark, unscaled.
+    fn outward_tick_length(&self) -> f64 {
+        if self.minor_locator.is_some() {
+            self.tick_length.max(self.minor_tick_length)
+        } else {
+            self.tick_length
+        }
+    }
+
     /// The outward extent, in pixels, this axis' decoration (ticks, tick
     /// labels, and the axis label) occupies beyond the frame edge, for limits
     /// `lim` at decoration scale `s`. Drives tight layout: the frame is inset
@@ -394,7 +601,7 @@ impl Axis {
     pub(crate) fn decoration_extent(&self, lim: (f64, f64), font: &FontSource, s: f64) -> f64 {
         if !self.tick_labels_visible {
             // Only the outward tick marks occupy space.
-            return self.tick_length * s;
+            return self.outward_tick_length() * s;
         }
         let (_, labels) = self.visible_ticks(lim);
         let mut extent = (self.tick_length + self.tick_label_pad) * s
@@ -468,34 +675,40 @@ impl Axis {
     fn draw_spine(&self, renderer: &mut dyn Renderer, axes_bbox: &Bbox, gc: &GraphicsContext) {
         let (xmin, xmax) = (axes_bbox.xmin(), axes_bbox.xmax());
         let (ymin, ymax) = (axes_bbox.ymin(), axes_bbox.ymax());
+        let snap = |c| snap_to_pixel(c, renderer.points_to_pixels(gc.line_width));
         let line = match self.side {
-            AxisSide::Bottom => [[xmin, ymin], [xmax, ymin]],
-            AxisSide::Top => [[xmin, ymax], [xmax, ymax]],
-            AxisSide::Left => [[xmin, ymin], [xmin, ymax]],
-            AxisSide::Right => [[xmax, ymin], [xmax, ymax]],
+            AxisSide::Bottom => [[xmin, snap(ymin)], [xmax, snap(ymin)]],
+            AxisSide::Top => [[xmin, snap(ymax)], [xmax, snap(ymax)]],
+            AxisSide::Left => [[snap(xmin), ymin], [snap(xmin), ymax]],
+            AxisSide::Right => [[snap(xmax), ymin], [snap(xmax), ymax]],
         };
         let path = Path::from_polyline(&line);
         renderer.draw_path(gc, &path, &Affine2D::identity(), None);
     }
 
-    /// Stroke light-gray grid lines spanning the axes, one per tick.
+    /// Stroke grid lines spanning the axes, one per tick, in the given
+    /// `(color, linewidth, alpha)` style.
     fn draw_grid(
         &self,
         renderer: &mut dyn Renderer,
         axes_bbox: &Bbox,
         ticks: &[f64],
-        vmin: f64,
-        vmax: f64,
+        (vmin, vmax): (f64, f64),
+        (color, linewidth, alpha): (Rgba, f64, f64),
     ) {
-        let alpha = self.grid_alpha.clamp(0.0, 1.0);
-        let stroke = self.grid_color.with_alpha(self.grid_color.a * alpha);
+        if linewidth <= 0.0 {
+            return;
+        }
+        let alpha = alpha.clamp(0.0, 1.0);
+        let stroke = color.with_alpha(color.a * alpha);
         let gc = GraphicsContext::new()
             .with_stroke(stroke)
-            .with_line_width(self.grid_linewidth.max(1.0));
+            .with_line_width(linewidth);
         let (xmin, xmax) = (axes_bbox.xmin(), axes_bbox.xmax());
         let (ymin, ymax) = (axes_bbox.ymin(), axes_bbox.ymax());
+        let width_px = renderer.points_to_pixels(linewidth);
         for &t in ticks {
-            let p = self.data_to_pixel(t, axes_bbox, vmin, vmax);
+            let p = snap_to_pixel(self.data_to_pixel(t, axes_bbox, vmin, vmax), width_px);
             let line = if self.side.is_horizontal() {
                 [[p, ymin], [p, ymax]]
             } else {
@@ -506,7 +719,7 @@ impl Axis {
         }
     }
 
-    /// Stroke a tick mark of length `tick_length` pointing out of the axes at
+    /// Stroke a tick mark of (scaled) length `len` in the tick direction at
     /// each tick position.
     fn draw_ticks(
         &self,
@@ -515,18 +728,18 @@ impl Axis {
         ticks: &[f64],
         lim: (f64, f64),
         gc: &GraphicsContext,
-        s: f64,
+        len: f64,
     ) {
         let (vmin, vmax) = lim;
-        let len = self.tick_length * s;
         // Outward and inward extents relative to the spine, per direction.
         let (out_len, in_len) = match self.tick_direction {
             TickDirection::Out => (len, 0.0),
             TickDirection::In => (0.0, len),
             TickDirection::InOut => (len, len),
         };
+        let width_px = renderer.points_to_pixels(gc.line_width);
         for &t in ticks {
-            let p = self.data_to_pixel(t, axes_bbox, vmin, vmax);
+            let p = snap_to_pixel(self.data_to_pixel(t, axes_bbox, vmin, vmax), width_px);
             // `edge` is the spine coordinate; `out`/`in` sign points away from /
             // into the axes for this side.
             let (edge, out_sign) = match self.side {
@@ -736,14 +949,53 @@ impl Axis {
             grid_alpha: self.grid_alpha,
             tick_direction: self.tick_direction,
             tick_labels_visible: self.tick_labels_visible,
+            minor: self.minor_to_portable()?,
         })
+    }
+
+    /// The minor-tick wire form, or `None` while every minor setting is at
+    /// its default so artifacts that never use minor ticks stay unchanged.
+    fn minor_to_portable(
+        &self,
+    ) -> Result<Option<crate::portable::spec::MinorAxisSpec>, crate::portable::PortableError> {
+        let locator = match &self.minor_locator {
+            Some(locator) => Some(
+                locator
+                    .portable_spec()
+                    .ok_or_else(|| {
+                        crate::portable::PortableError::Unsupported(
+                            "axis minor locator has no portable wire form".to_string(),
+                        )
+                    })?
+                    .0,
+            ),
+            None => None,
+        };
+        let spec = crate::portable::spec::MinorAxisSpec {
+            locator,
+            tick_length: self.minor_tick_length,
+            tick_width: self.minor_tick_width,
+            grid: self.minor_grid,
+            grid_color: self.minor_grid_color,
+            grid_linewidth: self.minor_grid_linewidth,
+            grid_alpha: self.minor_grid_alpha,
+        };
+        let default = Axis::new(self.side);
+        let unchanged = spec.locator.is_none()
+            && spec.tick_length == default.minor_tick_length
+            && spec.tick_width == default.minor_tick_width
+            && spec.grid == default.minor_grid
+            && spec.grid_color == default.minor_grid_color
+            && spec.grid_linewidth == default.minor_grid_linewidth
+            && spec.grid_alpha == default.minor_grid_alpha;
+        Ok((!unchanged).then_some(spec))
     }
 
     /// Reconstruct an axis from its wire form during portable-figure import.
     pub(crate) fn from_portable(
         spec: &crate::portable::spec::AxisSpec,
     ) -> Result<Axis, crate::portable::PortableError> {
-        Ok(Axis {
+        Axis {
             side: spec.side,
             scale: spec.scale.into_scale(),
             locator: spec.locator.clone().into_locator()?,
@@ -762,7 +1014,35 @@ impl Axis {
             grid_alpha: spec.grid_alpha,
             tick_direction: spec.tick_direction,
             tick_labels_visible: spec.tick_labels_visible,
-        })
+            minor_locator: None,
+            minor_tick_length: DEFAULT_MINOR_TICK_LENGTH,
+            minor_tick_width: DEFAULT_MINOR_TICK_WIDTH,
+            minor_grid: false,
+            minor_grid_color: DEFAULT_GRID_COLOR,
+            minor_grid_linewidth: 1.0,
+            minor_grid_alpha: 1.0,
+        }
+        .with_portable_minor(spec.minor.as_ref())
+    }
+
+    /// Apply a decoded minor-tick wire form, if the artifact carried one.
+    fn with_portable_minor(
+        mut self,
+        minor: Option<&crate::portable::spec::MinorAxisSpec>,
+    ) -> Result<Axis, crate::portable::PortableError> {
+        if let Some(minor) = minor {
+            self.minor_locator = match &minor.locator {
+                Some(locator) => Some(locator.clone().into_locator()?),
+                None => None,
+            };
+            self.minor_tick_length = minor.tick_length;
+            self.minor_tick_width = minor.tick_width;
+            self.minor_grid = minor.grid;
+            self.minor_grid_color = minor.grid_color;
+            self.minor_grid_linewidth = minor.grid_linewidth;
+            self.minor_grid_alpha = minor.grid_alpha;
+        }
+        Ok(self)
     }
 }
 
@@ -797,17 +1077,22 @@ mod tests {
         paths: usize,
         verts: Vec<[f64; 2]>,
         path_bboxes: Vec<(f64, f64, f64, f64)>,
+        /// The stroke width of each unfilled path, in draw order.
+        stroke_widths: Vec<f64>,
     }
 
     impl Renderer for CountingRenderer {
         fn draw_path(
             &mut self,
-            _gc: &GraphicsContext,
+            gc: &GraphicsContext,
             path: &Path,
             transform: &Affine2D,
-            _fill: Option<Rgba>,
+            fill: Option<Rgba>,
         ) {
             self.paths += 1;
+            if fill.is_none() {
+                self.stroke_widths.push(gc.line_width);
+            }
             let mut xmin = f64::INFINITY;
             let mut xmax = f64::NEG_INFINITY;
             let mut ymin = f64::INFINITY;
@@ -970,5 +1255,66 @@ mod tests {
             axis_label.1 < tick_label.0,
             "axis label should sit left of the measured tick-label band: axis={axis_label:?}, tick={tick_label:?}"
         );
+    }
+
+    /// Minor ticks subdivide the axis' own (fixed) majors, skip positions a
+    /// major already holds, and every stroke keeps its sub-unit width.
+    #[test]
+    fn minor_ticks_and_grid_draw_between_fixed_majors_at_thin_widths() {
+        let mut axis = Axis::new(AxisSide::Bottom)
+            .with_locator(Box::new(FixedLocator::new(vec![0.0, 5.0, 10.0])));
+        axis.set_tick_labels_visible(false)
+            .set_tick_width(0.3)
+            .minorticks_on()
+            .set_minor_tick_params(2.0, 0.2)
+            .set_minor_grid(true)
+            .set_minor_grid_style(Rgba::BLACK, 0.25, 0.5);
+        assert_eq!(
+            axis.visible_minor_ticks((0.0, 10.0)),
+            vec![1.0, 2.0, 3.0, 4.0, 6.0, 7.0, 8.0, 9.0]
+        );
+
+        let bbox = Bbox::from_extents(50.0, 50.0, 250.0, 250.0);
+        let font = FontSource::dejavu_sans();
+        let mut r = CountingRenderer::default();
+        axis.draw(&mut r, &bbox, (0.0, 10.0), &font);
+        // 8 minor grid lines, the spine, 3 major ticks, then 8 minor ticks.
+        let mut expected = vec![0.25; 8];
+        expected.extend([0.3; 4]);
+        expected.extend([0.2; 8]);
+        assert_eq!(r.stroke_widths, expected);
+    }
+
+    /// Odd-width lines centre on a pixel, even-width lines on a boundary, and
+    /// sub-pixel widths count as one pixel.
+    #[test]
+    fn snapping_puts_thin_lines_on_whole_pixels() {
+        assert_eq!(snap_to_pixel(10.0, 1.0), 10.5);
+        assert_eq!(snap_to_pixel(10.7, 0.36), 10.5);
+        assert_eq!(snap_to_pixel(10.7, 3.0), 10.5);
+        assert_eq!(snap_to_pixel(10.4, 2.0), 10.0);
+        assert_eq!(snap_to_pixel(10.6, 2.0), 11.0);
+        assert!(snap_to_pixel(f64::NAN, 1.0).is_nan());
+    }
+
+    /// Without minor ticks nothing extra is drawn, and a zero width hides the
+    /// spine and major ticks rather than clamping them up to one unit.
+    #[test]
+    fn minor_ticks_are_off_by_default_and_zero_width_hides_ticks() {
+        let mut axis = Axis::new(AxisSide::Bottom)
+            .with_locator(Box::new(FixedLocator::new(vec![0.0, 5.0, 10.0])));
+        axis.set_tick_labels_visible(false);
+        assert!(axis.visible_minor_ticks((0.0, 10.0)).is_empty());
+
+        let bbox = Bbox::from_extents(50.0, 50.0, 250.0, 250.0);
+        let font = FontSource::dejavu_sans();
+        let mut r = CountingRenderer::default();
+        axis.draw(&mut r, &bbox, (0.0, 10.0), &font);
+        assert_eq!(r.stroke_widths, vec![1.0; 4]);
+
+        axis.set_tick_width(0.0);
+        let mut r = CountingRenderer::default();
+        axis.draw(&mut r, &bbox, (0.0, 10.0), &font);
+        assert!(r.stroke_widths.is_empty());
     }
 }

@@ -37,6 +37,42 @@ struct Header {
     /// manifest, not the keyframe data.
     #[serde(default)]
     controls: Vec<ControlRef>,
+    /// Only the schema-5 axis fields, for the schema-floor check; serde skips
+    /// the rest of the figure model.
+    #[serde(default)]
+    figure: FigureHead,
+}
+
+/// The figure fields inspection reads: each axes' schema-5 styling markers.
+#[derive(Debug, Default, Deserialize)]
+struct FigureHead {
+    #[serde(default)]
+    axes: Vec<AxesHead>,
+}
+
+/// Presence of an axes' title style and minor-tick settings.
+#[derive(Debug, Deserialize)]
+struct AxesHead {
+    #[serde(default)]
+    title_style: Option<serde::de::IgnoredAny>,
+    xaxis: AxisHead,
+    yaxis: AxisHead,
+}
+
+/// Presence of an axis' minor-tick settings.
+#[derive(Debug, Deserialize)]
+struct AxisHead {
+    #[serde(default)]
+    minor: Option<serde::de::IgnoredAny>,
+}
+
+impl FigureHead {
+    /// Mirrors [`uses_axis_styling`](super::spec::uses_axis_styling).
+    fn uses_axis_styling(&self) -> bool {
+        self.axes.iter().any(|axes| {
+            axes.title_style.is_some() || axes.xaxis.minor.is_some() || axes.yaxis.minor.is_some()
+        })
+    }
 }
 
 /// Read an artifact's metadata without building a figure or rendering it.
@@ -115,6 +151,7 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
         header.meta.is_some(),
         header.timeline.is_some(),
         !header.controls.is_empty(),
+        header.figure.uses_axis_styling(),
     );
     if header.schema < required {
         return Err(PortableError::Malformed(format!(

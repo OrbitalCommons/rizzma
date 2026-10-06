@@ -81,6 +81,15 @@ pub(crate) struct PortableSpec {
     pub(crate) accessors: Vec<Accessor>,
 }
 
+/// Whether any axes carries schema-5 styling: minor ticks or grid, or a
+/// non-default title size/pad.
+#[cfg(feature = "portable")]
+pub(crate) fn uses_axis_styling(figure: &FigureSpec) -> bool {
+    figure.axes.iter().any(|axes| {
+        axes.title_style.is_some() || axes.xaxis.minor.is_some() || axes.yaxis.minor.is_some()
+    })
+}
+
 /// Wire mirror of [`Figure`](crate::figure::Figure).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -137,6 +146,10 @@ pub(crate) struct AxesSpec {
     pub(crate) xlim_link: Option<usize>,
     pub(crate) secondary_x: Option<SecondaryXAxis>,
     pub(crate) title: Option<String>,
+    /// `(size, pad)` of the title, present only when either differs from the
+    /// default. Absent before schema 5, which introduced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) title_style: Option<(f64, f64)>,
     pub(crate) annotations: Vec<Annotation>,
     pub(crate) annotation_color: Rgba,
     pub(crate) contour_label_candidates: Vec<ContourLabelCandidate>,
@@ -173,6 +186,24 @@ pub(crate) struct AxisSpec {
     pub(crate) grid_alpha: f64,
     pub(crate) tick_direction: crate::core::rcparams::TickDirection,
     pub(crate) tick_labels_visible: bool,
+    /// Minor ticks and minor grid, present only when they differ from the
+    /// defaults. Absent before schema 5, which introduced them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) minor: Option<MinorAxisSpec>,
+}
+
+/// Wire form of an axis' minor ticks and minor grid (schema 5).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg(feature = "portable")]
+pub(crate) struct MinorAxisSpec {
+    pub(crate) locator: Option<LocatorSpec>,
+    pub(crate) tick_length: f64,
+    pub(crate) tick_width: f64,
+    pub(crate) grid: bool,
+    pub(crate) grid_color: Rgba,
+    pub(crate) grid_linewidth: f64,
+    pub(crate) grid_alpha: f64,
 }
 
 /// Wire mirror of [`Line2D`](crate::artist::Line2D).

@@ -396,6 +396,11 @@ pub struct Axes {
     secondary_x: Option<SecondaryXAxis>,
     /// Optional title drawn above the axes.
     title: Option<String>,
+    /// Title font size (px at 100 DPI), seeded from `axes.titlesize`.
+    title_size: f64,
+    /// Gap between the axes top (or its top decoration) and the title
+    /// baseline (px at 100 DPI), seeded from `axes.titlepad`.
+    title_pad: f64,
     /// Text annotations (with optional leader arrows) in data coordinates.
     annotations: Vec<Annotation>,
     /// Whether to stroke the axes frame (border rectangle).
@@ -558,6 +563,8 @@ impl Axes {
             xlim_link: None,
             secondary_x: None,
             title: None,
+            title_size: DEFAULT_TITLE_SIZE,
+            title_pad: DEFAULT_TITLE_PAD,
             annotations: Vec::new(),
             frame: true,
             aspect_equal: false,
@@ -1176,6 +1183,68 @@ impl Axes {
         self
     }
 
+    /// Turn on automatic minor ticks on both axes (matplotlib's
+    /// `ax.minorticks_on()`), subdividing each axis' actual major ticks.
+    ///
+    /// ```
+    /// use rizzma::core::color::Rgba;
+    /// use rizzma::figure::Figure;
+    ///
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_subplot(1, 1, 1);
+    /// ax.plot(&[0.0, 1.0, 2.0], &[0.0, 1.0, 4.0]);
+    /// ax.set_xticks(&[0.0, 1.0, 2.0])
+    ///     .minorticks_on()
+    ///     .grid_with(Rgba::BLACK, 0.5, 0.2)
+    ///     .minor_grid_with(Rgba::BLACK, 0.3, 0.1);
+    /// ```
+    pub fn minorticks_on(&mut self) -> &mut Self {
+        self.xaxis.minorticks_on();
+        self.yaxis.minorticks_on();
+        self
+    }
+
+    /// Remove the minor ticks (and minor grid) from both axes.
+    pub fn minorticks_off(&mut self) -> &mut Self {
+        self.xaxis.minorticks_off();
+        self.yaxis.minorticks_off();
+        self
+    }
+
+    /// Enable or disable grid lines at the minor ticks of both axes
+    /// (matplotlib's `ax.grid(on, which="minor")`). Needs minor ticks, see
+    /// [`Axes::minorticks_on`].
+    pub fn minor_grid(&mut self, on: bool) -> &mut Self {
+        self.xaxis.set_minor_grid(on);
+        self.yaxis.set_minor_grid(on);
+        self
+    }
+
+    /// Enable minor grid lines on both axes with an explicit color, width,
+    /// and opacity (`0.0..=1.0`).
+    pub fn minor_grid_with(&mut self, color: Rgba, linewidth: f64, alpha: f64) -> &mut Self {
+        for axis in [&mut self.xaxis, &mut self.yaxis] {
+            axis.set_minor_grid(true)
+                .set_minor_grid_style(color, linewidth, alpha);
+        }
+        self
+    }
+
+    /// Show or hide the axes frame rectangle (matplotlib's
+    /// `set_frame_on`). The axis spines along the tick edges still draw, so
+    /// hiding the frame leaves an open, two-sided axes.
+    pub fn set_frame_on(&mut self, on: bool) -> &mut Self {
+        self.frame = on;
+        self
+    }
+
+    /// Set the title font size (px at 100 DPI, the units of
+    /// [`RcParams::axes_titlesize`](crate::core::RcParams)).
+    pub fn set_title_size(&mut self, size: f64) -> &mut Self {
+        self.title_size = size;
+        self
+    }
+
     /// Enable grid lines on both axes with an explicit color, width (px), and
     /// opacity (`0.0..=1.0`).
     pub fn grid_with(&mut self, color: Rgba, linewidth: f64, alpha: f64) -> &mut Self {
@@ -1215,14 +1284,31 @@ impl Axes {
         self.legend_facecolor = rc.legend_facecolor;
         self.legend_edgecolor = rc.legend_edgecolor;
         self.legend_labelcolor = rc.legend_labelcolor;
-        for (axis, direction) in [
-            (&mut self.xaxis, rc.xtick_direction),
-            (&mut self.yaxis, rc.ytick_direction),
+        self.title_size = rc.axes_titlesize;
+        self.title_pad = rc.axes_titlepad;
+        for (axis, direction, label_size, size, pad) in [
+            (
+                &mut self.xaxis,
+                rc.xtick_direction,
+                rc.xtick_labelsize,
+                rc.xtick_major_size,
+                rc.xtick_major_pad,
+            ),
+            (
+                &mut self.yaxis,
+                rc.ytick_direction,
+                rc.ytick_labelsize,
+                rc.ytick_major_size,
+                rc.ytick_major_pad,
+            ),
         ] {
             axis.set_color(rc.text_color);
             axis.set_grid(rc.axes_grid);
             axis.set_grid_style(rc.grid_color, rc.grid_linewidth, rc.grid_alpha);
             axis.set_tick_direction(direction);
+            axis.set_tick_label_size(label_size);
+            axis.set_tick_length(size);
+            axis.set_tick_label_pad(pad);
         }
     }
 
@@ -1966,7 +2052,10 @@ impl Axes {
         if self.axis_visible {
             let (xlim, ylim) = self.limits_with_override(xlim_override);
             if !self.xaxis_hidden {
-                bottom = self.xaxis.decoration_extent(xlim, font, s);
+                // A top x axis is counted with the top decoration below.
+                if !self.xaxis_is_top() {
+                    bottom = self.xaxis.decoration_extent(xlim, font, s);
+                }
                 // End tick labels are centered on their ticks, so they spill
                 // half their width past the frame corners sideways.
                 let (lo, hi) = self.xaxis.end_label_overhangs(xlim, font, s);
@@ -1985,13 +2074,30 @@ impl Axes {
             // bottom and top frame corners.
             let (y_lo, y_hi) = self.yaxis.end_label_overhangs(ylim, font, s);
             bottom = bottom.max(y_lo);
-            top = self.secondary_extent(xlim, font, s).max(y_hi);
+            top = self.top_decoration_extent(xlim, font, s).max(y_hi);
         }
         if let Some(title) = self.title.as_ref().filter(|title| !title.is_empty()) {
-            let rich = layout_rich_text(font, title, DEFAULT_TITLE_SIZE * s);
-            top += DEFAULT_TITLE_PAD * s + rich.ascent + rich.descent;
+            let rich = layout_rich_text(font, title, self.title_size * s);
+            top += self.title_pad * s + rich.ascent + rich.descent;
         }
         (left, right, bottom, top)
+    }
+
+    /// Whether the x axis draws its ticks along the top edge
+    /// ([`Axis::tick_top`]).
+    fn xaxis_is_top(&self) -> bool {
+        self.xaxis.side() == AxisSide::Top
+    }
+
+    /// Everything stacked above the top spine: a top x axis and the
+    /// secondary x axis. The title clears this, and tight layout reserves it.
+    fn top_decoration_extent(&self, xlim: (f64, f64), font: &FontSource, s: f64) -> f64 {
+        let primary = if self.axis_visible && !self.xaxis_hidden && self.xaxis_is_top() {
+            self.xaxis.decoration_extent(xlim, font, s)
+        } else {
+            0.0
+        };
+        primary + self.secondary_extent(xlim, font, s)
     }
 
     /// The measured decoration extent of the secondary top x axis (0 when
@@ -2168,7 +2274,17 @@ impl Axes {
             let frame_gc = GraphicsContext::new()
                 .with_stroke(self.edgecolor)
                 .with_line_width(self.linewidth);
-            renderer.draw_path(&frame_gc, &rect, &Affine2D::identity(), None);
+            // Snapped like the spines it overlaps, so both cover the same
+            // pixels.
+            let width_px = renderer.points_to_pixels(self.linewidth);
+            let snap = |c| crate::axis::axis::snap_to_pixel(c, width_px);
+            let frame = Bbox::from_extents(
+                snap(axes_px.xmin()),
+                snap(axes_px.ymin()),
+                snap(axes_px.xmax()),
+                snap(axes_px.ymax()),
+            );
+            renderer.draw_path(&frame_gc, &rect_path(&frame), &Affine2D::identity(), None);
         }
 
         // 6. Draw the axes spines (suppressed when the axis is turned off).
@@ -2207,17 +2323,17 @@ impl Axes {
         // reduce to the previous single-string path.
         if let Some(title) = self.title.as_ref().filter(|title| !title.is_empty()) {
             let s = renderer.decoration_scale();
-            let rich = layout_rich_text(font, title, DEFAULT_TITLE_SIZE * s);
+            let rich = layout_rich_text(font, title, self.title_size * s);
             let cx = (axes_px.xmin() + axes_px.xmax()) / 2.0;
             let x = cx - rich.width / 2.0;
             // Place the baseline `pad` above the top spine, exactly as the
             // previous single-string path did; the rich paths are in a
             // baseline-relative y-up frame.
-            // A secondary top axis occupies the strip above the spine (ticks,
-            // tick labels, axis label); lift the title clear of its measured
-            // extent — the same number tight layout reserves.
-            let secondary_clearance = self.secondary_extent(xlim, font, s);
-            let y = axes_px.ymax() + DEFAULT_TITLE_PAD * s + secondary_clearance;
+            // A top or secondary x axis occupies the strip above the spine
+            // (ticks, tick labels, axis label); lift the title clear of its
+            // measured extent — the same number tight layout reserves.
+            let top_clearance = self.top_decoration_extent(xlim, font, s);
+            let y = axes_px.ymax() + self.title_pad * s + top_clearance;
             let shift = Affine2D::from_translation(x, y);
             for path in &rich.paths {
                 renderer.draw_path(
@@ -2696,6 +2812,9 @@ impl Axes {
             xlim_link: self.xlim_link,
             secondary_x: self.secondary_x.clone(),
             title: self.title.clone(),
+            title_style: (self.title_size != DEFAULT_TITLE_SIZE
+                || self.title_pad != DEFAULT_TITLE_PAD)
+                .then_some((self.title_size, self.title_pad)),
             annotations: self.annotations.clone(),
             annotation_color: self.annotation_color,
             contour_label_candidates: self.contour_label_candidates.clone(),
@@ -2768,6 +2887,10 @@ impl Axes {
             xlim_link: spec.xlim_link,
             secondary_x: spec.secondary_x.clone(),
             title: spec.title.clone(),
+            title_size: spec
+                .title_style
+                .map_or(DEFAULT_TITLE_SIZE, |(size, _)| size),
+            title_pad: spec.title_style.map_or(DEFAULT_TITLE_PAD, |(_, pad)| pad),
             annotations: spec.annotations.clone(),
             frame: spec.frame,
             aspect_equal: spec.aspect_equal,
@@ -2789,6 +2912,47 @@ mod tests {
 
     fn approx(a: f64, b: f64) {
         assert!((a - b).abs() < 1e-9, "expected {b}, got {a}");
+    }
+
+    /// `axes.titlesize` and `xtick.labelsize` were defined but never applied;
+    /// they now size the title and tick labels, and the defaults reproduce
+    /// the built-in layout exactly.
+    #[test]
+    fn rcparams_title_and_tick_sizes_reach_the_axes() {
+        let font = FontSource::dejavu_sans();
+        let titled = || {
+            let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+            ax.set_title("tile");
+            ax
+        };
+        let builtin = titled().layout_insets(&font, 1.0, None);
+        let mut defaulted = titled();
+        defaulted.apply_rcparams(&RcParams::default());
+        assert_eq!(defaulted.layout_insets(&font, 1.0, None), builtin);
+
+        let mut big = titled();
+        big.apply_rcparams(&RcParams {
+            axes_titlesize: 24.0,
+            xtick_labelsize: 20.0,
+            ..RcParams::default()
+        });
+        let (_, _, bottom, top) = big.layout_insets(&font, 1.0, None);
+        assert!(top > builtin.3, "{top} vs {}", builtin.3);
+        assert!(bottom > builtin.2, "{bottom} vs {}", builtin.2);
+    }
+
+    /// A top x axis moves its decoration above the frame, and the title is
+    /// lifted clear of it.
+    #[test]
+    fn tick_top_moves_x_decoration_above_the_frame() {
+        let font = FontSource::dejavu_sans();
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        ax.set_title("tile");
+        let (_, _, bottom, top) = ax.layout_insets(&font, 1.0, None);
+        ax.xaxis_mut().tick_top();
+        let (_, _, top_bottom, top_top) = ax.layout_insets(&font, 1.0, None);
+        assert!(top_bottom < bottom, "{top_bottom} vs {bottom}");
+        assert!(top_top > top, "{top_top} vs {top}");
     }
 
     #[test]

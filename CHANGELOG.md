@@ -7,6 +7,37 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.13.5] - 2026-10-06
+
+### Added
+- **Minor ticks and minor grid lines.** `Axes::minorticks_on` / `minorticks_off`, and
+  `Axis::set_minor_locator` for an explicit locator. `AutoMinorLocator` subdivides the
+  axis' actual major ticks, including fixed ones from `set_xticks`. `Axes::minor_grid` /
+  `minor_grid_with` and `Axis::set_minor_grid` / `set_minor_grid_style` draw grid lines
+  at the minor ticks, and `Axis::set_minor_tick_params` sets their length and width.
+- `Axis::tick_top` / `tick_bottom` move the x ticks and labels to the top edge; layout and
+  the title make room for them.
+- `Axes::set_frame_on` hides the frame box while keeping the axis spines, and
+  `Axes::set_title_size` sets the title size.
+- In-place `Axis` setters: `set_tick_length`, `set_tick_width`, `set_tick_label_size`,
+  `set_tick_label_pad`.
+
+### Fixed
+- **Tick, spine and grid widths below 1 are drawn as given.** They were clamped up to
+  1 pt, so a 1-pixel grid at 200 DPI came out almost 3 pixels wide. This also makes the
+  default `grid.linewidth` of 0.8 draw at 0.8; a width of 0 now hides the line.
+- **Spines, ticks, grid lines and the frame are snapped to whole pixels**, as matplotlib's
+  `path.snap` does, so a 1-pixel line is one crisp pixel instead of a 2-pixel grey smear.
+- `RcParams::axes_titlesize`, `axes_titlepad`, `xtick_labelsize`, `ytick_labelsize`,
+  `xtick_major_size`, `ytick_major_size`, `xtick_major_pad` and `ytick_major_pad` are
+  applied. They were defined but ignored. The defaults draw exactly as before.
+- `AutoMinorLocator` anchors its subdivisions on the first major tick, as matplotlib
+  does, so majors offset from zero (1, 6, 11, …) get aligned minor ticks.
+
+### Changed
+- Portable figures are schema 5. The new styling is written only when used, so other
+  figures export exactly the fields they did; schema 1–4 artifacts still load.
+
 ## [1.13.4] - 2026-10-05
 
 ### Fixed
