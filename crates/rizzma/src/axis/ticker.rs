@@ -76,6 +76,17 @@ pub trait Locator: Send + Sync {
         (vmin, vmax)
     }
 
+    /// Return minor tick positions for `[vmin, vmax]` when this locator is an
+    /// axis' minor locator and `major` holds that axis' major ticks.
+    ///
+    /// The default ignores `major` and returns [`tick_values`](Locator::tick_values).
+    /// [`AutoMinorLocator`] overrides it to subdivide the actual major ticks,
+    /// as matplotlib's `AutoMinorLocator` reads the axis' major locator.
+    fn minor_tick_values(&self, major: &[f64], vmin: f64, vmax: f64) -> Vec<f64> {
+        let _ = major;
+        self.tick_values(vmin, vmax)
+    }
+
     /// The closed wire form of this locator for portable-figure export, or
     /// `None` when the locator has no wire representation (in which case
     /// export fails loudly rather than substitute a different locator).
@@ -690,16 +701,19 @@ impl AutoMinorLocator {
             return Vec::new();
         }
 
+        // Anchor the minor grid on the first major, as matplotlib does, so
+        // majors offset from zero (1, 6, 11, …) still get aligned minors.
         let minor_step = major_step / subdivisions as f64;
-        let first = (lo / minor_step).ceil() as i64;
-        let last = (hi / minor_step).floor() as i64;
+        let anchor = major_locs[0];
+        let first = ((lo - anchor) / minor_step).ceil() as i64;
+        let last = ((hi - anchor) / minor_step).floor() as i64;
         if last < first {
             return Vec::new();
         }
 
         let mut ticks = Vec::new();
         for i in first..=last {
-            let tick = i as f64 * minor_step;
+            let tick = anchor + i as f64 * minor_step;
             if tick < lo - 1e-12 || tick > hi + 1e-12 {
                 continue;
             }
@@ -736,6 +750,10 @@ impl Locator for AutoMinorLocator {
         };
         let major_locs = AutoLocator::new().tick_values(lo, hi);
         self.tick_values_from_major(&major_locs, vmin, vmax)
+    }
+
+    fn minor_tick_values(&self, major: &[f64], vmin: f64, vmax: f64) -> Vec<f64> {
+        self.tick_values_from_major(major, vmin, vmax)
     }
 }
 
@@ -3495,6 +3513,12 @@ mod tests {
                 0.72, 0.74, 0.76, 0.78, 0.82, 0.84, 0.86, 0.88,
             ],
         );
+    }
+
+    #[test]
+    fn auto_minor_anchors_on_majors_offset_from_zero() {
+        let locs = AutoMinorLocator::new().tick_values_from_major(&[1.0, 6.0, 11.0], 1.0, 11.0);
+        assert_eq!(locs, vec![2.0, 3.0, 4.0, 5.0, 7.0, 8.0, 9.0, 10.0]);
     }
 
     #[test]

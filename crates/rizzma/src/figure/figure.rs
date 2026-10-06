@@ -1173,6 +1173,7 @@ impl Figure {
             spec.meta.is_some(),
             spec.timeline.is_some(),
             !spec.controls.is_empty(),
+            crate::portable::spec::uses_axis_styling(&spec.figure),
         );
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(

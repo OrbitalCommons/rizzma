@@ -88,9 +88,10 @@ pub use timeline::{Interp, Target, Timeline, Track};
 /// Bumped whenever anything changes that would alter how an existing artifact
 /// renders. Schema 1 is the original static+interactive model; schema 2 adds
 /// the [`Meta`] block and the poster chunk; schema 3 the [`Timeline`]; schema
-/// 4 user-driven [`Control`]s.
+/// 4 user-driven [`Control`]s; schema 5 axis minor ticks, minor grids and
+/// title size/pad.
 #[cfg(feature = "portable")]
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// Oldest schema version this build can still load.
 #[cfg(feature = "portable")]
@@ -105,8 +106,15 @@ pub const SCHEMA_MIN: u32 = 1;
 /// from the declaration watches it rejected for the unknown field. Both
 /// import and inspection refuse a declaration below what the features demand.
 #[cfg(feature = "portable")]
-pub(crate) fn required_schema(has_meta: bool, has_timeline: bool, has_controls: bool) -> u32 {
-    if has_controls {
+pub(crate) fn required_schema(
+    has_meta: bool,
+    has_timeline: bool,
+    has_controls: bool,
+    has_axis_styling: bool,
+) -> u32 {
+    if has_axis_styling {
+        5
+    } else if has_controls {
         4
     } else if has_timeline {
         3

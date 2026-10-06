@@ -1980,7 +1980,7 @@ fn schema_cannot_be_under_declared() {
     // runtime watches it rejected for the unknown field. Both inspection and
     // import refuse the lie.
     let bytes = controlled_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":4", "\"schema\":3"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":5", "\"schema\":3"));
 
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -1997,7 +1997,7 @@ fn schema_cannot_be_under_declared() {
 
     // The same floor applies one level down: a timeline needs schema 3.
     let bytes = animated_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":4", "\"schema\":2"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":5", "\"schema\":2"));
     let Err(err) = Figure::from_portable(&forged) else {
         panic!("a timeline under schema 3 must not import");
     };
@@ -2006,6 +2006,55 @@ fn schema_cannot_be_under_declared() {
         "{err}"
     );
     assert!(crate::portable::inspect(&forged, &Limits::default()).is_err());
+
+    // Minor ticks are schema 5; a schema-4 runtime would reject the field.
+    let mut fig = Figure::new(4.0, 3.0);
+    let ax = fig.add_subplot(1, 1, 1);
+    ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
+    ax.minorticks_on();
+    let bytes = fig.to_portable().expect("export");
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":5", "\"schema\":4"));
+    for result in [
+        Figure::from_portable(&forged).map(|_| ()),
+        crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
+    ] {
+        let Err(err) = result else {
+            panic!("minor ticks under schema 5 must not be accepted");
+        };
+        assert!(
+            matches!(&err, PortableError::Malformed(m) if m.contains("requiring schema 5")),
+            "{err}"
+        );
+    }
+}
+
+#[test]
+fn minor_ticks_and_title_style_round_trip() {
+    use crate::axis::ticker::MultipleLocator;
+
+    let mut fig = Figure::new(4.0, 3.0);
+    let ax = fig.add_subplot(1, 1, 1);
+    ax.plot(&[0.0, 10.0], &[0.0, 1.0]);
+    ax.minorticks_on()
+        .minor_grid_with(Rgba::BLACK, 0.3, 0.2)
+        .set_title("styled")
+        .set_title_size(7.0);
+    ax.yaxis_mut()
+        .set_minor_locator(Box::new(MultipleLocator::new(0.05)))
+        .set_minor_tick_params(1.5, 0.4);
+    ax.xaxis_mut().tick_top();
+
+    let bytes = fig.to_portable().expect("export");
+    let back = Figure::from_portable(&bytes).expect("import");
+    assert_eq!(back.to_portable().expect("re-export"), bytes);
+
+    // A figure without the new styling exports no schema-5 fields at all.
+    let mut plain = Figure::new(4.0, 3.0);
+    plain.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    let plain = plain.to_portable().expect("export");
+    let json = String::from_utf8_lossy(&plain);
+    assert!(!json.contains("\"minor\""), "{json}");
+    assert!(!json.contains("title_style"), "{json}");
 }
 
 #[test]
