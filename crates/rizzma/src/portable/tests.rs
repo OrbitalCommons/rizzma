@@ -1980,7 +1980,7 @@ fn schema_cannot_be_under_declared() {
     // runtime watches it rejected for the unknown field. Both inspection and
     // import refuse the lie.
     let bytes = controlled_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":5", "\"schema\":3"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":6", "\"schema\":3"));
 
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -1997,7 +1997,7 @@ fn schema_cannot_be_under_declared() {
 
     // The same floor applies one level down: a timeline needs schema 3.
     let bytes = animated_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":5", "\"schema\":2"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":6", "\"schema\":2"));
     let Err(err) = Figure::from_portable(&forged) else {
         panic!("a timeline under schema 3 must not import");
     };
@@ -2013,7 +2013,7 @@ fn schema_cannot_be_under_declared() {
     ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
     ax.minorticks_on();
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":5", "\"schema\":4"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":6", "\"schema\":4"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2026,6 +2026,48 @@ fn schema_cannot_be_under_declared() {
             "{err}"
         );
     }
+
+    // Text sizes are schema 6; a schema-5 runtime would reject the field.
+    let mut fig = Figure::new(4.0, 3.0);
+    fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    fig.suptitle("sized").set_suptitle_size(20.0);
+    let bytes = fig.to_portable().expect("export");
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":6", "\"schema\":5"));
+    for result in [
+        Figure::from_portable(&forged).map(|_| ()),
+        crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
+    ] {
+        let Err(err) = result else {
+            panic!("text sizes under schema 6 must not be accepted");
+        };
+        assert!(
+            matches!(&err, PortableError::Malformed(m) if m.contains("requiring schema 6")),
+            "{err}"
+        );
+    }
+}
+
+#[test]
+fn text_sizes_round_trip() {
+    let mut fig = Figure::new(4.0, 3.0);
+    fig.suptitle("Amps").set_suptitle_size(22.0);
+    let ax = fig.add_subplot(1, 1, 1);
+    ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
+    ax.set_text_size(15.0).text(0.2, 0.5, "big");
+    ax.set_text_size(7.0);
+
+    let bytes = fig.to_portable().expect("export");
+    let back = Figure::from_portable(&bytes).expect("import");
+    assert_eq!(back.to_portable().expect("re-export"), bytes);
+
+    // Default sizes write no schema-6 fields.
+    let mut plain = Figure::new(4.0, 3.0);
+    plain.suptitle("Amps");
+    plain.add_subplot(1, 1, 1).text(0.2, 0.5, "default");
+    let plain = plain.to_portable().expect("export");
+    let json = String::from_utf8_lossy(&plain);
+    assert!(!json.contains("suptitle_size"), "{json}");
+    assert!(!json.contains("text_size"), "{json}");
 }
 
 #[test]

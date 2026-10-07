@@ -47,14 +47,18 @@ struct Header {
 #[derive(Debug, Default, Deserialize)]
 struct FigureHead {
     #[serde(default)]
+    suptitle_size: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
     axes: Vec<AxesHead>,
 }
 
-/// Presence of an axes' title style and minor-tick settings.
+/// Presence of an axes' title style, text size and minor-tick settings.
 #[derive(Debug, Deserialize)]
 struct AxesHead {
     #[serde(default)]
     title_style: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    text_size: Option<serde::de::IgnoredAny>,
     xaxis: AxisHead,
     yaxis: AxisHead,
 }
@@ -72,6 +76,11 @@ impl FigureHead {
         self.axes.iter().any(|axes| {
             axes.title_style.is_some() || axes.xaxis.minor.is_some() || axes.yaxis.minor.is_some()
         })
+    }
+
+    /// Mirrors [`uses_text_sizes`](super::spec::uses_text_sizes).
+    fn uses_text_sizes(&self) -> bool {
+        self.suptitle_size.is_some() || self.axes.iter().any(|axes| axes.text_size.is_some())
     }
 }
 
@@ -152,6 +161,7 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
         header.timeline.is_some(),
         !header.controls.is_empty(),
         header.figure.uses_axis_styling(),
+        header.figure.uses_text_sizes(),
     );
     if header.schema < required {
         return Err(PortableError::Malformed(format!(

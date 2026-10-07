@@ -60,6 +60,8 @@ pub struct Figure {
     suptitle: Option<String>,
     /// Figure-title ink color, seeded from the active theme.
     suptitle_color: Rgba,
+    /// Figure-title font size (px at 100 DPI); see [`Figure::set_suptitle_size`].
+    suptitle_size: f64,
     /// Colorbars registered on this figure, drawn after the axes (see
     /// [`Figure::colorbar`]).
     pub(crate) colorbars: Vec<crate::figure::colorbar::Colorbar>,
@@ -96,6 +98,7 @@ impl Figure {
             axes: Vec::new(),
             suptitle: None,
             suptitle_color: Rgba::BLACK,
+            suptitle_size: SUPTITLE_SIZE,
             colorbars: Vec::new(),
             #[cfg(feature = "portable")]
             timeline: None,
@@ -183,6 +186,22 @@ impl Figure {
     /// ```
     pub fn suptitle(&mut self, title: impl Into<String>) -> &mut Self {
         self.suptitle = Some(title.into());
+        self
+    }
+
+    /// Set the figure title's font size (px at 100 DPI, scaling with the DPI
+    /// like every other decoration; the default is 14) — matplotlib's
+    /// `suptitle(…, fontsize=…)`. Tight layout reserves room for the new size.
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    /// let mut fig = Figure::new(6.0, 3.0);
+    /// fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    /// fig.suptitle("Amps").set_suptitle_size(24.0);
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn set_suptitle_size(&mut self, size: f64) -> &mut Self {
+        self.suptitle_size = size;
         self
     }
 
@@ -404,7 +423,7 @@ impl Figure {
             .as_ref()
             .filter(|title| envelope.ymax() >= 1.0 - EDGE_EPS && !title.is_empty())
         {
-            let rich = layout_rich_text(&self.font, title, SUPTITLE_SIZE * s);
+            let rich = layout_rich_text(&self.font, title, self.suptitle_size * s);
             pad_top += rich.ascent + rich.descent + SUPTITLE_PAD * 2.0 * s;
         }
 
@@ -471,7 +490,7 @@ impl Figure {
 
         if let Some(title) = self.suptitle.as_ref().filter(|title| !title.is_empty()) {
             let s = renderer.decoration_scale();
-            let rich = layout_rich_text(&self.font, title, SUPTITLE_SIZE * s);
+            let rich = layout_rich_text(&self.font, title, self.suptitle_size * s);
             let shift = crate::core::Affine2D::from_translation(
                 (w - rich.width) / 2.0,
                 h - SUPTITLE_PAD * s - rich.ascent,
@@ -1032,6 +1051,7 @@ impl Figure {
                 rc: self.rc.clone(),
                 suptitle: self.suptitle.clone(),
                 suptitle_color: self.suptitle_color,
+                suptitle_size: (self.suptitle_size != SUPTITLE_SIZE).then_some(self.suptitle_size),
                 axes,
                 colorbars: self.colorbars.clone(),
             },
@@ -1174,6 +1194,7 @@ impl Figure {
             spec.timeline.is_some(),
             !spec.controls.is_empty(),
             crate::portable::spec::uses_axis_styling(&spec.figure),
+            crate::portable::spec::uses_text_sizes(&spec.figure),
         );
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(
@@ -1231,6 +1252,7 @@ impl Figure {
                 .collect::<Result<_, _>>()?,
             suptitle: fig.suptitle,
             suptitle_color: fig.suptitle_color,
+            suptitle_size: fig.suptitle_size.unwrap_or(SUPTITLE_SIZE),
             colorbars: fig.colorbars,
             timeline: spec.timeline,
             control_values: spec.controls.iter().map(|c| c.default).collect(),
@@ -1617,6 +1639,19 @@ mod tests {
         let with = fig.layout_rect_for(0, 300.0, 200.0).unwrap();
 
         assert!(with.ymax() < without.ymax());
+    }
+
+    /// A larger figure title reserves a taller band above the axes.
+    #[test]
+    fn suptitle_size_scales_the_reserved_band() {
+        let mut fig = Figure::new(3.0, 2.0);
+        fig.add_subplot(1, 1, 1);
+        fig.suptitle("Overview");
+        let default = fig.layout_rect_for(0, 300.0, 200.0).unwrap();
+        fig.set_suptitle_size(28.0);
+        let large = fig.layout_rect_for(0, 300.0, 200.0).unwrap();
+
+        assert!(large.ymax() < default.ymax());
     }
 
     #[test]

@@ -90,6 +90,13 @@ pub(crate) fn uses_axis_styling(figure: &FigureSpec) -> bool {
     })
 }
 
+/// Whether the figure carries schema-6 text sizing: a figure-title size or an
+/// axes text size.
+#[cfg(feature = "portable")]
+pub(crate) fn uses_text_sizes(figure: &FigureSpec) -> bool {
+    figure.suptitle_size.is_some() || figure.axes.iter().any(|axes| axes.text_size.is_some())
+}
+
 /// Wire mirror of [`Figure`](crate::figure::Figure).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -102,6 +109,10 @@ pub(crate) struct FigureSpec {
     pub(crate) rc: RcParams,
     pub(crate) suptitle: Option<String>,
     pub(crate) suptitle_color: Rgba,
+    /// The figure title size, present only when it differs from the default.
+    /// Absent before schema 6, which introduced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) suptitle_size: Option<f64>,
     pub(crate) axes: Vec<AxesSpec>,
     pub(crate) colorbars: Vec<Colorbar>,
 }
@@ -152,6 +163,10 @@ pub(crate) struct AxesSpec {
     pub(crate) title_style: Option<(f64, f64)>,
     pub(crate) annotations: Vec<Annotation>,
     pub(crate) annotation_color: Rgba,
+    /// The size given to text added from now on, present only when it differs
+    /// from the default. Absent before schema 6, which introduced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) text_size: Option<f64>,
     pub(crate) contour_label_candidates: Vec<ContourLabelCandidate>,
     pub(crate) frame: bool,
     pub(crate) aspect_equal: bool,
