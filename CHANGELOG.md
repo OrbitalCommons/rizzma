@@ -7,6 +7,19 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.13.6] - 2026-10-07
+
+### Added
+- **Figure and free-text font sizes.** `Figure::set_suptitle_size` sizes the figure title
+  (tight layout reserves room for it), and `Axes::set_text_size` sizes the text added after
+  it through `text`, `text_with_color`, `text_with_box`, `annotate` and `annotate_with_box`,
+  the role matplotlib's per-call `fontsize=` plays. Both were fixed at 14 and 10.
+
+### Changed
+- Portable figures are schema 6. The sizes are written only when they differ from the
+  defaults, so other figures export exactly the fields they did; schema 1–5 artifacts
+  still load.
+
 ## [1.13.5] - 2026-10-06
 
 ### Added

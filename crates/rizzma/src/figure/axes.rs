@@ -353,6 +353,9 @@ pub struct Axes {
     /// like the title, overridable per call with
     /// [`text_with_color`](Axes::text_with_color).
     pub(crate) annotation_color: Rgba,
+    /// Font size (px at 100 DPI) of text and annotations added from now on;
+    /// see [`Axes::set_text_size`].
+    annotation_size: f64,
     /// The color cycle successive artists draw from (matplotlib's
     /// `axes.prop_cycle`), resolved from [`RcParams`] and overridable via
     /// [`Axes::set_prop_cycle`].
@@ -546,6 +549,7 @@ impl Axes {
             linewidth: 0.8,
             title_color: Rgba::BLACK,
             annotation_color: Rgba::BLACK,
+            annotation_size: DEFAULT_ANNOTATION_SIZE,
             prop_cycle: default_prop_cycle(),
             legend_facecolor: Rgba::WHITE,
             legend_edgecolor: Rgba::from_u8(128, 128, 128, 255),
@@ -933,6 +937,28 @@ impl Axes {
         self.text_with_color(x, y, s, color)
     }
 
+    /// Set the font size (px at 100 DPI, scaling with the DPI; the default is
+    /// 10) of the text and annotations added *after* this call — the
+    /// [`text`](Axes::text), [`text_with_color`](Axes::text_with_color),
+    /// [`text_with_box`](Axes::text_with_box), [`annotate`](Axes::annotate)
+    /// and [`annotate_with_box`](Axes::annotate_with_box) family. It plays the
+    /// role of matplotlib's per-call `fontsize=`: set it, place the text, and
+    /// set it again for text of another size.
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    /// let mut fig = Figure::new(3.0, 2.0);
+    /// let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+    /// ax.set_xlim(0.0, 10.0).set_ylim(0.0, 10.0);
+    /// ax.set_text_size(16.0).text(1.0, 7.0, "large");
+    /// ax.set_text_size(8.0).text(1.0, 3.0, "small");
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn set_text_size(&mut self, size: f64) -> &mut Self {
+        self.annotation_size = size;
+        self
+    }
+
     /// Place `s` at `(x, y)` in data coordinates with an explicit text color,
     /// overriding the themed annotation ink — matplotlib's
     /// `text(x, y, s, color=…)`.
@@ -963,7 +989,7 @@ impl Axes {
             xy: (x, y),
             text_at: None,
             color,
-            size: DEFAULT_ANNOTATION_SIZE,
+            size: self.annotation_size,
             box_style: None,
         });
         self
@@ -1000,7 +1026,7 @@ impl Axes {
             xy,
             text_at: Some(xytext),
             color: self.annotation_color,
-            size: DEFAULT_ANNOTATION_SIZE,
+            size: self.annotation_size,
             box_style: None,
         });
         self
@@ -1022,7 +1048,7 @@ impl Axes {
             xy: (x, y),
             text_at: None,
             color: self.annotation_color,
-            size: DEFAULT_ANNOTATION_SIZE,
+            size: self.annotation_size,
             box_style: Some(box_style),
         });
         self
@@ -1053,7 +1079,7 @@ impl Axes {
             xy,
             text_at: Some(xytext),
             color: self.annotation_color,
-            size: DEFAULT_ANNOTATION_SIZE,
+            size: self.annotation_size,
             box_style: Some(box_style),
         });
         self
@@ -2817,6 +2843,8 @@ impl Axes {
                 .then_some((self.title_size, self.title_pad)),
             annotations: self.annotations.clone(),
             annotation_color: self.annotation_color,
+            text_size: (self.annotation_size != DEFAULT_ANNOTATION_SIZE)
+                .then_some(self.annotation_size),
             contour_label_candidates: self.contour_label_candidates.clone(),
             frame: self.frame,
             aspect_equal: self.aspect_equal,
@@ -2850,6 +2878,7 @@ impl Axes {
             linewidth: spec.linewidth,
             title_color: spec.title_color,
             annotation_color: spec.annotation_color,
+            annotation_size: spec.text_size.unwrap_or(DEFAULT_ANNOTATION_SIZE),
             prop_cycle: spec.prop_cycle.clone(),
             legend_facecolor: spec.legend_facecolor,
             legend_edgecolor: spec.legend_edgecolor,
@@ -2939,6 +2968,22 @@ mod tests {
         let (_, _, bottom, top) = big.layout_insets(&font, 1.0, None);
         assert!(top > builtin.3, "{top} vs {}", builtin.3);
         assert!(bottom > builtin.2, "{bottom} vs {}", builtin.2);
+    }
+
+    /// The text size applies to every text call made after it, and leaves
+    /// earlier text and contour labels alone.
+    #[test]
+    fn set_text_size_applies_to_later_text_only() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        ax.text(0.1, 0.1, "before");
+        ax.set_text_size(18.0)
+            .text(0.2, 0.2, "text")
+            .text_with_color(0.3, 0.3, "colored", Rgba::BLACK)
+            .annotate("arrow", (0.5, 0.5), (0.6, 0.6))
+            .text_with_box(0.4, 0.4, "boxed", TextBoxStyle::default());
+        ax.add_contour_label("1.0".into(), (0.7, 0.7), Rgba::BLACK);
+        let sizes: Vec<f64> = ax.annotations.iter().map(|a| a.size).collect();
+        assert_eq!(sizes, [10.0, 18.0, 18.0, 18.0, 18.0, 10.0]);
     }
 
     /// A top x axis moves its decoration above the frame, and the title is
