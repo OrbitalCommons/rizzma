@@ -6,9 +6,11 @@ elements by the wasm canvas backend (tiny-skia rasterizes to straight RGBA,
 blitted as `ImageData`, HiDPI-crisp), each bound to a `WasmSession` for
 wheel-zoom at the cursor, drag pan, double-click reset, and hover readouts.
 
-The page carries every live demo embedded in the crate docs (the `demos` in
-`crates/rizzma/docs-header.html`) and more — keep it a superset when adding a
-docs demo.
+The demos live in one module, `rizzma-demos.js`, shared with the crate docs:
+this page mounts every entry of its `demos` registry, and
+`crates/rizzma/docs-header.html` imports the published copy and mounts the
+cells its `data-demo` attributes name. Add a demo there and both pages pick it
+up; `tests/live_demos.rs` fails if the docs name a demo the module lacks.
 
 ## Build
 
