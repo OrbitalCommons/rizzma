@@ -44,9 +44,9 @@ jobs:
         env:
           WASM_PACK_VERSION: 0.15.0
 
-      # The interactive demo site — and the wasm pkg that the docs.rs live
-      # demos import (see crates/rizzma/docs-header.html) — publish to
-      # gh-pages under /demo/.
+      # The interactive demo site — and the wasm pkg and shared demo module
+      # (rizzma-demos.js) that the docs.rs live demos import (see
+      # crates/rizzma/docs-header.html) — publish to gh-pages under /demo/.
       # The demo pages build figures imperatively, so this bundle deliberately
       # excludes the portable-figure importer and its JSON codec — about
       # 590 KiB that every docs.rs reader would otherwise download unused. The
@@ -60,7 +60,8 @@ jobs:
         run: |
           mkdir -p gallery-out/demo
           cp target/gallery_*.png gallery-out/
-          cp -r crates/rizzma/www/index.html crates/rizzma/www/pkg gallery-out/demo/
+          cp -r crates/rizzma/www/index.html crates/rizzma/www/rizzma-demos.js \
+            crates/rizzma/www/pkg gallery-out/demo/
           # wasm-pack writes a `*` .gitignore into pkg/; left in place it makes
           # the deploy action's git commit silently drop the whole bundle.
           rm -f gallery-out/demo/pkg/.gitignore
