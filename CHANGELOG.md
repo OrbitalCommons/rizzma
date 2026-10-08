@@ -7,6 +7,16 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.13.7] - 2026-10-08
+
+### Changed
+- **One set of live demos for the docs and the demo site.** The wasm demos now live in
+  `www/rizzma-demos.js`. The crate docs import it from the published demo site, and the
+  demo site mounts every entry, so it always carries all of the docs' demos. The demo
+  site gains the beats, waves, rose, ripple-tank and Lorenz demos (12 in all), and its
+  animations pause while scrolled out of view. `tests/live_demos.rs` fails if the docs
+  name a demo the module does not define.
+
 ## [1.13.6] - 2026-10-07
 
 ### Added
