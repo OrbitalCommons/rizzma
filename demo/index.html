@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>rizzma — interactive wasm demos</title>
+    <style>
+      :root {
+        --bg: #1a1b26;
+        --fg: #c0caf5;
+        --muted: #9aa5ce;
+        --accent: #7aa2f7;
+      }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 2rem 1rem 3rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1.5rem;
+      }
+      header {
+        max-width: 62rem;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 0.4rem;
+        font-size: 1.6rem;
+      }
+      h1 em {
+        color: var(--accent);
+        font-style: italic;
+      }
+      .tagline {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+      .hint {
+        margin: 0.6rem 0 0;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      .grid {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 1.5rem;
+        /* Canvas CSS size is pinned to the figure's logical pixels (pointer
+           math depends on it), so cards never shrink their canvases; the
+           page scrolls instead on very narrow screens. */
+      }
+      .card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      canvas {
+        background: #fff;
+        border-radius: 4px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        touch-action: none; /* pointer events drive pan; no browser gestures */
+      }
+      .readout {
+        font-family: ui-monospace, monospace;
+        font-size: 0.85rem;
+        color: var(--muted);
+        min-height: 1.2em;
+      }
+      footer {
+        color: var(--muted);
+        font-size: 0.85rem;
+        max-width: 42rem;
+        text-align: center;
+      }
+      footer a {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>rizzma <em>interactive wasm demos</em></h1>
+      <p class="tagline">
+        Scientific communication reflects on the scientist, and your figures
+        should carry the same <em>rizzma</em> as your ideas.
+      </p>
+      <p class="hint">
+        Every plot is live: scroll to zoom at the cursor &middot; drag to pan
+        &middot; double-click to reset &middot; hover for data coordinates.
+      </p>
+    </header>
+
+    <div class="grid" id="grid"></div>
+
+    <footer>
+      Figures are built from JS data via <code>WasmFigure</code>, rasterized by
+      the same Rust core that renders PNG/SVG/PDF (tiny-skia &rarr;
+      <code>ImageData</code>, HiDPI-crisp), and driven by
+      <code>WasmSession</code> pointer events with rAF-coalesced repaints.
+      Source: <a href="https://github.com/OrbitalCommons/rizzma">rizzma on
+      GitHub</a> &middot; <a
+      href="https://orbitalcommons.github.io/rizzma/">static gallery</a>.
+    </footer>
+
+    <script type="module">
+      import init, * as mod from "./pkg/rizzma.js";
+      import { demos } from "./rizzma-demos.js";
+      await init();
+
+      // Every shared demo gets a card — the crate docs mount a subset of the
+      // same module, so this page always carries all of them.
+      // Sessions must stay referenced for as long as their canvases should
+      // stay interactive: an unreferenced WasmSession is eventually GC'd,
+      // which detaches its listeners and leaves the canvas inert.
+      const sessions = [];
+      const grid = document.getElementById("grid");
+      for (const [name, build] of Object.entries(demos)) {
+        const card = document.createElement("div");
+        card.className = "card";
+        const canvas = document.createElement("canvas");
+        canvas.id = `plot-${name}`;
+        const readout = document.createElement("p");
+        readout.className = "readout";
+        readout.textContent = "—";
+        card.append(canvas, readout);
+        grid.append(card);
+        const session = build(mod, canvas, card, 4 / 3);
+        sessions.push(session);
+        // WasmAxes3D renders whole frames and has no hover session.
+        session.on_hover?.((axes, x, y) => {
+          readout.textContent =
+            axes === null ? "—" : `x=${x.toFixed(3)}, y=${y.toFixed(3)}`;
+        });
+      }
+    </script>
+  </body>
+</html>
