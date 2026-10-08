@@ -1,11 +1,14 @@
 # rizzma wasm browser demo site
 
-An interactive demo site: four figures built from JS data via `WasmFigure`,
-rendered into `<canvas>` elements by the wasm canvas backend (tiny-skia
-rasterizes to straight RGBA, blitted as `ImageData`, HiDPI-crisp), each bound
-to a `WasmSession` for wheel-zoom at the cursor, drag pan, double-click reset,
-and hover readouts. The demos cover styled lines with a legend and live
-`set_line_data` updates, scatter, log-log axes, and a subplot grid.
+An interactive demo site: a dozen live figures built from JS data via
+`WasmFigure` (plus a spinning `WasmAxes3D` surface), rendered into `<canvas>`
+elements by the wasm canvas backend (tiny-skia rasterizes to straight RGBA,
+blitted as `ImageData`, HiDPI-crisp), each bound to a `WasmSession` for
+wheel-zoom at the cursor, drag pan, double-click reset, and hover readouts.
+
+The page carries every live demo embedded in the crate docs (the `demos` in
+`crates/rizzma/docs-header.html`) and more — keep it a superset when adding a
+docs demo.
 
 ## Build
 

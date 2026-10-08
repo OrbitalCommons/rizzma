@@ -142,6 +142,26 @@
           3D surface re-rendered each frame from a sweeping azimuth
         </p>
       </div>
+      <div class="card">
+        <canvas id="plot-beats"></canvas>
+        <p class="readout" id="readout-beats">&mdash;</p>
+      </div>
+      <div class="card">
+        <canvas id="plot-interference"></canvas>
+        <p class="readout" id="readout-interference">&mdash;</p>
+      </div>
+      <div class="card">
+        <canvas id="plot-rose"></canvas>
+        <p class="readout" id="readout-rose">&mdash;</p>
+      </div>
+      <div class="card">
+        <canvas id="plot-ripples"></canvas>
+        <p class="readout" id="readout-ripples">&mdash;</p>
+      </div>
+      <div class="card">
+        <canvas id="plot-lorenz"></canvas>
+        <p class="readout" id="readout-lorenz">&mdash;</p>
+      </div>
     </div>
 
     <footer>
@@ -448,6 +468,161 @@
         const t = (performance.now() - spin3d0) / 1000;
         ax7.set_view(28, -60 + 12 * t);
         ax7.render("plot-surface3d");
+      }, 50);
+
+      // 8. Beats: two close frequencies, the pattern traveling with time.
+      const bn = 700;
+      const bx = new Float64Array(bn);
+      const by = new Float64Array(bn);
+      for (let i = 0; i < bn; i++) bx[i] = (16 * Math.PI * i) / (bn - 1);
+      const fillBeats = (phase) => {
+        for (let i = 0; i < bn; i++) {
+          by[i] = Math.sin(3 * bx[i] - phase) + Math.sin(3.35 * bx[i] - phase);
+        }
+      };
+      fillBeats(0);
+      const fig8 = new WasmFigure(4.8, 3.4);
+      const ax8 = fig8.add_subplot(1, 1, 1);
+      fig8.plot(ax8, bx, by);
+      fig8.set_title(ax8, "plot: two strings beating");
+      fig8.set_ylim(ax8, -2.2, 2.2);
+      const session8 = hookReadout(fig8.bind("plot-beats"), "readout-beats");
+      const beats0 = performance.now();
+      setInterval(() => {
+        fillBeats(((performance.now() - beats0) / 1000) * 4);
+        session8.set_line_data(ax8, 0, bx, by);
+      }, 50);
+
+      // 9. Two counter-propagating waves and their interference sum.
+      const wn = 500;
+      const wx = new Float64Array(wn);
+      const w1 = new Float64Array(wn);
+      const w2 = new Float64Array(wn);
+      const wsum = new Float64Array(wn);
+      for (let i = 0; i < wn; i++) wx[i] = (4 * Math.PI * i) / (wn - 1);
+      const fillWaves = (t) => {
+        for (let i = 0; i < wn; i++) {
+          w1[i] = Math.sin(wx[i] - 2 * t) * 0.9;
+          w2[i] = Math.sin(1.5 * wx[i] + 2 * t) * 0.7;
+          wsum[i] = w1[i] + w2[i];
+        }
+      };
+      fillWaves(0);
+      const fig9 = new WasmFigure(4.8, 3.4);
+      const ax9 = fig9.add_subplot(1, 1, 1);
+      fig9.plot_styled(ax9, wx, w1, { color: "tab:gray", lw: 1.0 });
+      fig9.plot_styled(ax9, wx, w2, { color: "tab:gray", lw: 1.0 });
+      fig9.plot_styled(ax9, wx, wsum, { color: "tab:blue", lw: 2.0 });
+      fig9.set_title(ax9, "plot: counter-propagating waves");
+      fig9.set_ylim(ax9, -2.0, 2.0);
+      const session9 = hookReadout(
+        fig9.bind("plot-interference"),
+        "readout-interference",
+      );
+      const waves0 = performance.now();
+      setInterval(() => {
+        fillWaves((performance.now() - waves0) / 1000);
+        session9.set_line_data(ax9, 0, wx, w1);
+        session9.set_line_data(ax9, 1, wx, w2);
+        session9.set_line_data(ax9, 2, wx, wsum);
+      }, 50);
+
+      // 10. A rose curve morphing its petal count.
+      const rn = 720;
+      const rx = new Float64Array(rn);
+      const ry = new Float64Array(rn);
+      const fillRose = (petals) => {
+        for (let i = 0; i < rn; i++) {
+          const th = (2 * Math.PI * i) / (rn - 1);
+          const r = Math.cos(petals * th);
+          rx[i] = r * Math.cos(th);
+          ry[i] = r * Math.sin(th);
+        }
+      };
+      fillRose(3);
+      const fig10 = new WasmFigure(4.8, 3.4);
+      const ax10 = fig10.add_subplot(1, 1, 1);
+      fig10.plot_styled(ax10, rx, ry, { color: "tab:purple", lw: 1.5 });
+      fig10.set_title(ax10, "plot: a rose, petals in motion");
+      fig10.set_xlim(ax10, -1.15, 1.15);
+      fig10.set_ylim(ax10, -1.15, 1.15);
+      const session10 = hookReadout(fig10.bind("plot-rose"), "readout-rose");
+      const rose0 = performance.now();
+      setInterval(() => {
+        const t = (performance.now() - rose0) / 1000;
+        fillRose(4.5 + 2.5 * Math.sin(0.25 * t));
+        session10.set_line_data(ax10, 0, rx, ry);
+      }, 50);
+
+      // 11. A ripple tank: two point sources interfering, the field streamed
+      // through imshow as a diverging-colormapped image.
+      const tankRows = 40;
+      const tankCols = 54;
+      const tankExtent = [0, 1.35, 0, 1];
+      const tank = new Float64Array(tankRows * tankCols);
+      const fillTank = (t) => {
+        for (let r = 0; r < tankRows; r++) {
+          for (let c = 0; c < tankCols; c++) {
+            const x = (c + 0.5) / tankCols;
+            const y = (r + 0.5) / tankRows;
+            const r1 = Math.hypot(x - 0.32, y - 0.5);
+            const r2 = Math.hypot(x - 0.68, y - 0.5);
+            tank[r * tankCols + c] =
+              Math.sin(38 * r1 - 5 * t) / (1 + 4 * r1) +
+              Math.sin(38 * r2 - 5 * t) / (1 + 4 * r2);
+          }
+        }
+      };
+      fillTank(0);
+      const fig11 = new WasmFigure(4.8, 3.4);
+      const ax11 = fig11.add_subplot(1, 1, 1);
+      fig11.imshow(ax11, tank, tankRows, tankCols, tankExtent, "coolwarm", -1.4, 1.4);
+      fig11.set_title(ax11, "imshow: a ripple tank");
+      const session11 = hookReadout(fig11.bind("plot-ripples"), "readout-ripples");
+      const tank0 = performance.now();
+      setInterval(() => {
+        fillTank((performance.now() - tank0) / 1000);
+        session11.set_image_data(ax11, 0, tank, tankRows, tankCols, tankExtent);
+      }, 50);
+
+      // 12. The Lorenz attractor traced live in the x-z plane.
+      const lorenzKeep = 2200;
+      let lx = 0.9;
+      let ly = 1.4;
+      let lz = 19;
+      const lxs = [];
+      const lzs = [];
+      const lorenzStep = () => {
+        const dt = 0.005;
+        const dx = 10 * (ly - lx);
+        const dy = lx * (28 - lz) - ly;
+        const dz = lx * ly - (8 / 3) * lz;
+        lx += dx * dt;
+        ly += dy * dt;
+        lz += dz * dt;
+        lxs.push(lx);
+        lzs.push(lz);
+        if (lxs.length > lorenzKeep) {
+          lxs.shift();
+          lzs.shift();
+        }
+      };
+      for (let i = 0; i < 400; i++) lorenzStep();
+      const fig12 = new WasmFigure(4.8, 3.4);
+      const ax12 = fig12.add_subplot(1, 1, 1);
+      fig12.plot_styled(ax12, Float64Array.from(lxs), Float64Array.from(lzs), {
+        color: "tab:orange",
+        lw: 1.0,
+      });
+      fig12.set_title(ax12, "plot: the Lorenz attractor, live");
+      fig12.set_xlabel(ax12, "x");
+      fig12.set_ylabel(ax12, "z");
+      fig12.set_xlim(ax12, -23, 23);
+      fig12.set_ylim(ax12, 0, 52);
+      const session12 = hookReadout(fig12.bind("plot-lorenz"), "readout-lorenz");
+      setInterval(() => {
+        for (let i = 0; i < 12; i++) lorenzStep();
+        session12.set_line_data(ax12, 0, Float64Array.from(lxs), Float64Array.from(lzs));
       }, 50);
     </script>
   </body>
