@@ -1005,6 +1005,7 @@ dependencies = [
  "base64",
  "chrono",
  "js-sys",
+ "miniz_oxide",
  "png",
  "resvg",
  "serde",

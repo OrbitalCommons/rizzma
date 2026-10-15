@@ -38,6 +38,7 @@ wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys"]
 base64 = "0.22.1"
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 js-sys = { version = "0.3", optional = true }
+miniz_oxide = "0.8"
 png = "0.18.1"
 serde = { version = "1.0.228", features = ["derive"] }
 # `float_roundtrip` is load-bearing, not a nicety: without it serde_json parses
