@@ -8,6 +8,7 @@
 //! focused on the line/patch convenience methods.
 
 use crate::artist::{Collection, Line2D, Patch};
+use crate::core::Path;
 use crate::core::color::{ColorMapping, DEFAULT_COLOR_CYCLE, Rgba};
 
 use crate::figure::Axes;
@@ -163,6 +164,38 @@ impl Axes {
     // TODO: group these into a dedicated `ErrorbarContainer` artist once one
     // exists, rather than loose `Line2D`s.
     pub fn errorbar(&mut self, x: &[f64], y: &[f64], yerr: &[f64]) {
+        self.errorbar_with(x, y, yerr, &ErrorbarOptions::default());
+    }
+
+    /// [`errorbar`](Axes::errorbar) with upper and lower limits and horizontal
+    /// errors — matplotlib's `uplims`, `lolims`, `xerr`, `xuplims` and
+    /// `xlolims`.
+    ///
+    /// A point flagged as an upper limit keeps only the lower half of its
+    /// bar, from `y - err` up to `y`, and gets a caret pointing down from
+    /// `y - err`; a lower limit keeps the upper half and points up from
+    /// `y + err`. Its cap moves to the value itself, as matplotlib draws one
+    /// when caps are on. The carets are matplotlib's `caretdownbase` /
+    /// `caretupbase` markers, 6 points wide, unfilled; the x variants point
+    /// left from `x - xerr` and right from `x + xerr`. Unflagged points draw
+    /// exactly as [`errorbar`](Axes::errorbar) draws them.
+    ///
+    /// ![errorbar limits](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_errorbar_limits.png)
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    /// use rizzma::figure::ErrorbarOptions;
+    /// let (t, flux, err) = ([1.0, 2.0, 3.0, 4.0], [3.2, 2.0, 2.7, 1.5], [0.3, 0.6, 0.3, 0.6]);
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// fig.add_subplot(1, 1, 1).errorbar_with(
+    ///     &t,
+    ///     &flux,
+    ///     &err,
+    ///     &ErrorbarOptions::new().uplims(&[false, true, false, true]),
+    /// );
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn errorbar_with(&mut self, x: &[f64], y: &[f64], yerr: &[f64], options: &ErrorbarOptions) {
         let n = x.len().min(y.len()).min(yerr.len());
         if n == 0 {
             return;
@@ -170,20 +203,162 @@ impl Axes {
         // Central line through the data points.
         self.add_line(Line2D::new(x[..n].to_vec(), y[..n].to_vec()));
 
-        // Cap half-width as a fraction of the x data range.
-        let cap = match finite_min_max(&x[..n]) {
+        // Cap half-widths as a fraction of the data range across each bar.
+        let cap_for = |across: &[f64]| match finite_min_max(across) {
             Some((lo, hi)) if (hi - lo).abs() > f64::EPSILON => (hi - lo) * ERRORBAR_CAP_FRAC,
             _ => ERRORBAR_CAP_FRAC,
         };
+        let cap = cap_for(&x[..n]);
+        let flag = |mask: &[bool], i: usize| mask.get(i).copied().unwrap_or(false);
 
+        let mut carets = Carets::default();
         for i in 0..n {
             let (xi, yi, ei) = (x[i], y[i], yerr[i]);
-            let (lo, hi) = (yi - ei, yi + ei);
+            let (up, lo) = (flag(&options.uplims, i), flag(&options.lolims, i));
+            let low = if lo { yi } else { yi - ei };
+            let high = if up { yi } else { yi + ei };
             // Vertical bar.
-            self.add_line(Line2D::new(vec![xi, xi], vec![lo, hi]));
-            // Horizontal caps at each end.
-            self.add_line(Line2D::new(vec![xi - cap, xi + cap], vec![lo, lo]));
-            self.add_line(Line2D::new(vec![xi - cap, xi + cap], vec![hi, hi]));
+            self.add_line(Line2D::new(vec![xi, xi], vec![low, high]));
+            if up || lo {
+                // The cap marks the value; the caret marks the open end.
+                self.add_line(Line2D::new(vec![xi - cap, xi + cap], vec![yi, yi]));
+                if lo {
+                    carets.up.push([xi, high]);
+                }
+                if up {
+                    carets.down.push([xi, low]);
+                }
+            } else {
+                // Horizontal caps at each end.
+                self.add_line(Line2D::new(vec![xi - cap, xi + cap], vec![low, low]));
+                self.add_line(Line2D::new(vec![xi - cap, xi + cap], vec![high, high]));
+            }
+        }
+
+        let m = n.min(options.xerr.len());
+        let ycap = cap_for(&y[..n]);
+        for i in 0..m {
+            let (xi, yi, ei) = (x[i], y[i], options.xerr[i]);
+            let (up, lo) = (flag(&options.xuplims, i), flag(&options.xlolims, i));
+            let left = if lo { xi } else { xi - ei };
+            let right = if up { xi } else { xi + ei };
+            // Horizontal bar.
+            self.add_line(Line2D::new(vec![left, right], vec![yi, yi]));
+            if up || lo {
+                self.add_line(Line2D::new(vec![xi, xi], vec![yi - ycap, yi + ycap]));
+                if lo {
+                    carets.right.push([right, yi]);
+                }
+                if up {
+                    carets.left.push([left, yi]);
+                }
+            } else {
+                // Vertical caps at each end.
+                self.add_line(Line2D::new(vec![left, left], vec![yi - ycap, yi + ycap]));
+                self.add_line(Line2D::new(vec![right, right], vec![yi - ycap, yi + ycap]));
+            }
+        }
+        carets.add_to(self);
+    }
+}
+
+/// Upper and lower limits and horizontal errors for
+/// [`Axes::errorbar_with`] — matplotlib's `uplims`, `lolims`, `xerr`,
+/// `xuplims` and `xlolims`. Masks shorter than the series leave the rest of
+/// its points unflagged.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ErrorbarOptions {
+    uplims: Vec<bool>,
+    lolims: Vec<bool>,
+    xerr: Vec<f64>,
+    xuplims: Vec<bool>,
+    xlolims: Vec<bool>,
+}
+
+impl ErrorbarOptions {
+    /// No limits and no horizontal errors.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Flag the points whose value is an upper limit.
+    #[must_use]
+    pub fn uplims(mut self, mask: &[bool]) -> Self {
+        self.uplims = mask.to_vec();
+        self
+    }
+
+    /// Flag the points whose value is a lower limit.
+    #[must_use]
+    pub fn lolims(mut self, mask: &[bool]) -> Self {
+        self.lolims = mask.to_vec();
+        self
+    }
+
+    /// Add symmetric horizontal error bars.
+    #[must_use]
+    pub fn xerr(mut self, xerr: &[f64]) -> Self {
+        self.xerr = xerr.to_vec();
+        self
+    }
+
+    /// Flag the points whose `x` is an upper limit (caret pointing left).
+    #[must_use]
+    pub fn xuplims(mut self, mask: &[bool]) -> Self {
+        self.xuplims = mask.to_vec();
+        self
+    }
+
+    /// Flag the points whose `x` is a lower limit (caret pointing right).
+    #[must_use]
+    pub fn xlolims(mut self, mask: &[bool]) -> Self {
+        self.xlolims = mask.to_vec();
+        self
+    }
+}
+
+/// matplotlib's default marker size, which its limit carets take when caps
+/// have no size of their own.
+const CARET_SIZE: f64 = 6.0;
+/// matplotlib's default marker edge width, in points.
+const CARET_WIDTH: f64 = 1.0;
+
+/// Limit carets by direction, at the bar ends they mark.
+#[derive(Default)]
+struct Carets {
+    up: Vec<[f64; 2]>,
+    down: Vec<[f64; 2]>,
+    left: Vec<[f64; 2]>,
+    right: Vec<[f64; 2]>,
+}
+
+impl Carets {
+    /// Add one unfilled marker collection per direction in use.
+    fn add_to(self, ax: &mut Axes) {
+        // matplotlib's `_caret_path_base` at its 0.5 scale: the base on the
+        // point, the tip 0.75 marker sizes away.
+        let base = [[-0.5, 0.0], [0.0, -0.75], [0.5, 0.0]];
+        let turned = |f: fn([f64; 2]) -> [f64; 2]| Path::from_polyline(&base.map(f));
+        let sets = [
+            (self.down, turned(|p| p)),
+            (self.up, turned(|[x, y]| [x, -y])),
+            (self.left, turned(|[x, y]| [y, x])),
+            (self.right, turned(|[x, y]| [-y, x])),
+        ];
+        for (offsets, marker) in sets {
+            if offsets.is_empty() {
+                continue;
+            }
+            ax.push_collection(
+                Collection::scatter(offsets)
+                    .with_marker(marker)
+                    .with_sizes(vec![CARET_SIZE])
+                    .with_facecolors(Vec::new())
+                    .with_edgecolors(vec![Rgba::BLACK])
+                    .linewidth(CARET_WIDTH)
+                    .with_zorder(2.0),
+            );
         }
     }
 }
@@ -308,5 +483,46 @@ mod tests {
         let e = ax.data_limits().expect("errorbar contributes data limits");
         approx(e.ymin(), 3.0);
         approx(e.ymax(), 7.0);
+    }
+
+    #[test]
+    fn limits_keep_half_the_bar_and_mark_the_open_end() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        ax.errorbar_with(
+            &[0.0, 1.0, 2.0],
+            &[5.0, 5.0, 5.0],
+            &[2.0, 2.0, 2.0],
+            &ErrorbarOptions::new()
+                .uplims(&[false, true])
+                .lolims(&[false, false, true])
+                .xerr(&[0.5, 0.5])
+                .xuplims(&[true]),
+        );
+        let bar = |i: usize| ax.lines[i].points();
+        // Lines: the central line, then (bar, cap, cap) for point 0 and
+        // (bar, cap) for each limit point, then the x bars.
+        assert_eq!(bar(1), [[0.0, 3.0], [0.0, 7.0]]);
+        assert_eq!(bar(4), [[1.0, 3.0], [1.0, 5.0]]); // upper limit: below y
+        assert_eq!(bar(5)[0][1], 5.0); // its cap sits on the value
+        assert_eq!(bar(6), [[2.0, 5.0], [2.0, 7.0]]); // lower limit: above y
+        assert_eq!(bar(8), [[-0.5, 5.0], [0.0, 5.0]]); // x upper limit: left of x
+        // One caret collection per direction used: down, up, left.
+        let carets: Vec<Vec<[f64; 2]>> = ax
+            .collections
+            .iter()
+            .map(|c| c.offsets().to_vec())
+            .collect();
+        assert_eq!(
+            carets,
+            [vec![[1.0, 3.0]], vec![[2.0, 7.0]], vec![[-0.5, 5.0]]]
+        );
+    }
+
+    #[test]
+    fn errorbar_without_limits_adds_no_carets() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        ax.errorbar(&[0.0, 1.0], &[5.0, 5.0], &[2.0, 2.0]);
+        assert!(ax.collections.is_empty());
+        assert_eq!(ax.lines.len(), 1 + 2 * 3);
     }
 }
