@@ -46,6 +46,15 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
 - Every `.riz` artifact now declares `"schema":8`.
+- **Colormap lookups pick matplotlib's entry**, `floor(t · 256)` (the last entry at
+  `t = 1`), instead of `round(t · 255)`, so colormapped pixels now match matplotlib
+  3.11's colors. A colormapped pixel moves by at most one lookup-table step: up to 3
+  units per channel for viridis and magma, 5 for coolwarm and inferno. Affected:
+  `imshow`, `matshow`, `pcolormesh` (and Gouraud), `hist2d`, `hexbin`, `scatter_mapped`,
+  `contour` / `contourf`, `tripcolor` / `tricontour`, color-mapped `streamplot` and 3D
+  surfaces. Colorbar strips are unchanged (they sample each entry at its own index),
+  and every render without a colormap — lines, patches, text, legends — is
+  byte-identical.
 
 ## [1.13.7] - 2026-10-08
 

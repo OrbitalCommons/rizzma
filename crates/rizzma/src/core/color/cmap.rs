@@ -184,9 +184,11 @@ impl LinearSegmentedColormap {
 }
 
 impl Colormap for LinearSegmentedColormap {
+    /// The lookup-table entry matplotlib's `Colormap.__call__` picks for `t`:
+    /// `floor(t * N)`, with `t = 1` taking the last entry.
     fn sample(&self, t: f64) -> Rgba {
         let t = t.clamp(0.0, 1.0);
-        let idx = ((t * (LUT_SIZE - 1) as f64).round() as usize).min(LUT_SIZE - 1);
+        let idx = ((t * LUT_SIZE as f64) as usize).min(LUT_SIZE - 1);
         Rgba::rgb(self.r_lut[idx], self.g_lut[idx], self.b_lut[idx])
     }
 }
