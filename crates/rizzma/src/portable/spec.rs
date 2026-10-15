@@ -152,6 +152,15 @@ pub(crate) fn uses_colorbars(figure: &FigureSpec) -> bool {
     })
 }
 
+/// Whether the figure's rc carries a schema-12 path-simplification setting
+/// other than the default.
+#[cfg(feature = "portable")]
+pub(crate) fn uses_path_simplify(figure: &FigureSpec) -> bool {
+    let default = RcParams::default();
+    figure.rc.path_simplify != default.path_simplify
+        || figure.rc.path_simplify_threshold != default.path_simplify_threshold
+}
+
 /// Whether any artist is colored through a schema-11 astronomical
 /// [`ImageNormalize`](crate::core::color::ImageNormalize).
 #[cfg(feature = "portable")]

@@ -55,7 +55,19 @@ struct FigureHead {
     #[serde(default)]
     texts: Vec<serde::de::IgnoredAny>,
     #[serde(default)]
+    rc: RcHead,
+    #[serde(default)]
     axes: Vec<AxesHead>,
+}
+
+/// Presence of the rc's schema-12 path-simplification settings, which are
+/// written only when they differ from the defaults.
+#[derive(Debug, Default, Deserialize)]
+struct RcHead {
+    #[serde(default)]
+    path_simplify: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    path_simplify_threshold: Option<serde::de::IgnoredAny>,
 }
 
 /// Presence of an axes' title style, text size, minor-tick settings, artist
@@ -291,6 +303,11 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
         (9, header.figure.uses_image_norms()),
         (10, header.figure.uses_colorbars()),
         (11, header.figure.uses_image_normalize()),
+        (
+            12,
+            header.figure.rc.path_simplify.is_some()
+                || header.figure.rc.path_simplify_threshold.is_some(),
+        ),
     ]);
     if header.schema < required {
         return Err(PortableError::Malformed(format!(

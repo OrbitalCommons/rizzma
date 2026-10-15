@@ -408,6 +408,10 @@ pub struct Axes {
     /// Optional colorbar describing one of this axes' colormapped artists,
     /// drawn in a slice of the frame; see [`Axes::colorbar`].
     colorbar: Option<Colorbar>,
+    /// The display-space threshold, in pixels, long lines are simplified to
+    /// before drawing; `None` draws them as given. From the figure's
+    /// `path.simplify` and `path.simplify_threshold` rc settings.
+    pub(crate) path_simplify: Option<f64>,
     /// Optional title drawn above the axes.
     title: Option<String>,
     /// Title font size (px at 100 DPI), seeded from `axes.titlesize`.
@@ -495,6 +499,17 @@ enum DrawableArtist<'a> {
     Collection(&'a Collection),
 }
 
+/// Lines with fewer vertices are drawn exactly as given. matplotlib
+/// simplifies from 128; rizzma waits until simplification pays for itself,
+/// so ordinary lines render as they always have.
+const SIMPLIFY_MIN_VERTICES: usize = 1000;
+
+/// The simplification threshold `rc` asks for: its `path_simplify_threshold`
+/// when `path_simplify` is on and the threshold is positive.
+pub(crate) fn simplify_threshold(rc: &RcParams) -> Option<f64> {
+    (rc.path_simplify && rc.path_simplify_threshold > 0.0).then_some(rc.path_simplify_threshold)
+}
+
 impl DrawableArtist<'_> {
     fn zorder(&self) -> f64 {
         match self {
@@ -512,18 +527,34 @@ impl DrawableArtist<'_> {
         }
     }
 
+    /// Draw through the scale `mapper` and data `transform`; a line of
+    /// [`SIMPLIFY_MIN_VERTICES`] or more vertices is first simplified in
+    /// display space to within `simplify` pixels, when that is set.
     fn draw_scaled(
         &self,
         renderer: &mut dyn Renderer,
         transform: &Affine2D,
         mapper: &DataToScaled,
+        simplify: Option<f64>,
     ) {
         match self {
             DrawableArtist::Line(line) => {
                 // `path()` already lifts the pen across non-finite samples.
                 let path = line.path();
                 let path = mapper.map_path_cow(&path);
-                line.draw_path(renderer, path.as_ref(), transform);
+                match simplify.filter(|_| path.vertices().len() >= SIMPLIFY_MIN_VERTICES) {
+                    Some(threshold) => {
+                        let display = path.transformed(transform);
+                        let (vertices, codes) = crate::core::simplify::simplify(
+                            display.vertices(),
+                            display.codes(),
+                            threshold,
+                        );
+                        let simplified = Path::new(vertices, Some(codes));
+                        line.draw_path(renderer, &simplified, &Affine2D::identity());
+                    }
+                    None => line.draw_path(renderer, path.as_ref(), transform),
+                }
             }
             DrawableArtist::Patch(patch) => {
                 let path = mapper.map_path_cow(patch.path());
@@ -579,6 +610,7 @@ impl Axes {
             xlim_link: None,
             secondary_x: None,
             colorbar: None,
+            path_simplify: simplify_threshold(&RcParams::default()),
             title: None,
             title_size: DEFAULT_TITLE_SIZE,
             title_pad: DEFAULT_TITLE_PAD,
@@ -1397,6 +1429,7 @@ impl Axes {
     ///
     /// [`Figure`]: crate::figure::Figure
     pub(crate) fn apply_rcparams(&mut self, rc: &RcParams) {
+        self.path_simplify = simplify_threshold(rc);
         self.facecolor = rc.axes_facecolor;
         self.edgecolor = rc.axes_edgecolor;
         self.linewidth = rc.axes_linewidth;
@@ -2405,7 +2438,7 @@ impl Axes {
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
             for i in order {
-                artists[i].draw_scaled(clipped, &td, &mapper);
+                artists[i].draw_scaled(clipped, &td, &mapper, self.path_simplify);
             }
 
             // 4a. Draw full-span reference lines (axhline/axvline) above the
@@ -3061,6 +3094,8 @@ impl Axes {
             xlim_link: spec.xlim_link,
             secondary_x: spec.secondary_x.clone(),
             colorbar: spec.colorbar.clone(),
+            // The figure re-applies its own rc setting after import.
+            path_simplify: simplify_threshold(&RcParams::default()),
             title: spec.title.clone(),
             title_size: spec
                 .title_style
@@ -3493,19 +3528,24 @@ mod tests {
         let collection = Collection::scatter(vec![[1.0, 2.0], [100.0, 8.0]]);
 
         let mut line_renderer = GeometryRecorder::default();
-        DrawableArtist::Line(&line).draw_scaled(&mut line_renderer, &id, &mapper);
+        DrawableArtist::Line(&line).draw_scaled(&mut line_renderer, &id, &mapper, None);
         assert_eq!(
             line_renderer.paths[0],
             vec![[0.0, 2.0], [1.0, 4.0], [2.0, 8.0]]
         );
 
         let mut patch_renderer = GeometryRecorder::default();
-        DrawableArtist::Patch(&patch).draw_scaled(&mut patch_renderer, &id, &mapper);
+        DrawableArtist::Patch(&patch).draw_scaled(&mut patch_renderer, &id, &mapper, None);
         assert_eq!(patch_renderer.paths[0][0], [0.0, 2.0]);
         assert_eq!(patch_renderer.paths[0][1], [1.0, 2.0]);
 
         let mut collection_renderer = GeometryRecorder::default();
-        DrawableArtist::Collection(&collection).draw_scaled(&mut collection_renderer, &id, &mapper);
+        DrawableArtist::Collection(&collection).draw_scaled(
+            &mut collection_renderer,
+            &id,
+            &mapper,
+            None,
+        );
         assert_eq!(collection_renderer.origins, vec![[0.0, 2.0], [2.0, 8.0]]);
     }
 
