@@ -49,6 +49,12 @@ struct FigureHead {
     #[serde(default)]
     suptitle_size: Option<serde::de::IgnoredAny>,
     #[serde(default)]
+    supxlabel: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    supylabel: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    texts: Vec<serde::de::IgnoredAny>,
+    #[serde(default)]
     axes: Vec<AxesHead>,
 }
 
@@ -93,6 +99,11 @@ impl FigureHead {
     /// Mirrors [`uses_text_sizes`](super::spec::uses_text_sizes).
     fn uses_text_sizes(&self) -> bool {
         self.suptitle_size.is_some() || self.axes.iter().any(|axes| axes.text_size.is_some())
+    }
+
+    /// Mirrors [`uses_figure_text`](super::spec::uses_figure_text).
+    fn uses_figure_text(&self) -> bool {
+        !self.texts.is_empty() || self.supxlabel.is_some() || self.supylabel.is_some()
     }
 
     /// Mirrors [`uses_legend_markers`](super::spec::uses_legend_markers).
@@ -182,6 +193,7 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
         header.figure.uses_axis_styling(),
         header.figure.uses_text_sizes(),
         header.figure.uses_legend_markers(),
+        header.figure.uses_figure_text(),
     );
     if header.schema < required {
         return Err(PortableError::Malformed(format!(

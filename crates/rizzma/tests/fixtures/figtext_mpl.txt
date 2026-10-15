@@ -1,0 +1,13 @@
+# matplotlib 3.11.0, text 'HELL', 20.0 px at 100 dpi
+100 0.05 0.05 left bottom 0 22 265 69 279
+100 0.95 0.05 right bottom 0 332 265 379 279
+100 0.05 0.95 left top 0 22 15 69 29
+100 0.95 0.95 right top 0 332 15 379 29
+100 0.5 0.5 center center 0 177 140 224 154
+100 0.5 0.5 center center 90 190 125 204 172
+200 0.05 0.05 left bottom 0 44 531 138 559
+200 0.95 0.05 right bottom 0 665 531 759 559
+200 0.05 0.95 left top 0 44 31 138 59
+200 0.95 0.95 right top 0 665 31 759 59
+200 0.5 0.5 center center 0 354 281 449 309
+200 0.5 0.5 center center 90 381 250 409 345

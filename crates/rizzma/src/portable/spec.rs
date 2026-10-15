@@ -41,6 +41,8 @@ use crate::figure::legend::{ArtistKind, LegendLocation};
 #[cfg(feature = "portable")]
 use crate::figure::plotting_contour::ContourLabelCandidate;
 #[cfg(feature = "portable")]
+use crate::figure::text::Text;
+#[cfg(feature = "portable")]
 use crate::render::{CapStyle, JoinStyle};
 
 #[cfg(feature = "portable")]
@@ -106,6 +108,13 @@ pub(crate) fn uses_legend_markers(figure: &FigureSpec) -> bool {
     })
 }
 
+/// Whether the figure carries schema-8 figure text: free text or a figure
+/// axis label.
+#[cfg(feature = "portable")]
+pub(crate) fn uses_figure_text(figure: &FigureSpec) -> bool {
+    !figure.texts.is_empty() || figure.supxlabel.is_some() || figure.supylabel.is_some()
+}
+
 /// Wire mirror of [`Figure`](crate::figure::Figure).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -122,6 +131,15 @@ pub(crate) struct FigureSpec {
     /// Absent before schema 6, which introduced it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) suptitle_size: Option<f64>,
+    /// The figure x label. Absent before schema 8, which introduced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) supxlabel: Option<Text>,
+    /// The figure y label. Absent before schema 8, which introduced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) supylabel: Option<Text>,
+    /// Free figure text. Absent before schema 8, which introduced it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) texts: Vec<Text>,
     pub(crate) axes: Vec<AxesSpec>,
     pub(crate) colorbars: Vec<Colorbar>,
 }

@@ -2566,7 +2566,7 @@ impl Axes {
     }
 }
 
-fn rounded_rect_path(bbox: &Bbox, radius: f64) -> Path {
+pub(crate) fn rounded_rect_path(bbox: &Bbox, radius: f64) -> Path {
     let r = radius.min(bbox.width() / 2.0).min(bbox.height() / 2.0);
     if r <= 0.0 {
         return Path::from_polyline(&[

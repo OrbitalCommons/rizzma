@@ -23,6 +23,7 @@ use crate::text::FontSource;
 use crate::figure::axes::Axes;
 use crate::figure::gridspec::GridSpec;
 use crate::figure::richtext::layout_rich_text;
+use crate::figure::text::{DEFAULT_TEXT_SIZE, HorizontalAlignment, Text, VerticalAlignment};
 
 /// The default dots-per-inch for a new [`Figure`].
 const DEFAULT_DPI: f64 = 100.0;
@@ -34,6 +35,10 @@ const DEFAULT_DPI: f64 = 100.0;
 const LAYOUT_PAD: f64 = 15.0;
 const SUPTITLE_SIZE: f64 = 14.0;
 const SUPTITLE_PAD: f64 = 8.0;
+/// Where matplotlib anchors `supxlabel` (its bottom edge) and `supylabel` (its
+/// left edge), in figure fractions.
+const SUPXLABEL_Y: f64 = 0.01;
+const SUPYLABEL_X: f64 = 0.02;
 
 /// A figure: a sized canvas holding one or more [`Axes`].
 ///
@@ -62,6 +67,13 @@ pub struct Figure {
     suptitle_color: Rgba,
     /// Figure-title font size (px at 100 DPI); see [`Figure::set_suptitle_size`].
     suptitle_size: f64,
+    /// Label centered below the subplot grid; see [`Figure::supxlabel`].
+    supxlabel: Option<Text>,
+    /// Label centered left of the subplot grid; see [`Figure::supylabel`].
+    supylabel: Option<Text>,
+    /// Free text in figure fractions, drawn above everything else; see
+    /// [`Figure::text`].
+    texts: Vec<Text>,
     /// Colorbars registered on this figure, drawn after the axes (see
     /// [`Figure::colorbar`]).
     pub(crate) colorbars: Vec<crate::figure::colorbar::Colorbar>,
@@ -99,6 +111,9 @@ impl Figure {
             suptitle: None,
             suptitle_color: Rgba::BLACK,
             suptitle_size: SUPTITLE_SIZE,
+            supxlabel: None,
+            supylabel: None,
+            texts: Vec::new(),
             colorbars: Vec::new(),
             #[cfg(feature = "portable")]
             timeline: None,
@@ -203,6 +218,83 @@ impl Figure {
     pub fn set_suptitle_size(&mut self, size: f64) -> &mut Self {
         self.suptitle_size = size;
         self
+    }
+
+    /// Place `s` at `(x, y)` in figure fractions (`(0, 0)` is the bottom-left
+    /// corner, `(1, 1)` the top-right) — matplotlib's `fig.text`. Returns the
+    /// [`Text`] for styling: size, color, alignment, rotation and a background
+    /// box. Figure text is drawn after the axes, colorbars and titles, so it
+    /// sits on top regardless of when it was added; it takes no part in
+    /// layout.
+    ///
+    /// ![figure text](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_figtext.png)
+    ///
+    /// ```
+    /// use rizzma::{Figure, HorizontalAlignment, TextBoxStyle, VerticalAlignment};
+    /// let mut fig = Figure::new(5.0, 3.0);
+    /// fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    /// fig.text(0.99, 0.01, "run 42 · 2026-10-14")
+    ///     .set_ha(HorizontalAlignment::Right)
+    ///     .set_va(VerticalAlignment::Bottom)
+    ///     .set_size(8.0);
+    /// fig.text(0.5, 0.5, "DRAFT")
+    ///     .set_ha(HorizontalAlignment::Center)
+    ///     .set_va(VerticalAlignment::Center)
+    ///     .set_rotation(30.0)
+    ///     .set_bbox(Some(TextBoxStyle::default()));
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn text(&mut self, x: f64, y: f64, s: impl Into<String>) -> &mut Text {
+        self.texts
+            .push(Text::new(x, y, s, DEFAULT_TEXT_SIZE, self.suptitle_color));
+        self.texts.last_mut().expect("just pushed a text")
+    }
+
+    /// The figure's free text, in the order it was added.
+    #[must_use]
+    pub fn texts(&self) -> &[Text] {
+        &self.texts
+    }
+
+    /// The figure's free text, for restyling after it was added.
+    pub fn texts_mut(&mut self) -> &mut [Text] {
+        &mut self.texts
+    }
+
+    /// Set a label centered below the whole subplot grid — matplotlib's
+    /// `supxlabel`, for a shared x label. Returns the [`Text`] for styling.
+    /// Tight-layout subplots reserve a band for it, as for
+    /// [`suptitle`](Figure::suptitle).
+    ///
+    /// ![figure axis labels](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_figtext.png)
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    /// let mut fig = Figure::new(6.0, 3.0);
+    /// fig.add_subplot(1, 2, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    /// fig.add_subplot(1, 2, 2).plot(&[0.0, 1.0], &[1.0, 0.0]);
+    /// fig.supxlabel("time (s)");
+    /// fig.supylabel("amplitude");
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn supxlabel(&mut self, s: impl Into<String>) -> &mut Text {
+        let mut label = Text::new(0.5, SUPXLABEL_Y, s, SUPTITLE_SIZE, self.suptitle_color);
+        label
+            .set_ha(HorizontalAlignment::Center)
+            .set_va(VerticalAlignment::Bottom);
+        self.supxlabel.insert(label)
+    }
+
+    /// Set a label centered left of the whole subplot grid, reading upward —
+    /// matplotlib's `supylabel`, for a shared y label. Returns the [`Text`]
+    /// for styling. Tight-layout subplots reserve a band for it.
+    pub fn supylabel(&mut self, s: impl Into<String>) -> &mut Text {
+        let mut label = Text::new(SUPYLABEL_X, 0.5, s, SUPTITLE_SIZE, self.suptitle_color);
+        label
+            .set_ha(HorizontalAlignment::Left)
+            .set_va(VerticalAlignment::Center)
+            .set_rotation(90.0);
+        self.supylabel.insert(label)
     }
 
     /// The figure size in pixels as `(width, height)` (`size_in * dpi`).
@@ -398,7 +490,7 @@ impl Figure {
         // each, so neighbors sit one full pad apart — matplotlib's tight
         // layout spends a single h_pad/w_pad between subplots, not two.
         const EDGE_EPS: f64 = 1e-9;
-        let pad_left = if envelope.xmin() > EDGE_EPS {
+        let mut pad_left = if envelope.xmin() > EDGE_EPS {
             pad / 2.0
         } else {
             pad
@@ -408,11 +500,34 @@ impl Figure {
         } else {
             pad
         };
-        let pad_bottom = if envelope.ymin() > EDGE_EPS {
+        let mut pad_bottom = if envelope.ymin() > EDGE_EPS {
             pad / 2.0
         } else {
             pad
         };
+        // Figure axis labels claim the band from the figure edge to their far
+        // side, plus a gap, in the cells along that edge.
+        let gap = SUPTITLE_PAD * s;
+        if let Some(label) = self
+            .supxlabel
+            .as_ref()
+            .filter(|_| envelope.ymin() <= EDGE_EPS)
+        {
+            let (_, eh) = label.extent(&self.font, s);
+            if eh > 0.0 {
+                pad_bottom += label.position().1 * fig_h + eh + gap;
+            }
+        }
+        if let Some(label) = self
+            .supylabel
+            .as_ref()
+            .filter(|_| envelope.xmin() <= EDGE_EPS)
+        {
+            let (ew, _) = label.extent(&self.font, s);
+            if ew > 0.0 {
+                pad_left += label.position().0 * fig_w + ew + gap;
+            }
+        }
         let mut pad_top = if envelope.ymax() < 1.0 - EDGE_EPS {
             pad / 2.0
         } else {
@@ -503,6 +618,17 @@ impl Figure {
                     Some(self.suptitle_color),
                 );
             }
+        }
+
+        // Figure labels, then free text, on top of everything.
+        for text in self
+            .supxlabel
+            .iter()
+            .chain(&self.supylabel)
+            .chain(&self.texts)
+        {
+            let (x, y) = text.position();
+            text.draw(renderer, &self.font, (x * w, y * h));
         }
     }
 
@@ -1052,6 +1178,9 @@ impl Figure {
                 suptitle: self.suptitle.clone(),
                 suptitle_color: self.suptitle_color,
                 suptitle_size: (self.suptitle_size != SUPTITLE_SIZE).then_some(self.suptitle_size),
+                supxlabel: self.supxlabel.clone(),
+                supylabel: self.supylabel.clone(),
+                texts: self.texts.clone(),
                 axes,
                 colorbars: self.colorbars.clone(),
             },
@@ -1196,6 +1325,7 @@ impl Figure {
             crate::portable::spec::uses_axis_styling(&spec.figure),
             crate::portable::spec::uses_text_sizes(&spec.figure),
             crate::portable::spec::uses_legend_markers(&spec.figure),
+            crate::portable::spec::uses_figure_text(&spec.figure),
         );
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(
@@ -1254,6 +1384,9 @@ impl Figure {
             suptitle: fig.suptitle,
             suptitle_color: fig.suptitle_color,
             suptitle_size: fig.suptitle_size.unwrap_or(SUPTITLE_SIZE),
+            supxlabel: fig.supxlabel,
+            supylabel: fig.supylabel,
+            texts: fig.texts,
             colorbars: fig.colorbars,
             timeline: spec.timeline,
             control_values: spec.controls.iter().map(|c| c.default).collect(),
@@ -1640,6 +1773,46 @@ mod tests {
         let with = fig.layout_rect_for(0, 300.0, 200.0).unwrap();
 
         assert!(with.ymax() < without.ymax());
+    }
+
+    /// Figure text added before an opaque, figure-filling axes still shows.
+    #[test]
+    fn figure_text_draws_over_axes_added_later() {
+        let mut fig = Figure::new(3.0, 2.0);
+        fig.text(0.5, 0.5, "TOP")
+            .set_size(30.0)
+            .set_ha(crate::figure::HorizontalAlignment::Center)
+            .set_va(crate::figure::VerticalAlignment::Center);
+        fig.add_axes(0.0, 0.0, 1.0, 1.0)
+            .set_facecolor(Rgba::BLUE)
+            .plot(&[0.0, 1.0], &[0.0, 1.0]);
+        let rendered = fig.render();
+        let dark = (80..120)
+            .flat_map(|y| (110..190).map(move |x| (x, y)))
+            .any(|(x, y)| pixel(&rendered, x, y)[..3].iter().all(|&c| c < 60));
+        assert!(dark, "figure text should be drawn over the axes face");
+    }
+
+    #[test]
+    fn figure_axis_labels_reserve_bands_beside_tight_layout_axes() {
+        let mut fig = Figure::new(3.0, 2.0);
+        fig.add_subplot(1, 1, 1);
+        let without = fig.layout_rect_for(0, 300.0, 200.0).unwrap();
+        fig.supxlabel("time");
+        let with_x = fig.layout_rect_for(0, 300.0, 200.0).unwrap();
+        assert!(with_x.ymin() > without.ymin());
+        assert_eq!(with_x.xmin(), without.xmin());
+        fig.supylabel("amplitude");
+        let with_both = fig.layout_rect_for(0, 300.0, 200.0).unwrap();
+        assert!(with_both.xmin() > without.xmin());
+        assert_eq!(with_both.ymin(), with_x.ymin());
+
+        // The labels' ink stays clear of the frame they made room for.
+        let rendered = fig.render();
+        let frame_bottom_row = (200.0 - with_both.ymin()) as u32;
+        let below = (frame_bottom_row + 25..200)
+            .any(|y| (100..200).any(|x| pixel(&rendered, x, y) != [255, 255, 255, 255]));
+        assert!(below, "expected supxlabel ink below the frame");
     }
 
     /// A larger figure title reserves a taller band above the axes.

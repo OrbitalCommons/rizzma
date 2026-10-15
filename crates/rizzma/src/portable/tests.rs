@@ -1980,7 +1980,7 @@ fn schema_cannot_be_under_declared() {
     // runtime watches it rejected for the unknown field. Both inspection and
     // import refuse the lie.
     let bytes = controlled_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":7", "\"schema\":3"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":8", "\"schema\":3"));
 
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -1997,7 +1997,7 @@ fn schema_cannot_be_under_declared() {
 
     // The same floor applies one level down: a timeline needs schema 3.
     let bytes = animated_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":7", "\"schema\":2"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":8", "\"schema\":2"));
     let Err(err) = Figure::from_portable(&forged) else {
         panic!("a timeline under schema 3 must not import");
     };
@@ -2013,7 +2013,7 @@ fn schema_cannot_be_under_declared() {
     ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
     ax.minorticks_on();
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":7", "\"schema\":4"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":8", "\"schema\":4"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2032,7 +2032,7 @@ fn schema_cannot_be_under_declared() {
     fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
     fig.suptitle("sized").set_suptitle_size(20.0);
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":7", "\"schema\":5"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":8", "\"schema\":5"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2048,7 +2048,7 @@ fn schema_cannot_be_under_declared() {
 
     // Scatter legend samples and the artist order are schema 7.
     let bytes = scatter_legend_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":7", "\"schema\":6"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":8", "\"schema\":6"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2061,6 +2061,58 @@ fn schema_cannot_be_under_declared() {
             "{err}"
         );
     }
+
+    // Figure text and figure axis labels are schema 8.
+    let bytes = figure_text_figure().to_portable().expect("export");
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":8", "\"schema\":7"));
+    for result in [
+        Figure::from_portable(&forged).map(|_| ()),
+        crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
+    ] {
+        let Err(err) = result else {
+            panic!("figure text under schema 8 must not be accepted");
+        };
+        assert!(
+            matches!(&err, PortableError::Malformed(m) if m.contains("requiring schema 8")),
+            "{err}"
+        );
+    }
+}
+
+/// Two subplots sharing figure axis labels, with styled free text.
+fn figure_text_figure() -> Figure {
+    use crate::figure::{HorizontalAlignment, TextBoxStyle, VerticalAlignment};
+    let mut fig = Figure::new(5.0, 3.0);
+    fig.add_subplot(1, 2, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    fig.add_subplot(1, 2, 2).plot(&[0.0, 1.0], &[1.0, 0.0]);
+    fig.supxlabel("time (s)");
+    fig.supylabel("volts").set_size(11.0);
+    fig.text(0.99, 0.99, "run 7")
+        .set_ha(HorizontalAlignment::Right)
+        .set_va(VerticalAlignment::Top)
+        .set_rotation(15.0)
+        .set_color(Rgba::RED)
+        .set_bbox(Some(TextBoxStyle::default()));
+    fig
+}
+
+#[test]
+fn figure_text_round_trips() {
+    let fig = figure_text_figure();
+    let bytes = fig.to_portable().expect("export");
+    let back = Figure::from_portable(&bytes).expect("import");
+    assert_eq!(back.to_portable().expect("re-export"), bytes);
+    assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
+    assert_eq!(back.texts(), fig.texts());
+
+    // A figure without figure text writes none of the schema-8 fields.
+    let mut plain = Figure::new(4.0, 3.0);
+    plain.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    let plain = plain.to_portable().expect("export");
+    let json = String::from_utf8_lossy(&plain);
+    assert!(!json.contains("\"texts\""));
+    assert!(!json.contains("supxlabel"));
+    assert!(!json.contains("supylabel"));
 }
 
 /// A scatter added before a line, both labelled, with an automatic legend.

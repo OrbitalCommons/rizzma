@@ -98,6 +98,29 @@ impl FontSource {
             descent,
         }
     }
+
+    /// The font's line box at `font_size_px`, as `(ascent, descent)` magnitudes
+    /// in pixels: the `OS/2` typographic ascender and descender, else the
+    /// `hhea` ones — the minimum extent matplotlib 3.11 gives every line of
+    /// text when aligning it. All zero when no face parses.
+    pub(crate) fn line_box(&self, font_size_px: f64) -> (f64, f64) {
+        let Some(face) = self.primary_face() else {
+            return (0.0, 0.0);
+        };
+        let units_per_em = f64::from(face.units_per_em());
+        if units_per_em <= 0.0 {
+            return (0.0, 0.0);
+        }
+        let scale = font_size_px / units_per_em;
+        let (ascent, descent) = face
+            .typographic_ascender()
+            .zip(face.typographic_descender())
+            .unwrap_or((face.ascender(), face.descender()));
+        (
+            f64::from(ascent) * scale,
+            (f64::from(descent) * scale).abs(),
+        )
+    }
 }
 
 #[cfg(test)]

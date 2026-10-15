@@ -432,6 +432,31 @@ pub fn colorbar(cmap_name: &str, vmin: f64, vmax: f64) {
     });
 }
 
+/// Place `text` at `(x, y)` in figure fractions on the current figure —
+/// matplotlib's `plt.figtext`. For size, alignment, rotation or a box, use
+/// [`Figure::text`], which returns the text for styling.
+pub fn figtext(x: f64, y: f64, text: &str) {
+    with_figure(|fig| {
+        fig.text(x, y, text);
+    });
+}
+
+/// Set a label centered below all subplots of the current figure —
+/// matplotlib's `plt.supxlabel`.
+pub fn supxlabel(text: &str) {
+    with_figure(|fig| {
+        fig.supxlabel(text);
+    });
+}
+
+/// Set a label centered left of all subplots of the current figure —
+/// matplotlib's `plt.supylabel`.
+pub fn supylabel(text: &str) {
+    with_figure(|fig| {
+        fig.supylabel(text);
+    });
+}
+
 /// Set the title of the current axes.
 pub fn title(text: &str) {
     with_axes(|ax| {
@@ -575,6 +600,22 @@ mod tests {
         savefig(&path).expect("savefig succeeds");
         let meta = std::fs::metadata(&path).expect("file exists");
         assert!(meta.len() > 0, "PNG should be non-empty");
+        close();
+    }
+
+    #[test]
+    fn figtext_and_figure_labels_land_on_the_current_figure() {
+        figure();
+        plot(&[0.0, 1.0], &[0.0, 1.0]);
+        figtext(0.02, 0.98, "header");
+        supxlabel("time");
+        supylabel("value");
+        let (texts, svg) = with_figure(|fig| {
+            let texts: Vec<String> = fig.texts().iter().map(|t| t.text().to_owned()).collect();
+            (texts, fig.to_svg())
+        });
+        assert_eq!(texts, ["header"]);
+        assert!(svg.contains("<svg"));
         close();
     }
 

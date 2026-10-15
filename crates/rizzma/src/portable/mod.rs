@@ -90,9 +90,10 @@ pub use timeline::{Interp, Target, Timeline, Track};
 /// the [`Meta`] block and the poster chunk; schema 3 the [`Timeline`]; schema
 /// 4 user-driven [`Control`]s; schema 5 axis minor ticks, minor grids and
 /// title size/pad; schema 6 the figure-title size and the axes text size;
-/// schema 7 scatter marker samples in legends and the artist insertion order.
+/// schema 7 scatter marker samples in legends and the artist insertion order;
+/// schema 8 figure text and the figure axis labels.
 #[cfg(feature = "portable")]
-pub const SCHEMA_VERSION: u32 = 7;
+pub const SCHEMA_VERSION: u32 = 8;
 
 /// Oldest schema version this build can still load.
 #[cfg(feature = "portable")]
@@ -114,8 +115,11 @@ pub(crate) fn required_schema(
     has_axis_styling: bool,
     has_text_sizes: bool,
     has_legend_markers: bool,
+    has_figure_text: bool,
 ) -> u32 {
-    if has_legend_markers {
+    if has_figure_text {
+        8
+    } else if has_legend_markers {
         7
     } else if has_text_sizes {
         6
