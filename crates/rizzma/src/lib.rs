@@ -74,6 +74,9 @@
 //! assert!(!png.is_empty());
 //! ```
 //!
+//! Coming from plotters? [`guide::migrating_from_plotters`] maps its concepts
+//! onto rizzma and ports the common idioms side by side.
+//!
 //! ## Features
 //!
 //! The core plotting stack plus the SVG/PDF/raster backends are always compiled.
@@ -102,6 +105,12 @@
 //!
 //! Reference: Peter Kovesi. *Good Colour Maps: How to Design Them.*
 //! [arXiv:1509.03700 \[cs.GR\] 2015](https://arxiv.org/abs/1509.03700).
+
+/// Guides for moving to rizzma from other plotting libraries.
+pub mod guide {
+    #[doc = include_str!("../docs/migrating-from-plotters.md")]
+    pub mod migrating_from_plotters {}
+}
 
 pub mod artist;
 pub mod axis;

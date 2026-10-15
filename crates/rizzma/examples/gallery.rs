@@ -1652,5 +1652,314 @@ fn main() {
         fig.save_png("target/gallery_sky_polygons.png").unwrap();
     }
 
+    // 64–74. The migrating-from-plotters guide (`docs/migrating-from-plotters.md`):
+    // each block between `// migrate:` markers is that guide's snippet,
+    // verbatim (`tests/migrating_guide.rs` checks), so the image beside a
+    // snippet is what the snippet draws.
+    {
+        // migrate: panels
+        use rizzma::Figure;
+
+        let t: Vec<f64> = (0..200).map(|i| f64::from(i) * 0.05).collect();
+        let sin: Vec<f64> = t.iter().map(|v| v.sin()).collect();
+        let cos: Vec<f64> = t.iter().map(|v| v.cos()).collect();
+
+        let mut fig = Figure::new(8.0, 3.5);
+        let ax = fig.add_subplot(1, 2, 1);
+        ax.plot(&t, &sin).set_label("sin");
+        ax.plot(&t, &cos).set_label("cos");
+        ax.set_xlabel("t (s)").set_title("two series");
+        ax.legend_auto();
+        let ax = fig.add_subplot(1, 2, 2);
+        ax.scatter(&sin, &cos);
+        ax.set_aspect_equal().grid(true);
+        ax.set_title("phase portrait");
+        // end migrate
+        fig.save_png("target/gallery_migrate_panels.png").unwrap();
+    }
+    {
+        // migrate: images
+        use rizzma::Figure;
+        use rizzma::figure::Mappable;
+
+        let (nrows, ncols) = (60, 90);
+        let data: Vec<f64> = (0..nrows * ncols)
+            .map(|k| {
+                let (r, c) = (f64::from(k / ncols) / 9.0, f64::from(k % ncols) / 9.0);
+                (r.sin() * c.cos() + 0.3 * (r + c).sin()).powi(2)
+            })
+            .collect();
+
+        let mut fig = Figure::new(8.0, 5.0);
+        let ax = fig.add_subplot(1, 1, 1);
+        ax.imshow(&data, nrows as usize, ncols as usize)
+            .cmap("inferno");
+        ax.colorbar(Mappable::Image(0)).set_label("flux");
+        ax.set_title("imshow: one call, no pixel loop");
+        // end migrate
+        fig.save_png("target/gallery_migrate_images.png").unwrap();
+    }
+    {
+        // migrate: colormaps
+        use rizzma::Figure;
+        use rizzma::core::color::{ColorMapping, LogNorm, colormap};
+        use rizzma::figure::Mappable;
+
+        let n = 400;
+        let x: Vec<f64> = (0..n)
+            .map(|i| (f64::from(i) * 0.37).sin() * f64::from(i).sqrt())
+            .collect();
+        let y: Vec<f64> = (0..n)
+            .map(|i| (f64::from(i) * 0.37).cos() * f64::from(i).sqrt())
+            .collect();
+        let flux: Vec<f64> = (0..n).map(|i| 10f64.powf(f64::from(i) / 100.0)).collect();
+
+        let mut fig = Figure::new(8.0, 5.0);
+        let ax = fig.add_subplot(1, 1, 1);
+        ax.scatter_mapped(
+            &x,
+            &y,
+            &flux,
+            ColorMapping::new("viridis").norm(LogNorm::new(1.0, 1e4)),
+        );
+        ax.colorbar(Mappable::Collection(0)).set_label("flux (log)");
+        ax.set_title("scatter_mapped with a LogNorm");
+        // One color, for drawing code of your own.
+        let mid = colormap("viridis").expect("a known colormap").sample(0.5);
+        assert!(mid.g > mid.r);
+        // end migrate
+        fig.save_png("target/gallery_migrate_colormaps.png")
+            .unwrap();
+    }
+    {
+        // migrate: contours
+        use rizzma::Figure;
+
+        let (nrows, ncols) = (80, 80);
+        let z: Vec<f64> = (0..nrows * ncols)
+            .map(|k| {
+                let (x, y) = (
+                    f64::from(k % ncols) / 40.0 - 1.0,
+                    f64::from(k / ncols) / 40.0 - 1.0,
+                );
+                (-(x * x + y * y) * 2.0).exp()
+                    - 0.6 * (-((x - 0.5).powi(2) + (y + 0.4).powi(2)) * 6.0).exp()
+            })
+            .collect();
+
+        let mut fig = Figure::new(8.0, 4.0);
+        let ax = fig.add_subplot(1, 2, 1);
+        ax.contourf(&z, nrows as usize, ncols as usize);
+        ax.set_aspect_equal().set_title("contourf");
+        let ax = fig.add_subplot(1, 2, 2);
+        ax.contour(&z, nrows as usize, ncols as usize);
+        ax.clabel();
+        ax.set_aspect_equal().set_title("contour + clabel");
+        // end migrate
+        fig.save_png("target/gallery_migrate_contours.png").unwrap();
+    }
+    {
+        // migrate: histograms
+        use rizzma::Figure;
+
+        // A deterministic, roughly normal sample: sums of twelve hashed uniforms.
+        let uniform = |n: u32| (f64::from(n).sin() * 43_758.545_3).fract().abs();
+        let sample: Vec<f64> = (0..5000)
+            .map(|i| (0..12).map(|k| uniform(i * 12 + k)).sum::<f64>() - 6.0)
+            .collect();
+
+        let mut fig = Figure::new(8.0, 3.5);
+        let ax = fig.add_subplot(1, 2, 1);
+        let (counts, edges) = ax.hist(&sample, 40);
+        assert_eq!((counts.len(), edges.len()), (40, 41));
+        ax.set_title("hist: 40 bins");
+        let ax = fig.add_subplot(1, 2, 2);
+        ax.bar(&[1.0, 2.0, 3.0, 4.0], &[3.0, 7.0, 4.0, 6.0]);
+        ax.set_title("bar");
+        // end migrate
+        fig.save_png("target/gallery_migrate_histograms.png")
+            .unwrap();
+    }
+    {
+        // migrate: aspect
+        use rizzma::Figure;
+
+        let theta: Vec<f64> = (0..=100)
+            .map(|i| f64::from(i) * std::f64::consts::TAU / 100.0)
+            .collect();
+        let (x, y): (Vec<f64>, Vec<f64>) = theta.iter().map(|t| (3.0 * t.cos(), t.sin())).unzip();
+
+        let mut fig = Figure::new(8.0, 4.0);
+        let ax = fig.add_subplot(1, 2, 1);
+        ax.plot(&x, &y);
+        ax.set_title("default: stretched");
+        let ax = fig.add_subplot(1, 2, 2);
+        ax.plot(&x, &y);
+        ax.set_aspect_equal().set_title("set_aspect_equal");
+        // end migrate
+        fig.save_png("target/gallery_migrate_aspect.png").unwrap();
+    }
+    {
+        // migrate: bands
+        use rizzma::Figure;
+
+        let t: Vec<f64> = (0..300).map(|i| f64::from(i) / 30.0).collect();
+        let model: Vec<f64> = t
+            .iter()
+            .map(|v| (-v / 4.0).exp() * (2.0 * v).cos())
+            .collect();
+        let lo: Vec<f64> = model
+            .iter()
+            .zip(&t)
+            .map(|(m, v)| m - 0.1 - 0.02 * v)
+            .collect();
+        let hi: Vec<f64> = model
+            .iter()
+            .zip(&t)
+            .map(|(m, v)| m + 0.1 + 0.02 * v)
+            .collect();
+
+        let mut fig = Figure::new(8.0, 4.0);
+        let ax = fig.add_subplot(1, 1, 1);
+        ax.fill_between(&t, &lo, &hi);
+        ax.plot(&t, &model).set_label("model");
+        ax.axvspan(3.0, 4.5);
+        ax.axvline(6.0);
+        ax.legend_auto();
+        ax.set_title("fill_between, axvspan, axvline");
+        // end migrate
+        fig.save_png("target/gallery_migrate_bands.png").unwrap();
+    }
+    {
+        // migrate: vectors
+        use rizzma::Figure;
+
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+        for i in 0..12 {
+            for j in 0..12 {
+                x.push(f64::from(i) - 5.5);
+                y.push(f64::from(j) - 5.5);
+            }
+        }
+        let u: Vec<f64> = y.iter().map(|v| -v).collect();
+        let v: Vec<f64> = x.clone();
+
+        let mut fig = Figure::new(8.0, 3.5);
+        let ax = fig.add_subplot(1, 2, 1);
+        ax.quiver(&x, &y, &u, &v);
+        ax.set_aspect_equal().set_title("quiver");
+        let days: Vec<f64> = (0..60).map(f64::from).collect();
+        let temp: Vec<f64> = days.iter().map(|d| 12.0 + 8.0 * (d / 9.0).sin()).collect();
+        let rain: Vec<f64> = days.iter().map(|d| 40.0 + 30.0 * (d / 5.0).cos()).collect();
+        let ax = fig.add_subplot(1, 2, 2);
+        ax.plot(&days, &temp);
+        ax.set_ylabel("temperature (°C)").set_title("twinx");
+        let right = fig.twinx(1);
+        let twin = &mut fig.axes_mut()[right];
+        twin.plot(&days, &rain);
+        twin.set_ylabel("humidity (%)");
+        // end migrate
+        fig.save_png("target/gallery_migrate_vectors.png").unwrap();
+    }
+    {
+        // migrate: text
+        use rizzma::Figure;
+
+        let x: Vec<f64> = (1..=60).map(f64::from).collect();
+        let y: Vec<f64> = x.iter().map(|v| 3.0 * v.powf(-1.5)).collect();
+
+        let mut fig = Figure::new(8.0, 4.0);
+        fig.suptitle("Power-law decay — Ωₘ = 0.31, λ = 656.3 nm");
+        let ax = fig.add_subplot(1, 1, 1);
+        ax.plot(&x, &y);
+        ax.set_xscale_log(10.0).set_yscale_log(10.0);
+        ax.set_xlabel(r"time $t$ (days)")
+            .set_ylabel(r"$F_\nu \propto t^{-3/2}$");
+        ax.set_title(r"mathtext: $\alpha = -\frac{3}{2}$");
+        // end migrate
+        fig.save_png("target/gallery_migrate_text.png").unwrap();
+    }
+    {
+        // migrate: buffers
+        use rizzma::Figure;
+        use rizzma::figure::PixelFormat;
+
+        let x: Vec<f64> = (0..100).map(|i| f64::from(i) / 10.0).collect();
+        let y: Vec<f64> = x.iter().map(|v| v.sin() * (-v / 6.0).exp()).collect();
+        let mut fig = Figure::new(8.0, 4.0);
+        fig.add_subplot(1, 1, 1).plot(&x, &y);
+        fig.axes_mut()[0].set_title("encode_png, to_svg, render_into");
+
+        let png: Vec<u8> = fig.encode_png().expect("PNG encoding");
+        let svg: String = fig.to_svg();
+        let (w, h) = fig.raster_size();
+        let mut rgba = vec![0u8; w as usize * h as usize * 4];
+        fig.render_into(&mut rgba, PixelFormat::Rgba8)
+            .expect("a buffer of the right size");
+        assert!(png.starts_with(b"\x89PNG") && svg.contains("<svg"));
+        // end migrate
+        fig.save_png("target/gallery_migrate_buffers.png").unwrap();
+    }
+    {
+        // migrate: hipparcos
+        use rizzma::Figure;
+        use rizzma::figure::Mappable;
+
+        /// G against Hp, colored by B−V, with the fitted relation at the mean B−V.
+        fn plot_g_vs_hp(data: &[(f64, f64, f64)], coef: (f64, f64, f64), rms: f64) -> Figure {
+            let hp: Vec<f64> = data.iter().map(|d| d.0).collect();
+            let bv: Vec<f64> = data.iter().map(|d| d.1).collect();
+            let g: Vec<f64> = data.iter().map(|d| d.2).collect();
+            let mean_bv = bv.iter().sum::<f64>() / bv.len() as f64;
+            let (lo, hi) = hp
+                .iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
+                    (lo.min(v), hi.max(v))
+                });
+            let fit_hp = [lo, hi];
+            let fit_g = fit_hp.map(|h| coef.0 + coef.1 * h + coef.2 * mean_bv);
+
+            let mut fig = Figure::new(8.0, 6.0);
+            let ax = fig.add_subplot(1, 1, 1);
+            ax.scatter_mapped(&hp, &g, &bv, "coolwarm")
+                .set_sizes(vec![4.0]);
+            ax.plot(&fit_hp, &fit_g)
+                .set_linewidth(2.0)
+                .set_label(format!(
+                    "G = {:+.3} {:+.3}·Hp {:+.3}·(B−V) at ⟨B−V⟩ = {mean_bv:.2}",
+                    coef.0, coef.1, coef.2
+                ));
+            ax.colorbar(Mappable::Collection(0)).set_label("B − V");
+            ax.legend_auto();
+            ax.set_xlabel("Hipparcos Hp magnitude")
+                .set_ylabel("Gaia DR3 G magnitude");
+            ax.set_title(format!(
+                "Hipparcos × Gaia DR3: G vs Hp (N={}, RMS={rms:.3})",
+                data.len()
+            ));
+            fig
+        }
+
+        // Synthetic stand-in for the cross-match: G ≈ Hp − 0.2 − 0.3·(B−V).
+        let data: Vec<(f64, f64, f64)> = (0..1500)
+            .map(|i| {
+                let u = (f64::from(i) * 0.618_034).fract();
+                let w = (f64::from(i) * 0.414_214).fract();
+                let hp = 2.0 + 8.0 * u.sqrt();
+                let bv = -0.2 + 1.8 * w;
+                (
+                    hp,
+                    bv,
+                    hp - 0.2 - 0.3 * bv + 0.05 * (f64::from(i) * 1.7).sin(),
+                )
+            })
+            .collect();
+        let fig = plot_g_vs_hp(&data, (-0.2, 1.0, -0.3), 0.035);
+        // end migrate
+        fig.save_png("target/gallery_migrate_hipparcos.png")
+            .unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
