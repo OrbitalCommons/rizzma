@@ -94,9 +94,10 @@ pub use timeline::{Interp, Target, Timeline, Track};
 /// schema 8 figure text and the figure axis labels; schema 9 image norms and
 /// bad/over/under colors; schema 10 axes colorbars and the color scales of
 /// meshes and collections; schema 11 the astronomical `ImageNormalize` norm;
-/// schema 12 the `path_simplify` rc settings; schema 13 sky-projection axes.
+/// schema 12 the `path_simplify` rc settings; schema 13 sky-projection axes;
+/// schema 14 polygon collections.
 #[cfg(feature = "portable")]
-pub const SCHEMA_VERSION: u32 = 13;
+pub const SCHEMA_VERSION: u32 = 14;
 
 /// Oldest schema version this build can still load.
 #[cfg(feature = "portable")]

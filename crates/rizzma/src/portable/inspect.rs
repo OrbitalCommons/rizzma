@@ -92,6 +92,8 @@ struct AxesHead {
     collections: Vec<ScaledHead>,
     #[serde(default)]
     sky: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    poly_collections: Vec<ScaledHead>,
     xaxis: AxisHead,
     yaxis: AxisHead,
 }
@@ -311,6 +313,14 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
                 || header.figure.rc.path_simplify_threshold.is_some(),
         ),
         (13, header.figure.axes.iter().any(|axes| axes.sky.is_some())),
+        (
+            14,
+            header
+                .figure
+                .axes
+                .iter()
+                .any(|axes| !axes.poly_collections.is_empty()),
+        ),
     ]);
     if header.schema < required {
         return Err(PortableError::Malformed(format!(
