@@ -1980,7 +1980,7 @@ fn schema_cannot_be_under_declared() {
     // runtime watches it rejected for the unknown field. Both inspection and
     // import refuse the lie.
     let bytes = controlled_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":14", "\"schema\":3"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":15", "\"schema\":3"));
 
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -1997,7 +1997,7 @@ fn schema_cannot_be_under_declared() {
 
     // The same floor applies one level down: a timeline needs schema 3.
     let bytes = animated_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":14", "\"schema\":2"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":15", "\"schema\":2"));
     let Err(err) = Figure::from_portable(&forged) else {
         panic!("a timeline under schema 3 must not import");
     };
@@ -2013,7 +2013,7 @@ fn schema_cannot_be_under_declared() {
     ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
     ax.minorticks_on();
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":14", "\"schema\":4"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":15", "\"schema\":4"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2032,7 +2032,7 @@ fn schema_cannot_be_under_declared() {
     fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
     fig.suptitle("sized").set_suptitle_size(20.0);
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":14", "\"schema\":5"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":15", "\"schema\":5"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2048,7 +2048,7 @@ fn schema_cannot_be_under_declared() {
 
     // Scatter legend samples and the artist order are schema 7.
     let bytes = scatter_legend_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":14", "\"schema\":6"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":15", "\"schema\":6"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2064,7 +2064,7 @@ fn schema_cannot_be_under_declared() {
 
     // Figure text and figure axis labels are schema 8.
     let bytes = figure_text_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":14", "\"schema\":7"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":15", "\"schema\":7"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2080,7 +2080,7 @@ fn schema_cannot_be_under_declared() {
 
     // Image norms and extreme colors are schema 9.
     let bytes = image_norm_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":14", "\"schema\":8"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":15", "\"schema\":8"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2096,7 +2096,7 @@ fn schema_cannot_be_under_declared() {
 
     // Colorbars and recorded color scales are schema 10.
     let bytes = colorbar_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":14", "\"schema\":9"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":15", "\"schema\":9"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2113,7 +2113,7 @@ fn schema_cannot_be_under_declared() {
     // An astronomical image normalization is schema 11.
     let bytes = astro_figure().to_portable().expect("export");
     let forged = reforge_json(&bytes, |json| {
-        json.replace("\"schema\":14", "\"schema\":10")
+        json.replace("\"schema\":15", "\"schema\":10")
     });
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -2168,7 +2168,7 @@ fn turning_line_simplification_off_survives_export() {
     assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
 
     let forged = reforge_json(&bytes, |json| {
-        json.replace("\"schema\":14", "\"schema\":11")
+        json.replace("\"schema\":15", "\"schema\":11")
     });
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -2208,7 +2208,7 @@ fn sky_projection_axes_round_trip() {
     assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
 
     let forged = reforge_json(&bytes, |json| {
-        json.replace("\"schema\":14", "\"schema\":12")
+        json.replace("\"schema\":15", "\"schema\":12")
     });
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -2246,7 +2246,7 @@ fn polygon_collections_round_trip() {
     assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
 
     let forged = reforge_json(&bytes, |json| {
-        json.replace("\"schema\":14", "\"schema\":13")
+        json.replace("\"schema\":15", "\"schema\":13")
     });
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -2260,6 +2260,68 @@ fn polygon_collections_round_trip() {
             "{err}"
         );
     }
+}
+
+#[test]
+fn custom_colormaps_round_trip() {
+    use crate::core::color::{ColorMapping, LinearSegmentedColormap, ListedColormap};
+    use crate::figure::Mappable;
+    let five = ListedColormap::from_colors(&[
+        Rgba::BLACK,
+        Rgba::RED,
+        Rgba::new(0.1, 0.7, 0.3, 1.0),
+        Rgba::BLUE,
+        Rgba::WHITE,
+    ]);
+    let ramp = ListedColormap::from_fn(|t| Rgba::rgb(t, 0.5 * t, 1.0 - t));
+    // Registered only in this process: the artifact must carry its colors.
+    assert!(crate::core::color::register_colormap(
+        "round_trip_only",
+        LinearSegmentedColormap::from_list(&[(0.0, Rgba::BLUE), (1.0, Rgba::RED)]),
+    ));
+    let data: Vec<f64> = (0..48).map(f64::from).collect();
+    let mut fig = Figure::new(4.0, 3.0);
+    let ax = fig.add_subplot(1, 1, 1);
+    ax.imshow(&data, 6, 8).cmap(five);
+    ax.scatter_mapped(&data, &data, &data, ColorMapping::new(ramp));
+    ax.pcolormesh_mapped(&data, 6, 8, "round_trip_only_r");
+    ax.colorbar(Mappable::Collection(0));
+
+    let bytes = fig.to_portable().expect("export");
+    let json = String::from_utf8_lossy(&bytes);
+    assert!(
+        json.contains("\"lut:"),
+        "custom maps travel as their colors"
+    );
+    assert!(
+        !json.contains("round_trip_only"),
+        "registered names travel as colors"
+    );
+    let back = Figure::from_portable(&bytes).expect("import");
+    assert_eq!(back.to_portable().expect("re-export"), bytes);
+    assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
+
+    let forged = reforge_json(&bytes, |json| {
+        json.replace("\"schema\":15", "\"schema\":14")
+    });
+    for result in [
+        Figure::from_portable(&forged).map(|_| ()),
+        crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
+    ] {
+        let Err(err) = result else {
+            panic!("an embedded colormap under schema 14 must not be accepted");
+        };
+        assert!(
+            matches!(&err, PortableError::Malformed(m) if m.contains("requiring schema 15")),
+            "{err}"
+        );
+    }
+
+    let corrupt = reforge_json(&bytes, |json| json.replacen("\"lut:", "\"lut:zz", 1));
+    assert!(matches!(
+        Figure::from_portable(&corrupt),
+        Err(PortableError::Malformed(m)) if m.contains("embedded colormap")
+    ));
 }
 
 #[test]

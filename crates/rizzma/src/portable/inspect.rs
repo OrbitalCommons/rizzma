@@ -102,7 +102,7 @@ struct AxesHead {
 #[derive(Debug, Deserialize)]
 struct ScaledHead {
     #[serde(default)]
-    cmap: Option<serde::de::IgnoredAny>,
+    cmap: Option<String>,
     #[serde(default)]
     norm: Option<NormHead>,
     #[serde(default)]
@@ -126,6 +126,8 @@ impl ScaledHead {
 /// Presence of an image's schema-9 norm and extreme colors.
 #[derive(Debug, Deserialize)]
 struct ImageHead {
+    #[serde(default)]
+    cmap: Option<String>,
     #[serde(default)]
     norm: Option<NormHead>,
     #[serde(default)]
@@ -187,6 +189,23 @@ impl FigureHead {
                     .iter()
                     .chain(&axes.collections)
                     .any(|s| NormHead::is_image_normalize(&s.norm))
+        })
+    }
+
+    /// Mirrors [`uses_embedded_colormaps`](super::spec::uses_embedded_colormaps).
+    fn uses_embedded_colormaps(&self) -> bool {
+        let embedded = |cmap: &Option<String>| {
+            cmap.as_deref()
+                .is_some_and(crate::core::color::CmapSpec::is_embedded_wire)
+        };
+        self.axes.iter().any(|axes| {
+            axes.images.iter().any(|i| embedded(&i.cmap))
+                || axes
+                    .meshes
+                    .iter()
+                    .chain(&axes.collections)
+                    .chain(&axes.poly_collections)
+                    .any(|s| embedded(&s.cmap))
         })
     }
 
@@ -321,6 +340,7 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
                 .iter()
                 .any(|axes| !axes.poly_collections.is_empty()),
         ),
+        (15, header.figure.uses_embedded_colormaps()),
     ]);
     if header.schema < required {
         return Err(PortableError::Malformed(format!(

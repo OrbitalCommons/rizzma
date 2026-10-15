@@ -71,6 +71,55 @@ impl ListedColormap {
     pub fn new(colors: Vec<Rgba>) -> Self {
         Self { colors }
     }
+
+    /// A colormap of exactly these colors, in order from `t = 0` to `t = 1`:
+    /// matplotlib's `ListedColormap(colors)`, which gives each color an equal
+    /// share of the range.
+    ///
+    /// ```
+    /// use rizzma::core::color::{Colormap, ListedColormap, Rgba};
+    ///
+    /// let traffic = ListedColormap::from_colors(&[Rgba::GREEN, Rgba::rgb(1.0, 0.8, 0.0), Rgba::RED]);
+    /// assert_eq!(traffic.sample(0.2), Rgba::GREEN);
+    /// assert_eq!(traffic.sample(0.9), Rgba::RED);
+    /// ```
+    #[must_use]
+    pub fn from_colors(colors: &[Rgba]) -> Self {
+        Self::new(colors.to_vec())
+    }
+
+    /// A 256-entry colormap whose entry `i` is `f(i / 255)`, so a hand-rolled
+    /// value-to-color function ports in one line and keeps its exact colors
+    /// at those 256 points (matplotlib's `LinearSegmentedColormap` resolution).
+    ///
+    /// ```
+    /// use rizzma::core::color::{Colormap, ListedColormap, Rgba};
+    ///
+    /// // A ramp from black to red, defined by a function.
+    /// let reds = ListedColormap::from_fn(|t| Rgba::rgb(t, 0.0, 0.0));
+    /// assert_eq!(reds.colors.len(), 256);
+    /// assert_eq!(reds.sample(1.0), Rgba::rgb(1.0, 0.0, 0.0));
+    /// ```
+    #[must_use]
+    pub fn from_fn(f: impl Fn(f64) -> Rgba) -> Self {
+        Self::new(
+            (0..LUT_SIZE)
+                .map(|i| f(i as f64 / (LUT_SIZE - 1) as f64))
+                .collect(),
+        )
+    }
+
+    /// Return a reversed copy of this colormap (`t` mapped to `1 - t`).
+    #[must_use]
+    pub fn reversed(&self) -> Self {
+        Self::new(self.colors.iter().rev().copied().collect())
+    }
+}
+
+impl<C: Colormap + ?Sized> Colormap for std::sync::Arc<C> {
+    fn sample(&self, t: f64) -> Rgba {
+        (**self).sample(t)
+    }
 }
 
 impl Colormap for ListedColormap {
@@ -169,6 +218,40 @@ impl LinearSegmentedColormap {
             })
             .collect();
         Self::from_rgb_table(&rows)
+    }
+
+    /// A colormap interpolating linearly between color `stops`, each a
+    /// position in `[0, 1]` and the color there: matplotlib's
+    /// `LinearSegmentedColormap.from_list`. The stops must start at `0`, end
+    /// at `1` and increase; alpha is ignored.
+    ///
+    /// ```
+    /// use rizzma::core::color::{Colormap, LinearSegmentedColormap, Rgba};
+    ///
+    /// let blue_white_red = LinearSegmentedColormap::from_list(&[
+    ///     (0.0, Rgba::BLUE),
+    ///     (0.5, Rgba::WHITE),
+    ///     (1.0, Rgba::RED),
+    /// ]);
+    /// assert_eq!(blue_white_red.sample(0.0), Rgba::BLUE);
+    /// ```
+    #[must_use]
+    pub fn from_list(stops: &[(f64, Rgba)]) -> Self {
+        let channel = |pick: fn(&Rgba) -> f64| -> Vec<SegmentPoint> {
+            stops.iter().map(|(x, c)| (*x, pick(c), pick(c))).collect()
+        };
+        Self::new(&channel(|c| c.r), &channel(|c| c.g), &channel(|c| c.b))
+    }
+
+    /// This map as its 256 lookup-table colors, which it samples exactly as
+    /// a [`ListedColormap`] of them does.
+    #[must_use]
+    pub fn to_listed(&self) -> ListedColormap {
+        ListedColormap::new(
+            (0..LUT_SIZE)
+                .map(|i| Rgba::rgb(self.r_lut[i], self.g_lut[i], self.b_lut[i]))
+                .collect(),
+        )
     }
 
     /// Return a reversed copy of this colormap (`t` mapped to `1 - t`).
@@ -696,8 +779,18 @@ pub fn cet_i1() -> LinearSegmentedColormap {
 ///
 /// Returns [`None`] for unknown names (including the bare vendor names
 /// `"jet"`, `"hot"`, `"hsv"`, and `"rainbow"`).
+///
+/// Names given with [`register_colormap`](super::register_colormap) resolve
+/// too, after the builtins.
 #[must_use]
 pub fn colormap(name: &str) -> Option<Box<dyn Colormap>> {
+    builtin_colormap(name).or_else(|| {
+        super::cmap_spec::registered_colormap(name).map(|c| Box::new(c) as Box<dyn Colormap>)
+    })
+}
+
+/// [`colormap`] among the builtin maps only.
+pub(crate) fn builtin_colormap(name: &str) -> Option<Box<dyn Colormap>> {
     // The `_r` suffix reverses any known map rather than being a separate
     // registry entry per map.
     if let Some(base) = name.strip_suffix("_r") {

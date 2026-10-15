@@ -428,7 +428,7 @@ impl FlatScale {
     /// The wire fields of `scale`.
     pub(crate) fn of(scale: Option<&crate::core::color::ColorScale>) -> Self {
         FlatScale {
-            cmap: scale.map(|s| s.cmap.clone()),
+            cmap: scale.map(|s| s.cmap.to_wire()),
             norm: scale.map(|s| s.norm.clone()),
             bad: scale.and_then(|s| s.extremes.bad),
             over: scale.and_then(|s| s.extremes.over),
@@ -447,7 +447,7 @@ impl FlatScale {
         };
         match (self.cmap, self.norm) {
             (Some(cmap), Some(norm)) => Ok(Some(crate::core::color::ColorScale {
-                cmap,
+                cmap: crate::core::color::CmapSpec::from_wire(&cmap)?,
                 norm,
                 extremes,
             })),
@@ -547,6 +547,22 @@ pub(crate) struct PolyCollectionSpec {
     pub(crate) over: Option<Rgba>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) under: Option<Rgba>,
+}
+
+/// Whether any artist carries a schema-15 embedded colormap (a colormap of
+/// the user's own, written out as its colors).
+#[cfg(feature = "portable")]
+pub(crate) fn uses_embedded_colormaps(figure: &FigureSpec) -> bool {
+    use crate::core::color::CmapSpec;
+    let embedded = |cmap: &Option<String>| cmap.as_deref().is_some_and(CmapSpec::is_embedded_wire);
+    figure.axes.iter().any(|axes| {
+        axes.images
+            .iter()
+            .any(|i| CmapSpec::is_embedded_wire(&i.cmap))
+            || axes.meshes.iter().any(|m| embedded(&m.cmap))
+            || axes.collections.iter().any(|c| embedded(&c.cmap))
+            || axes.poly_collections.iter().any(|p| embedded(&p.cmap))
+    })
 }
 
 /// Whether any axes carries schema-14 polygon collections.

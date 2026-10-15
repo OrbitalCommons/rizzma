@@ -15,6 +15,7 @@ pub mod astro;
 mod cet_data;
 pub mod cmap;
 mod cmap_data;
+mod cmap_spec;
 pub mod mapping;
 pub mod misleading;
 pub mod named;
@@ -27,6 +28,7 @@ pub use cmap::{
     cet_d11, cet_i1, cet_l01, cet_l03, cet_l05, cet_l09, cet_l10, cet_r2, cividis, colormap,
     coolwarm, default_colormap, gray, inferno, magma, plasma, rdbu, try_colormap, viridis,
 };
+pub use cmap_spec::{CmapSpec, register_colormap};
 pub use mapping::{ColorMapping, ColorScale, Extremes, map_color};
 pub use named::{BASE_COLORS, CSS4_COLORS, DEFAULT_COLOR_CYCLE, TABLEAU_COLORS, to_rgba};
 pub use norm::{

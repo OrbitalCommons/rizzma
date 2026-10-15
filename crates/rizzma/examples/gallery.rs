@@ -1904,7 +1904,33 @@ fn main() {
     {
         // migrate: hipparcos
         use rizzma::Figure;
+        use rizzma::core::color::{ListedColormap, Rgba};
         use rizzma::figure::Mappable;
+
+        /// starfield's B−V color, plotters' `HSLColor(0.7 − 0.7·t, 0.65, 0.45)`,
+        /// converted to RGB as plotters does.
+        fn starfield_bv(t: f64) -> Rgba {
+            let (h, s, l) = (0.7 - 0.7 * t, 0.65, 0.45);
+            let q = if l < 0.5 {
+                l * (1.0 + s)
+            } else {
+                l + s - l * s
+            };
+            let p = 2.0 * l - q;
+            let channel = |t: f64| {
+                let t = t.rem_euclid(1.0);
+                if t < 1.0 / 6.0 {
+                    p + (q - p) * 6.0 * t
+                } else if t < 1.0 / 2.0 {
+                    q
+                } else if t < 2.0 / 3.0 {
+                    p + (q - p) * (2.0 / 3.0 - t) * 6.0
+                } else {
+                    p
+                }
+            };
+            Rgba::rgb(channel(h + 1.0 / 3.0), channel(h), channel(h - 1.0 / 3.0))
+        }
 
         /// G against Hp, colored by B−V, with the fitted relation at the mean B−V.
         fn plot_g_vs_hp(data: &[(f64, f64, f64)], coef: (f64, f64, f64), rms: f64) -> Figure {
@@ -1922,7 +1948,7 @@ fn main() {
 
             let mut fig = Figure::new(8.0, 6.0);
             let ax = fig.add_subplot(1, 1, 1);
-            ax.scatter_mapped(&hp, &g, &bv, "coolwarm")
+            ax.scatter_mapped(&hp, &g, &bv, ListedColormap::from_fn(starfield_bv))
                 .set_sizes(vec![4.0]);
             ax.plot(&fit_hp, &fit_g)
                 .set_linewidth(2.0)

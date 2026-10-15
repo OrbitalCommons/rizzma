@@ -114,6 +114,17 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   silent fallback for unknown names.
 - `misleading:jet` joins viridis and coolwarm in the colormap lookup test against
   matplotlib, so the quarantined maps' lookup is checked too.
+- **Colormaps of your own.** Every API that takes a colormap now takes a `CmapSpec`
+  (a registry name, or a colormap value): `AxesImage::cmap`/`with_cmap`, and through
+  `ColorMapping`, `scatter_mapped`, `pcolormesh_mapped`/`pcolormesh_xy` and
+  `poly_collection`. Colorbars bound to those artists read the custom map. New
+  constructors: `ListedColormap::from_colors` (matplotlib's `ListedColormap`,
+  matching its render to within one unit per channel), `ListedColormap::from_fn`
+  (a value-to-color function sampled at 256 points, so a hand-rolled ramp keeps its
+  exact colors) and `LinearSegmentedColormap::from_list`. `register_colormap(name,
+  cmap)` names one for string-only paths (pyplot, wasm), with an `_r` variant. The
+  migrating-from-plotters guide's Hipparcos port now reproduces starfield's HSL ramp
+  exactly instead of substituting coolwarm.
 - **`try_colormap(name)`** returns the map, or an `UnknownColormap` error that
   names what to use instead. For a quarantined vendor map that is both the
   `misleading:` form and its perceptually uniform replacement (`jet`/`rainbow` →
@@ -152,13 +163,20 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   then); schema 1–12 artifacts still load.
 - Portable figures are schema 14 when an axes has a polygon collection (written
   only then); schema 1–13 artifacts still load.
+- Portable figures are schema 15 when an artist uses a colormap of the user's own,
+  which is written as its colors (`"lut:"` and hex RGBA), so it renders where the map
+  was never defined; schema 1–14 artifacts still load.
+- `ColorScale::cmap` is a `CmapSpec` rather than a `String`, and
+  `ColorMapping::cmap_name()` is now `ColorMapping::cmap()`, returning the `CmapSpec`.
+  A `CmapSpec` converts from a name, so `ColorMapping::new("viridis")` and
+  `.cmap("gray")` are unchanged.
 
 ### Output changes
 - `legend_auto` lists rows in the order the artists were added, as matplotlib does,
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":14`.
+- Every `.riz` artifact now declares `"schema":15`.
 - **A sky map's graticule draws at matplotlib's grid zorder (1.5)**: above
   fills, meshes and scatters, below lines, where it drew beneath every artist.
 - **Mesh cells fill without antialiasing**, as matplotlib's `pcolormesh` does
