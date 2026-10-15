@@ -60,6 +60,12 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   interval takes its limits from the data the norm is applied to (`Norm::autoscaled`).
   ZScale limits match astropy 8 to 1e-15 relative, every stretch to 1e-12, and the
   render matches astropy + matplotlib to within one unit per channel.
+- **Upper and lower limits on error bars.** `Axes::errorbar_with(x, y, yerr,
+  &ErrorbarOptions)` takes matplotlib's `uplims` / `lolims` masks, drawing half the bar
+  and a `caretdownbase` / `caretupbase` arrow at its open end (6 points, unfilled) with
+  the cap on the value, plus horizontal errors (`xerr`) and their `xuplims` /
+  `xlolims` carets. Carets land within a pixel of matplotlib's at 72, 100 and 200
+  DPI. `errorbar(x, y, yerr)` is unchanged.
 
 ### Changed
 - Portable figures are schema 7. Scatter legend samples, and the insertion order of

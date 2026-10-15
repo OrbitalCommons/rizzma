@@ -1519,5 +1519,33 @@ fn main() {
         fig.save_png("target/gallery_astro_normalize.png").unwrap();
     }
 
+    // 60. errorbar limits — a fading transient: detections with error bars,
+    // then non-detections drawn as upper limits once it drops below the
+    // survey depth.
+    {
+        use rizzma::figure::ErrorbarOptions;
+        let mut fig = gallery_figure(5.0, 3.5);
+        let mut noise = rng(60);
+        let days: Vec<f64> = (0..14).map(|d| 2.0 * f64::from(d) + 1.0).collect();
+        let depth = 0.6;
+        let truth = |t: f64| 8.0 * (-t / 7.0).exp();
+        let mut flux = Vec::new();
+        let mut err = Vec::new();
+        let mut upper = Vec::new();
+        for &t in &days {
+            let f = truth(t) + 0.25 * (noise() - 0.5);
+            let detected = f > depth;
+            flux.push(if detected { f } else { depth });
+            err.push(if detected { 0.2 + 0.05 * f } else { 0.35 });
+            upper.push(!detected);
+        }
+        let ax = fig.add_subplot(1, 1, 1);
+        ax.errorbar_with(&days, &flux, &err, &ErrorbarOptions::new().uplims(&upper));
+        ax.set_title("errorbar uplims: a fading transient");
+        ax.set_xlabel("days since discovery");
+        ax.set_ylabel("flux (mJy)");
+        fig.save_png("target/gallery_errorbar_limits.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
