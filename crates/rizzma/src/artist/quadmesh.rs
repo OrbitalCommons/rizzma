@@ -7,7 +7,8 @@
 //! path through its four corner grid points, optionally stroked with a shared
 //! edge color.
 
-use crate::core::{Affine2D, Bbox, Path, color::Rgba};
+use crate::core::color::{ColorScale, Rgba};
+use crate::core::{Affine2D, Bbox, Path};
 use crate::render::{GraphicsContext, Renderer};
 
 use crate::artist::Artist;
@@ -42,6 +43,9 @@ pub struct QuadMesh {
     zorder: f64,
     /// Whether the mesh is drawn.
     visible: bool,
+    /// The mapping the face colors came from, for a colorbar; `None` when
+    /// the colors were given directly.
+    color_scale: Option<ColorScale>,
 }
 
 impl QuadMesh {
@@ -87,7 +91,22 @@ impl QuadMesh {
             linewidth: 1.0,
             zorder: 0.0,
             visible: true,
+            color_scale: None,
         }
+    }
+
+    /// The color mapping the face colors came from, when the mesh was
+    /// colormapped from data (e.g. by
+    /// [`Axes::pcolormesh_mapped`](crate::figure::Axes::pcolormesh_mapped)).
+    #[must_use]
+    pub fn color_scale(&self) -> Option<&ColorScale> {
+        self.color_scale.as_ref()
+    }
+
+    /// Record the color mapping the face colors came from.
+    pub(crate) fn with_color_scale(mut self, scale: ColorScale) -> Self {
+        self.color_scale = Some(scale);
+        self
     }
 
     /// Switch to gouraud (smooth) shading with one color per grid *corner*,
@@ -364,6 +383,7 @@ impl QuadMesh {
         &self,
         bank: &mut crate::portable::data::BankWriter,
     ) -> crate::portable::spec::QuadMeshSpec {
+        let scale = crate::portable::spec::FlatScale::of(self.color_scale.as_ref());
         crate::portable::spec::QuadMeshSpec {
             nrows: self.nrows,
             ncols: self.ncols,
@@ -375,6 +395,11 @@ impl QuadMesh {
             zorder: self.zorder,
             visible: self.visible,
             label: None,
+            cmap: scale.cmap,
+            norm: scale.norm,
+            bad: scale.bad,
+            over: scale.over,
+            under: scale.under,
         }
     }
 
@@ -424,6 +449,14 @@ impl QuadMesh {
             linewidth: spec.linewidth,
             zorder: spec.zorder,
             visible: spec.visible,
+            color_scale: crate::portable::spec::FlatScale {
+                cmap: spec.cmap.clone(),
+                norm: spec.norm.clone(),
+                bad: spec.bad,
+                over: spec.over,
+                under: spec.under,
+            }
+            .into_scale()?,
         })
     }
 }

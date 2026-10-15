@@ -41,6 +41,16 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   `Normalize::normalize_unclipped` (a provided method) reports out-of-range data, and
   `map_color` colors one value as matplotlib's `Colormap.__call__` does. Every norm
   matches matplotlib 3.11's `imshow(norm=…)` to within one unit per channel.
+- **Colorbars bound to an artist and its axes.** `Axes::colorbar(Mappable::Image(i) |
+  Mesh(i) | Collection(i))` attaches a `Colorbar` that reads the artist's colormap and
+  norm at every draw and takes its room from that axes alone (`fraction`, `pad`,
+  `shrink`, `aspect`, `location` on any side, `label`), as matplotlib's
+  `fig.colorbar(mappable, ax=ax)` does; other panels keep their size. Ticks follow the
+  norm: decades for `LogNorm`, symlog ticks, ticks placed through a `TwoSlopeNorm`,
+  equal regions for a `BoundaryNorm`. Geometry and tick labels match matplotlib 3.11.
+  Meshes and mapped collections now remember their `ColorScale`;
+  `Figure::axes_frame`, `colorbar_frame` and `colorbar_ticks` report the result.
+  `Figure::colorbar(name, vmin, vmax)` stays as the free-standing convenience.
 
 ### Changed
 - Portable figures are schema 7. Scatter legend samples, and the insertion order of
@@ -50,13 +60,16 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   when present; schema 1–7 artifacts still load.
 - Portable figures are schema 9: an image's norm and bad/over/under colors, written
   only when set; schema 1–8 artifacts still load.
+- Portable figures are schema 10: axes colorbars, and the color scale a mesh or
+  mapped collection was drawn with. `pcolormesh` and `scatter_mapped` figures carry
+  their scale, so they now export as schema 10; schema 1–9 artifacts still load.
 
 ### Output changes
 - `legend_auto` lists rows in the order the artists were added, as matplotlib does,
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":9`.
+- Every `.riz` artifact now declares `"schema":10`.
 - NaN values in `scatter_mapped` and `pcolormesh` take the bad color (transparent
   unless set) rather than the colormap's bottom color, as in matplotlib; images
   already did. Renders without NaN in their color data are unchanged.

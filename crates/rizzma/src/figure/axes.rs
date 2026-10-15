@@ -23,12 +23,13 @@ use crate::axis::ticker::{
     LogFormatterMathtext, LogLocator, LogitFormatterMathtext, LogitLocator, ScalarFormatter,
     SymlogFormatterMathtext, SymlogLocator,
 };
-use crate::core::color::{DEFAULT_COLOR_CYCLE, Rgba};
+use crate::core::color::{ColorScale, DEFAULT_COLOR_CYCLE, Rgba};
 use crate::core::rcparams::RcParams;
 use crate::core::{Affine2D, Bbox, Path};
 use crate::render::{ClippedRenderer, GraphicsContext, Renderer};
 use crate::text::FontSource;
 
+use crate::figure::axes_colorbar::{BarInk, Colorbar, Mappable};
 use crate::figure::legend::ArtistKind;
 use crate::figure::richtext::layout_rich_text;
 
@@ -404,6 +405,9 @@ pub struct Axes {
     /// Optional secondary (top) x axis showing an affine unit conversion of
     /// the primary x limits.
     secondary_x: Option<SecondaryXAxis>,
+    /// Optional colorbar describing one of this axes' colormapped artists,
+    /// drawn in a slice of the frame; see [`Axes::colorbar`].
+    colorbar: Option<Colorbar>,
     /// Optional title drawn above the axes.
     title: Option<String>,
     /// Title font size (px at 100 DPI), seeded from `axes.titlesize`.
@@ -574,6 +578,7 @@ impl Axes {
             xaxis_hidden: false,
             xlim_link: None,
             secondary_x: None,
+            colorbar: None,
             title: None,
             title_size: DEFAULT_TITLE_SIZE,
             title_pad: DEFAULT_TITLE_PAD,
@@ -1184,6 +1189,57 @@ impl Axes {
             label: label.map(str::to_string),
         });
         self
+    }
+
+    /// Attach a colorbar describing `mappable`, one of this axes'
+    /// colormapped artists — matplotlib's `fig.colorbar(mappable, ax=ax)`.
+    /// The bar takes its room from this axes' frame, so other axes keep
+    /// their size; it reads the artist's colormap and norm at every draw, and
+    /// its ticks follow the norm (decades for a `LogNorm`, ticks placed
+    /// through a `TwoSlopeNorm`, …). Replaces any earlier colorbar. Returns
+    /// the [`Colorbar`] for styling.
+    ///
+    /// ![colorbar](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_colorbar_norms.png)
+    ///
+    /// # Panics
+    ///
+    /// Panics if `mappable` names no artist of this axes, or one that was not
+    /// colormapped from data.
+    ///
+    /// ```
+    /// use rizzma::{Figure, Mappable};
+    /// use rizzma::core::color::LogNorm;
+    /// let data: Vec<f64> = (0..64).map(|i| 10f64.powf(f64::from(i) / 21.0)).collect();
+    /// let mut fig = Figure::new(5.0, 4.0);
+    /// let ax = fig.add_subplot(2, 2, 1);
+    /// ax.imshow(&data, 8, 8).norm(LogNorm::new(1.0, 1000.0));
+    /// ax.colorbar(Mappable::Image(0)).set_label("counts");
+    /// fig.add_subplot(2, 2, 2).plot(&[0.0, 1.0], &[0.0, 1.0]);
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn colorbar(&mut self, mappable: Mappable) -> &mut Colorbar {
+        assert!(
+            self.color_scale_of(mappable).is_some(),
+            "colorbar: {mappable:?} is not a colormapped artist of this axes"
+        );
+        self.colorbar.insert(Colorbar::new(mappable))
+    }
+
+    /// The colorbar attached to this axes, if any.
+    #[must_use]
+    pub fn attached_colorbar(&self) -> Option<&Colorbar> {
+        self.colorbar.as_ref()
+    }
+
+    /// The color mapping of one of this axes' artists, if it names one that
+    /// was colormapped from data.
+    #[must_use]
+    pub fn color_scale_of(&self, mappable: Mappable) -> Option<ColorScale> {
+        match mappable {
+            Mappable::Image(i) => self.images.get(i).map(AxesImage::color_scale),
+            Mappable::Mesh(i) => self.meshes.get(i)?.color_scale().cloned(),
+            Mappable::Collection(i) => self.collections.get(i)?.color_scale().cloned(),
+        }
     }
 
     /// Set the x-axis label.
@@ -2087,14 +2143,9 @@ impl Axes {
         xlim_override: Option<(f64, f64)>,
         rect_override: Option<Bbox>,
     ) -> (Bbox, Affine2D) {
-        let mut axes_px = rect_override.unwrap_or_else(|| {
-            Bbox::from_extents(
-                self.position.xmin() * fig_w_px,
-                self.position.ymin() * fig_h_px,
-                self.position.xmax() * fig_w_px,
-                self.position.ymax() * fig_h_px,
-            )
-        });
+        let mut axes_px = self
+            .frame_and_colorbar_px(fig_w_px, fig_h_px, rect_override)
+            .0;
         let (xlim, ylim) = self.limits_with_override(xlim_override);
         let mapper = self.data_to_scaled();
         let (scaled_xlim, scaled_ylim) = mapper.map_limits(xlim, ylim);
@@ -2103,6 +2154,32 @@ impl Axes {
         }
         let td = self.trans_data(&axes_px, scaled_xlim, scaled_ylim);
         (axes_px, td)
+    }
+
+    /// The frame rectangle in pixels, before any aspect constraint, and the
+    /// colorbar's bar when there is one: the figure-fraction position (or the
+    /// tight-layout `rect_override`) split as the colorbar takes its slice.
+    pub(crate) fn frame_and_colorbar_px(
+        &self,
+        fig_w_px: f64,
+        fig_h_px: f64,
+        rect_override: Option<Bbox>,
+    ) -> (Bbox, Option<Bbox>) {
+        let frame = rect_override.unwrap_or_else(|| {
+            Bbox::from_extents(
+                self.position.xmin() * fig_w_px,
+                self.position.ymin() * fig_h_px,
+                self.position.xmax() * fig_w_px,
+                self.position.ymax() * fig_h_px,
+            )
+        });
+        match &self.colorbar {
+            Some(cb) => {
+                let (parent, bar) = cb.split(&frame);
+                (parent, Some(bar))
+            }
+            None => (frame, None),
+        }
     }
 
     /// The per-side decoration insets `(left, right, bottom, top)` in pixels
@@ -2145,6 +2222,17 @@ impl Axes {
         if let Some(title) = self.title.as_ref().filter(|title| !title.is_empty()) {
             let rich = layout_rich_text(font, title, self.title_size * s);
             top += self.title_pad * s + rich.ascent + rich.descent;
+        }
+        // A colorbar's ticks and labels reach past the frame edge on its
+        // side. Its length is not known yet, so measure at the most ticks.
+        let colorbar = self
+            .colorbar
+            .as_ref()
+            .and_then(|cb| Some((cb, self.color_scale_of(cb.mappable())?)));
+        if let Some((cb, scale)) = colorbar {
+            let extent = cb.decoration_extent(&scale, f64::INFINITY, font, s);
+            let (l, r, b, t) = cb.inset(extent);
+            (left, right, bottom, top) = (left.max(l), right.max(r), bottom.max(b), top.max(t));
         }
         (left, right, bottom, top)
     }
@@ -2371,6 +2459,20 @@ impl Axes {
                     sec.scale * xlim.1 + sec.offset,
                 );
                 top.draw(renderer, &axes_px, converted, font);
+            }
+        }
+
+        // 6'. The colorbar, in the slice of the frame it took.
+        if let Some(cb) = &self.colorbar {
+            let scale = self.color_scale_of(cb.mappable());
+            let (_, bar) = self.frame_and_colorbar_px(fig_w_px, fig_h_px, rect_override);
+            if let (Some(scale), Some(bar)) = (scale, bar) {
+                let ink = BarInk {
+                    color: self.yaxis.color(),
+                    edge: self.edgecolor,
+                    linewidth: self.linewidth,
+                };
+                cb.draw(renderer, &bar, &scale, font, &ink);
             }
         }
 
@@ -2878,6 +2980,7 @@ impl Axes {
             xaxis_hidden: self.xaxis_hidden,
             xlim_link: self.xlim_link,
             secondary_x: self.secondary_x.clone(),
+            colorbar: self.colorbar.clone(),
             title: self.title.clone(),
             title_style: (self.title_size != DEFAULT_TITLE_SIZE
                 || self.title_pad != DEFAULT_TITLE_PAD)
@@ -2902,7 +3005,7 @@ impl Axes {
         spec: &crate::portable::spec::AxesSpec,
         reader: &crate::portable::data::BankReader<'_>,
     ) -> Result<Axes, crate::portable::PortableError> {
-        Ok(Axes {
+        let axes = Axes {
             position: spec.position,
             layout_envelope: spec.layout_envelope,
             sticky_x: spec.sticky_x.clone(),
@@ -2957,6 +3060,7 @@ impl Axes {
             xaxis_hidden: spec.xaxis_hidden,
             xlim_link: spec.xlim_link,
             secondary_x: spec.secondary_x.clone(),
+            colorbar: spec.colorbar.clone(),
             title: spec.title.clone(),
             title_size: spec
                 .title_style
@@ -2977,7 +3081,20 @@ impl Axes {
                 .collect::<Result<_, _>>()?,
             legend_title: spec.legend_title.clone(),
             legend_location: spec.legend_location,
-        })
+        };
+        // An accepted figure must draw: a colorbar has to describe a
+        // colormapped artist the axes actually holds.
+        let orphan = axes
+            .colorbar
+            .as_ref()
+            .filter(|cb| axes.color_scale_of(cb.mappable()).is_none());
+        if let Some(cb) = orphan {
+            return Err(crate::portable::PortableError::Malformed(format!(
+                "colorbar describes {:?}, which is not a colormapped artist of its axes",
+                cb.mappable()
+            )));
+        }
+        Ok(axes)
     }
 }
 

@@ -1406,5 +1406,73 @@ fn main() {
         fig.save_png("target/gallery_norms.png").unwrap();
     }
 
+    // 58. colorbars bound to their artists — each panel's bar follows its
+    // norm: linear, decades for LogNorm, ticks through a TwoSlopeNorm, and
+    // equal-length regions for a BoundaryNorm, on all four sides.
+    {
+        use rizzma::core::color::{BoundaryNorm, ColorMapping, LogNorm, TwoSlopeNorm};
+        use rizzma::{ColorbarLocation, Mappable};
+        let mut fig = gallery_figure(8.0, 6.0);
+        let n = 32;
+        let field = |f: &dyn Fn(f64, f64) -> f64| -> Vec<f64> {
+            (0..n * n)
+                .map(|i| f((i % n) as f64 / n as f64, (i / n) as f64 / n as f64))
+                .collect()
+        };
+
+        let ax = fig.add_subplot(2, 2, 1);
+        ax.imshow(&field(&|x, y| (6.0 * x).sin() * (4.0 * y).cos()), n, n)
+            .cmap("viridis");
+        ax.colorbar(Mappable::Image(0)).set_label("amplitude");
+        ax.set_title("linear");
+
+        let ax = fig.add_subplot(2, 2, 2);
+        ax.imshow(
+            &field(&|x, y| {
+                10f64.powf(3.0 * (-((x - 0.3).powi(2) + (y - 0.6).powi(2)) * 9.0).exp())
+            }),
+            n,
+            n,
+        )
+        .cmap("magma")
+        .norm(LogNorm::new(1.0, 1000.0));
+        ax.colorbar(Mappable::Image(0)).set_label("counts");
+        ax.set_title("LogNorm");
+
+        let ax = fig.add_subplot(2, 2, 3);
+        let residual = field(&|x, y| 3.0 * (x - 0.35) * (1.0 + y) - 0.2);
+        ax.pcolormesh_mapped(
+            &residual,
+            n,
+            n,
+            ColorMapping::new("coolwarm").norm(TwoSlopeNorm::new(-1.0, 0.0, 3.0)),
+        );
+        ax.colorbar(Mappable::Mesh(0))
+            .set_location(ColorbarLocation::Bottom)
+            .set_label("residual");
+        ax.set_title("TwoSlopeNorm, bottom");
+
+        let ax = fig.add_subplot(2, 2, 4);
+        let mut noise = rng(58);
+        let x: Vec<f64> = (0..300).map(|_| noise()).collect();
+        let y: Vec<f64> = (0..300).map(|_| noise()).collect();
+        let depth: Vec<f64> = x.iter().zip(&y).map(|(a, b)| 1000.0 * a * b).collect();
+        ax.scatter_mapped(
+            &x,
+            &y,
+            &depth,
+            ColorMapping::new("cividis").norm(BoundaryNorm::new(
+                vec![0.0, 10.0, 50.0, 200.0, 500.0, 1000.0],
+                256,
+            )),
+        )
+        .set_sizes(vec![4.0]);
+        ax.colorbar(Mappable::Collection(0))
+            .set_location(ColorbarLocation::Left)
+            .set_label("depth (m)");
+        ax.set_title("BoundaryNorm, left");
+        fig.save_png("target/gallery_colorbar_norms.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

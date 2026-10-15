@@ -178,13 +178,55 @@ impl ColorMapping {
         ))
     }
 
+    /// This mapping fixed against `data`: its norm resolved, as the artist it
+    /// colors remembers it for a colorbar.
+    #[must_use]
+    pub fn resolve(&self, data: &[f64]) -> ColorScale {
+        ColorScale {
+            cmap: self.cmap.clone(),
+            norm: self.resolved_norm(data),
+            extremes: self.extremes,
+        }
+    }
+
     /// The colors of `data` under this mapping.
     #[must_use]
     pub fn colors(&self, data: &[f64]) -> Vec<Rgba> {
-        let norm = self.resolved_norm(data);
+        self.resolve(data).colors(data)
+    }
+}
+
+/// A resolved color mapping — colormap name, a concrete [`Norm`], and
+/// [`Extremes`] — as a colormapped artist keeps it so a
+/// [`Colorbar`](crate::figure::Colorbar) can describe the artist exactly.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColorScale {
+    /// The colormap name (see [`colormap`]).
+    pub cmap: String,
+    /// The norm the data were mapped through.
+    pub norm: Norm,
+    /// Colors for bad, over and under values.
+    pub extremes: Extremes,
+}
+
+impl ColorScale {
+    /// The color of `value`.
+    #[must_use]
+    pub fn color(&self, value: f64) -> Rgba {
+        map_color(
+            value,
+            &self.norm,
+            resolve_cmap(&self.cmap).as_ref(),
+            &self.extremes,
+        )
+    }
+
+    /// The colors of `data`.
+    #[must_use]
+    pub fn colors(&self, data: &[f64]) -> Vec<Rgba> {
         let cmap = resolve_cmap(&self.cmap);
         data.iter()
-            .map(|&v| map_color(v, &norm, cmap.as_ref(), &self.extremes))
+            .map(|&v| map_color(v, &self.norm, cmap.as_ref(), &self.extremes))
             .collect()
     }
 }

@@ -269,6 +269,11 @@ impl Axis {
         self
     }
 
+    /// The data→scaled coordinate mapping.
+    pub(crate) fn scale(&self) -> &dyn Scale {
+        self.scale.as_ref()
+    }
+
     /// Which edge this axis is drawn along.
     #[must_use]
     pub fn side(&self) -> AxisSide {

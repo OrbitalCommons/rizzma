@@ -1,0 +1,30 @@
+# matplotlib 3.11.0
+linear axes 0 0.08 0.56 0.384 0.94
+linear axes 1 0.56 0.56 0.94 0.94
+linear axes 2 0.08 0.08 0.46 0.46
+linear axes 3 0.56 0.08 0.94 0.46
+linear cbar 0.403 0.56 0.41725 0.94
+linear tick -200.0 −200
+linear tick 0.0 0
+linear tick 200.0 200
+linear tick 400.0 400
+linear tick 600.0 600
+log axes 0 0.08 0.56 0.384 0.94
+log axes 1 0.56 0.56 0.94 0.94
+log axes 2 0.08 0.08 0.46 0.46
+log axes 3 0.56 0.08 0.94 0.46
+log cbar 0.403 0.56 0.41725 0.94
+log tick 1.0 $\mathdefault{10^{0}}$
+log tick 10.0 $\mathdefault{10^{1}}$
+log tick 100.0 $\mathdefault{10^{2}}$
+twoslope axes 0 0.08 0.56 0.384 0.94
+twoslope axes 1 0.56 0.56 0.94 0.94
+twoslope axes 2 0.08 0.08 0.46 0.46
+twoslope axes 3 0.56 0.08 0.94 0.46
+twoslope cbar 0.403 0.56 0.41725 0.94
+twoslope tick -200.0 −200
+twoslope tick 0.0 0
+twoslope tick 200.0 200
+twoslope tick 400.0 400
+twoslope tick 600.0 600
+twoslope tick 800.0 800

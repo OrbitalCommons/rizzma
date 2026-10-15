@@ -1980,7 +1980,7 @@ fn schema_cannot_be_under_declared() {
     // runtime watches it rejected for the unknown field. Both inspection and
     // import refuse the lie.
     let bytes = controlled_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":3"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":3"));
 
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -1997,7 +1997,7 @@ fn schema_cannot_be_under_declared() {
 
     // The same floor applies one level down: a timeline needs schema 3.
     let bytes = animated_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":2"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":2"));
     let Err(err) = Figure::from_portable(&forged) else {
         panic!("a timeline under schema 3 must not import");
     };
@@ -2013,7 +2013,7 @@ fn schema_cannot_be_under_declared() {
     ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
     ax.minorticks_on();
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":4"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":4"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2032,7 +2032,7 @@ fn schema_cannot_be_under_declared() {
     fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
     fig.suptitle("sized").set_suptitle_size(20.0);
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":5"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":5"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2048,7 +2048,7 @@ fn schema_cannot_be_under_declared() {
 
     // Scatter legend samples and the artist order are schema 7.
     let bytes = scatter_legend_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":6"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":6"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2064,7 +2064,7 @@ fn schema_cannot_be_under_declared() {
 
     // Figure text and figure axis labels are schema 8.
     let bytes = figure_text_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":7"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":7"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2080,7 +2080,7 @@ fn schema_cannot_be_under_declared() {
 
     // Image norms and extreme colors are schema 9.
     let bytes = image_norm_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":8"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":8"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2093,6 +2093,71 @@ fn schema_cannot_be_under_declared() {
             "{err}"
         );
     }
+
+    // Colorbars and recorded color scales are schema 10.
+    let bytes = colorbar_figure().to_portable().expect("export");
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":9"));
+    for result in [
+        Figure::from_portable(&forged).map(|_| ()),
+        crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
+    ] {
+        let Err(err) = result else {
+            panic!("colorbars under schema 10 must not be accepted");
+        };
+        assert!(
+            matches!(&err, PortableError::Malformed(m) if m.contains("requiring schema 10")),
+            "{err}"
+        );
+    }
+}
+
+/// Two colorbarred panels: an image through a log norm, and a mapped scatter
+/// with its bar below.
+fn colorbar_figure() -> Figure {
+    use crate::core::color::{ColorMapping, LogNorm, TwoSlopeNorm};
+    use crate::figure::{ColorbarLocation, Mappable};
+    let mut fig = Figure::new(6.0, 3.0);
+    let data: Vec<f64> = (0..36).map(|i| 1.5f64.powi(i)).collect();
+    let ax = fig.add_subplot(1, 2, 1);
+    ax.imshow(&data, 6, 6).norm(LogNorm::new(1.0, 1e6));
+    ax.colorbar(Mappable::Image(0)).set_label("flux");
+    let ax = fig.add_subplot(1, 2, 2);
+    ax.scatter_mapped(
+        &[0.0, 1.0, 2.0],
+        &[1.0, 0.0, 2.0],
+        &[-1.0, 0.5, 4.0],
+        ColorMapping::new("RdBu").norm(TwoSlopeNorm::new(-1.0, 0.0, 4.0)),
+    );
+    ax.colorbar(Mappable::Collection(0))
+        .set_location(ColorbarLocation::Bottom)
+        .set_shrink(0.8);
+    fig
+}
+
+#[test]
+fn colorbars_round_trip() {
+    let fig = colorbar_figure();
+    let bytes = fig.to_portable().expect("export");
+    let back = Figure::from_portable(&bytes).expect("import");
+    assert_eq!(back.to_portable().expect("re-export"), bytes);
+    assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
+    assert_eq!(back.colorbar_ticks(1), fig.colorbar_ticks(1));
+}
+
+#[test]
+fn a_colorbar_naming_a_missing_artist_is_refused() {
+    let bytes = colorbar_figure().to_portable().expect("export");
+    let forged = reforge_json(&bytes, |json| {
+        json.replace("\"mappable\":{\"image\":0}", "\"mappable\":{\"image\":3}")
+    });
+    assert_ne!(forged, bytes, "the forgery must change the artifact");
+    let Err(err) = Figure::from_portable(&forged) else {
+        panic!("a colorbar describing no artist must not import");
+    };
+    assert!(
+        matches!(&err, PortableError::Malformed(m) if m.contains("not a colormapped artist")),
+        "{err}"
+    );
 }
 
 /// An image through a symlog norm with every extreme color set.
