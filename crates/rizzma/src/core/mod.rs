@@ -10,6 +10,7 @@ pub mod bbox;
 pub mod color;
 pub mod path;
 pub mod rcparams;
+pub(crate) mod simplify;
 
 pub use affine::Affine2D;
 pub use bbox::Bbox;

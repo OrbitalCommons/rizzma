@@ -66,6 +66,13 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   the cap on the value, plus horizontal errors (`xerr`) and their `xuplims` /
   `xlolims` carets. Carets land within a pixel of matplotlib's at 72, 100 and 200
   DPI. `errorbar(x, y, yerr)` is unchanged.
+- **Long lines are simplified before drawing**, matplotlib's `PathSimplifier` ported
+  line for line (it matches matplotlib's output vertex for vertex): runs of nearly
+  collinear segments within `RcParams::path_simplify_threshold` (1/9 px) of each
+  other merge, keeping each run's extremes. A noisy 1e6-point line renders in about
+  0.6 s instead of 34 s (matplotlib: 0.43 s on the same machine). It applies to lines
+  of 1000 or more vertices and can be turned off with `RcParams::path_simplify`; the
+  `bench_noisy_line` example measures it.
 
 ### Changed
 - Portable figures are schema 7. Scatter legend samples, and the insertion order of
@@ -80,13 +87,21 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   their scale, so they now export as schema 10; schema 1–9 artifacts still load.
 - Portable figures are schema 11 when they use an `ImageNormalize`, written as its
   resolved limits and stretch; schema 1–10 artifacts still load.
+- Portable figures are schema 12 when their rc turns line simplification off or
+  changes its threshold (the settings are written only then); schema 1–11 artifacts
+  still load.
 
 ### Output changes
 - `legend_auto` lists rows in the order the artists were added, as matplotlib does,
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":11`.
+- Every `.riz` artifact now declares `"schema":12`.
+- Lines of 1000 or more vertices are drawn simplified: PNG pixels move by at most one
+  unit on all but a few hundredths of a percent of the image (the gallery's
+  streamplot changes in one antialiased edge pixel), and SVG and PDF output carry the
+  simplified vertices. Shorter lines, and every other artist, are byte-identical; set
+  `path_simplify: false` for the exact previous drawing.
 - NaN values in `scatter_mapped` and `pcolormesh` take the bad color (transparent
   unless set) rather than the colormap's bottom color, as in matplotlib; images
   already did. Renders without NaN in their color data are unchanged.

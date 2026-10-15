@@ -1337,6 +1337,7 @@ impl Figure {
             (9, wire::uses_image_norms(&spec.figure)),
             (10, wire::uses_colorbars(&spec.figure)),
             (11, wire::uses_image_normalize(&spec.figure)),
+            (12, wire::uses_path_simplify(&spec.figure)),
         ]);
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(
@@ -1378,7 +1379,7 @@ impl Figure {
         }
         let reader = crate::portable::data::BankReader::new(bin, &spec.accessors);
         let fig = spec.figure;
-        let restored = Figure {
+        let mut restored = Figure {
             width_in: fig.width_in,
             height_in: fig.height_in,
             dpi: fig.dpi,
@@ -1404,6 +1405,11 @@ impl Figure {
             controls: spec.controls,
             time: 0.0,
         };
+        // Line simplification is the figure's rc setting, carried per axes.
+        let simplify = crate::figure::axes::simplify_threshold(&restored.rc);
+        for ax in &mut restored.axes {
+            ax.path_simplify = simplify;
+        }
         // Only now can targets be checked against the artists that exist. An
         // accepted figure is total: seek and set_control cannot fail on it,
         // so a host trusting this acceptance never sees applied-but-failed.

@@ -131,6 +131,40 @@ pub struct RcParams {
     /// (`text.color`). Also seeds each axis' spine/tick ink together with
     /// [`axes_edgecolor`](Self::axes_edgecolor).
     pub text_color: Rgba,
+
+    // --- path ---
+    /// Merge nearly collinear segments of long lines before drawing
+    /// (`path.simplify`). Lines of 1000 or more vertices are simplified in
+    /// display space, matplotlib's `PathSimplifier`; shorter lines are drawn
+    /// as given.
+    #[serde(
+        default = "default_path_simplify",
+        skip_serializing_if = "is_default_path_simplify"
+    )]
+    pub path_simplify: bool,
+    /// How far, in pixels, a vertex may stray from the segment being built
+    /// and still merge into it (`path.simplify_threshold`, default 1/9).
+    #[serde(
+        default = "default_path_simplify_threshold",
+        skip_serializing_if = "is_default_path_simplify_threshold"
+    )]
+    pub path_simplify_threshold: f64,
+}
+
+fn default_path_simplify() -> bool {
+    true
+}
+
+fn is_default_path_simplify(on: &bool) -> bool {
+    *on
+}
+
+fn default_path_simplify_threshold() -> f64 {
+    1.0 / 9.0
+}
+
+fn is_default_path_simplify_threshold(threshold: &f64) -> bool {
+    *threshold == default_path_simplify_threshold()
 }
 
 impl Default for RcParams {
@@ -178,6 +212,9 @@ impl Default for RcParams {
             legend_labelcolor: Rgba::BLACK,
 
             text_color: Rgba::BLACK,
+
+            path_simplify: default_path_simplify(),
+            path_simplify_threshold: default_path_simplify_threshold(),
         }
     }
 }
