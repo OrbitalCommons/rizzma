@@ -25,6 +25,13 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   3.11's layout box, landing within a pixel of matplotlib at 100 and 200 DPI.
   `Figure::supxlabel` / `supylabel` add shared axis labels that tight layout makes
   room for; the pyplot facade gains `figtext`, `supxlabel` and `supylabel`.
+- **Raster export in caller pixel formats.** `Figure::to_rgba8` (straight alpha, the
+  bytes PNG export stores) and `to_rgb8` return `(pixels, width, height)`;
+  `render_into` fills a caller-owned buffer as `PixelFormat::Rgb8`, `Rgba8`,
+  `Rgba8Premul`, `Bgrx8` or `Xrgb8888`, and `render_into_u32` a `u32` framebuffer
+  (minifb, softbuffer). Opaque layouts composite over the face color; a buffer of the
+  wrong length is a `BufferSizeError`, never a panic. `Figure::raster_size` and
+  `Figure::facecolor` report what they need.
 
 ### Changed
 - Portable figures are schema 7. Scatter legend samples, and the insertion order of
