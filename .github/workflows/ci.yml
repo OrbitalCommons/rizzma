@@ -25,14 +25,18 @@ env:
   # The *runtime* bundle additionally renders `.riz` artifacts, which pulls in
   # serde_json and the wire model's derives — about 590 KiB. It is fetched once
   # per host and cached, never per figure, and a host that only shows posters
-  # never fetches it at all (that is what `rizzma-portable` is for). 3.25 MiB,
-  # raised from 3.2 for schemas 7 and 8: legend marker samples (+14 KiB) and
+  # never fetches it at all (that is what `rizzma-portable` is for). 3.3 MiB,
+  # raised from 3.25 for schemas 9 and 10: image norms (+22 KiB, after giving
+  # every norm one `{kind, params}` wire shape cut it from 34) and colorbars
+  # (+38 KiB: ~13 KiB of decoders for the colorbar and recorded color scales,
+  # the rest its geometry, norm-aware long axis and gradient). It was raised
+  # from 3.2 to 3.25 for schemas 7 and 8: legend marker samples (+14 KiB) and
   # figure text (+26 KiB, of which ~6 KiB is serde_json's struct decoder for
   # `Text`, ~6 KiB its layout/draw, ~3 KiB the alignment-enum decoders). It
   # was raised from 3.15 for schema 4 (the Control/Grid wire derives, bilinear
   # sampling, and control evaluation — the slider manifest is hand-formatted
   # JSON precisely so that raise stayed under 8 KiB instead of 28).
-  WASM_RUNTIME_SIZE_MAX_BYTES: 3407872
+  WASM_RUNTIME_SIZE_MAX_BYTES: 3460301
 
 jobs:
   msrv:

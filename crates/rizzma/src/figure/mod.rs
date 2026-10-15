@@ -49,6 +49,7 @@
 //! Build-order home: Phase 7 of `design/04-implementation-plan.md`.
 
 pub(crate) mod axes;
+pub(crate) mod axes_colorbar;
 pub(crate) mod colorbar;
 pub mod event;
 #[allow(clippy::module_inception)]
@@ -82,6 +83,7 @@ mod subplotspec;
 pub(crate) mod text;
 
 pub use axes::{Axes, TextBoxStyle};
+pub use axes_colorbar::{Colorbar, ColorbarLocation, Mappable};
 pub use event::{Event, MouseButton};
 pub use figure::Figure;
 pub use gridspec::GridSpec;

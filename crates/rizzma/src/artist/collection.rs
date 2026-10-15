@@ -8,7 +8,8 @@
 //! a length-N vector applies element-wise (indexed modulo its length), matching
 //! matplotlib's broadcasting.
 
-use crate::core::{Affine2D, Bbox, Path, color::Rgba};
+use crate::core::color::{ColorScale, Rgba};
+use crate::core::{Affine2D, Bbox, Path};
 use crate::render::{GraphicsContext, Renderer};
 
 use crate::artist::{Artist, MarkerStyle};
@@ -52,6 +53,9 @@ pub struct Collection {
     /// [`Axes::legend_auto`](crate::figure::Axes::legend_auto); `None` for an
     /// anonymous collection.
     label: Option<String>,
+    /// The mapping the face colors came from, for a colorbar; `None` when
+    /// the colors were given directly.
+    color_scale: Option<ColorScale>,
 }
 
 impl Collection {
@@ -76,7 +80,22 @@ impl Collection {
             visible: true,
             zorder: 1.0,
             label: None,
+            color_scale: None,
         }
+    }
+
+    /// The color mapping the face colors came from, when the collection was
+    /// colormapped from data (e.g. by
+    /// [`Axes::scatter_mapped`](crate::figure::Axes::scatter_mapped)).
+    #[must_use]
+    pub fn color_scale(&self) -> Option<&ColorScale> {
+        self.color_scale.as_ref()
+    }
+
+    /// Record the color mapping the face colors came from.
+    pub(crate) fn with_color_scale(mut self, scale: ColorScale) -> Self {
+        self.color_scale = Some(scale);
+        self
     }
 
     /// The legend label, if any.
@@ -292,6 +311,7 @@ impl Collection {
             visible: true,
             zorder: self.zorder,
             label: None,
+            color_scale: None,
         };
         Some((color, sample))
     }
@@ -421,6 +441,7 @@ impl Collection {
         &self,
         bank: &mut crate::portable::data::BankWriter,
     ) -> crate::portable::spec::CollectionSpec {
+        let scale = crate::portable::spec::FlatScale::of(self.color_scale.as_ref());
         crate::portable::spec::CollectionSpec {
             offsets: bank.push_pairs(&self.offsets),
             marker: self.marker.to_portable(bank),
@@ -431,6 +452,11 @@ impl Collection {
             visible: self.visible,
             zorder: self.zorder,
             label: self.label.clone(),
+            cmap: scale.cmap,
+            norm: scale.norm,
+            bad: scale.bad,
+            over: scale.over,
+            under: scale.under,
         }
     }
 
@@ -450,6 +476,14 @@ impl Collection {
             visible: spec.visible,
             zorder: spec.zorder,
             label: spec.label.clone(),
+            color_scale: crate::portable::spec::FlatScale {
+                cmap: spec.cmap.clone(),
+                norm: spec.norm.clone(),
+                bad: spec.bad,
+                over: spec.over,
+                under: spec.under,
+            }
+            .into_scale()?,
         })
     }
 }

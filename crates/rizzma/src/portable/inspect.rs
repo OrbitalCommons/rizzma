@@ -72,8 +72,39 @@ struct AxesHead {
     legend: Vec<LegendHead>,
     #[serde(default)]
     images: Vec<ImageHead>,
+    #[serde(default)]
+    colorbar: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    meshes: Vec<ScaledHead>,
+    #[serde(default)]
+    collections: Vec<ScaledHead>,
     xaxis: AxisHead,
     yaxis: AxisHead,
+}
+
+/// Presence of a mesh's or collection's schema-10 color-scale fields.
+#[derive(Debug, Deserialize)]
+struct ScaledHead {
+    #[serde(default)]
+    cmap: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    norm: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    bad: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    over: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    under: Option<serde::de::IgnoredAny>,
+}
+
+impl ScaledHead {
+    fn present(&self) -> bool {
+        self.cmap.is_some()
+            || self.norm.is_some()
+            || self.bad.is_some()
+            || self.over.is_some()
+            || self.under.is_some()
+    }
 }
 
 /// Presence of an image's schema-9 norm and extreme colors.
@@ -114,6 +145,15 @@ impl FigureHead {
     /// Mirrors [`uses_text_sizes`](super::spec::uses_text_sizes).
     fn uses_text_sizes(&self) -> bool {
         self.suptitle_size.is_some() || self.axes.iter().any(|axes| axes.text_size.is_some())
+    }
+
+    /// Mirrors [`uses_colorbars`](super::spec::uses_colorbars).
+    fn uses_colorbars(&self) -> bool {
+        self.axes.iter().any(|axes| {
+            axes.colorbar.is_some()
+                || axes.meshes.iter().any(ScaledHead::present)
+                || axes.collections.iter().any(ScaledHead::present)
+        })
     }
 
     /// Mirrors [`uses_image_norms`](super::spec::uses_image_norms).
@@ -222,6 +262,7 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
         (7, header.figure.uses_legend_markers()),
         (8, header.figure.uses_figure_text()),
         (9, header.figure.uses_image_norms()),
+        (10, header.figure.uses_colorbars()),
     ]);
     if header.schema < required {
         return Err(PortableError::Malformed(format!(

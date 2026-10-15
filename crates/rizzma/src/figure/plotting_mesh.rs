@@ -116,8 +116,9 @@ impl Axes {
             }
         }
 
-        let facecolors = mapping.into().colors(c);
-        let mesh = QuadMesh::new(nrows, ncols, coordinates, facecolors);
+        let scale = mapping.into().resolve(c);
+        let mesh =
+            QuadMesh::new(nrows, ncols, coordinates, scale.colors(c)).with_color_scale(scale);
         self.meshes.push(mesh);
         self.meshes.last_mut().expect("just pushed a mesh")
     }

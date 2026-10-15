@@ -9,7 +9,7 @@
 
 use crate::core::color::mapping::resolve_cmap;
 use crate::core::color::{
-    Colormap, DEFAULT_COLORMAP, Extremes, LinearNorm, Norm, Normalize, Rgba, map_color,
+    ColorScale, Colormap, DEFAULT_COLORMAP, Extremes, LinearNorm, Norm, Normalize, Rgba, map_color,
 };
 use crate::core::{Affine2D, Bbox};
 use crate::render::{GraphicsContext, Renderer};
@@ -242,6 +242,17 @@ impl AxesImage {
         self.norm
             .clone()
             .unwrap_or(Norm::Linear(LinearNorm::new(self.vmin, self.vmax)))
+    }
+
+    /// The image's color mapping as it stands: colormap, active norm and
+    /// extremes.
+    #[must_use]
+    pub fn color_scale(&self) -> ColorScale {
+        ColorScale {
+            cmap: self.cmap_name.clone(),
+            norm: self.active_norm(),
+            extremes: self.extremes,
+        }
     }
 
     /// Set the data-space extent in place, returning `&mut self`.

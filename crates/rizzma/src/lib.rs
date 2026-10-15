@@ -126,8 +126,9 @@ pub mod wasm;
 
 pub use core::rcparams::{RcParams, TickDirection};
 pub use figure::{
-    Axes, BufferSizeError, Figure, GridSpec, HorizontalAlignment, LegendLocation, PixelFormat,
-    PolarAxes, SkyAxes, SkyProjection, SubplotSpec, Text, TextBoxStyle, VerticalAlignment,
+    Axes, BufferSizeError, Colorbar, ColorbarLocation, Figure, GridSpec, HorizontalAlignment,
+    LegendLocation, Mappable, PixelFormat, PolarAxes, SkyAxes, SkyProjection, SubplotSpec, Text,
+    TextBoxStyle, VerticalAlignment,
 };
 pub use portable::PortableError;
 

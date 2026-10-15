@@ -32,7 +32,7 @@ const TICK_GAP: f64 = 3.0;
 /// A registered colorbar: a colormap mapped over a data range.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Colorbar {
+pub(crate) struct FigureColorbar {
     /// The name of the colormap to sample (e.g. `"viridis"`).
     cmap_name: String,
     /// Lower bound of the mapped data range.
@@ -54,7 +54,7 @@ impl Figure {
     /// label the bottom and top of the gradient. Unknown colormap names render
     /// no gradient (the strip is skipped at draw time).
     pub fn colorbar(&mut self, cmap_name: &str, vmin: f64, vmax: f64) -> &mut Self {
-        self.colorbars.push(Colorbar {
+        self.colorbars.push(FigureColorbar {
             cmap_name: cmap_name.to_string(),
             vmin,
             vmax,
@@ -94,7 +94,7 @@ impl Figure {
         vmax: f64,
     ) -> &mut Self {
         let (left, bottom, width, height) = rect;
-        self.colorbars.push(Colorbar {
+        self.colorbars.push(FigureColorbar {
             cmap_name: cmap_name.to_string(),
             vmin,
             vmax,
@@ -115,7 +115,7 @@ impl Figure {
         vmax: f64,
     ) -> &mut Self {
         let (left, bottom, width, height) = rect;
-        self.colorbars.push(Colorbar {
+        self.colorbars.push(FigureColorbar {
             cmap_name: cmap_name.to_string(),
             vmin,
             vmax,
@@ -134,7 +134,7 @@ impl Figure {
     }
 }
 
-impl Colorbar {
+impl FigureColorbar {
     /// Draw this colorbar into `renderer` given the figure size in pixels.
     fn draw(&self, renderer: &mut dyn Renderer, fig_w: f64, fig_h: f64, font: &FontSource) {
         let Some(cmap) = colormap(&self.cmap_name) else {

@@ -35,7 +35,7 @@ use crate::core::{Bbox, RcParams};
 #[cfg(feature = "portable")]
 use crate::figure::axes::{Annotation, SecondaryXAxis, SpanLine, SpanRect};
 #[cfg(feature = "portable")]
-use crate::figure::colorbar::Colorbar;
+use crate::figure::colorbar::FigureColorbar;
 #[cfg(feature = "portable")]
 use crate::figure::legend::{ArtistKind, LegendLocation};
 #[cfg(feature = "portable")]
@@ -129,6 +129,29 @@ pub(crate) fn uses_image_norms(figure: &FigureSpec) -> bool {
     })
 }
 
+/// Whether any axes carries schema-10 colorbar data: a colorbar, or the color
+/// scale a mesh or collection was mapped through.
+#[cfg(feature = "portable")]
+pub(crate) fn uses_colorbars(figure: &FigureSpec) -> bool {
+    figure.axes.iter().any(|axes| {
+        axes.colorbar.is_some()
+            || axes.meshes.iter().any(|m| {
+                m.cmap.is_some()
+                    || m.norm.is_some()
+                    || m.bad.is_some()
+                    || m.over.is_some()
+                    || m.under.is_some()
+            })
+            || axes.collections.iter().any(|c| {
+                c.cmap.is_some()
+                    || c.norm.is_some()
+                    || c.bad.is_some()
+                    || c.over.is_some()
+                    || c.under.is_some()
+            })
+    })
+}
+
 /// Wire mirror of [`Figure`](crate::figure::Figure).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -155,7 +178,7 @@ pub(crate) struct FigureSpec {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) texts: Vec<Text>,
     pub(crate) axes: Vec<AxesSpec>,
-    pub(crate) colorbars: Vec<Colorbar>,
+    pub(crate) colorbars: Vec<FigureColorbar>,
 }
 
 /// Wire mirror of [`Axes`](crate::figure::Axes). Field-for-field with the live
@@ -197,6 +220,9 @@ pub(crate) struct AxesSpec {
     pub(crate) xaxis_hidden: bool,
     pub(crate) xlim_link: Option<usize>,
     pub(crate) secondary_x: Option<SecondaryXAxis>,
+    /// The axes' colorbar. Absent before schema 10, which introduced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) colorbar: Option<crate::figure::Colorbar>,
     pub(crate) title: Option<String>,
     /// `(size, pad)` of the title, present only when either differs from the
     /// default. Absent before schema 5, which introduced it.
@@ -332,6 +358,69 @@ pub(crate) struct CollectionSpec {
     pub(crate) zorder: f64,
     /// Per-artist legend label, collected by `Axes::legend_auto`.
     pub(crate) label: Option<String>,
+    /// The color mapping the face colors came from, flat as an image writes
+    /// its own (see [`FlatScale`]). Absent before schema 10, which introduced
+    /// it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) cmap: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) norm: Option<crate::core::color::Norm>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) bad: Option<Rgba>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) over: Option<Rgba>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) under: Option<Rgba>,
+}
+
+/// A mesh's or collection's optional [`ColorScale`] as the flat wire fields
+/// it is written in: a colormap and norm present together, or neither (and
+/// then no extreme colors).
+///
+/// [`ColorScale`]: crate::core::color::ColorScale
+#[cfg(feature = "portable")]
+pub(crate) struct FlatScale {
+    pub(crate) cmap: Option<String>,
+    pub(crate) norm: Option<crate::core::color::Norm>,
+    pub(crate) bad: Option<Rgba>,
+    pub(crate) over: Option<Rgba>,
+    pub(crate) under: Option<Rgba>,
+}
+
+#[cfg(feature = "portable")]
+impl FlatScale {
+    /// The wire fields of `scale`.
+    pub(crate) fn of(scale: Option<&crate::core::color::ColorScale>) -> Self {
+        FlatScale {
+            cmap: scale.map(|s| s.cmap.clone()),
+            norm: scale.map(|s| s.norm.clone()),
+            bad: scale.and_then(|s| s.extremes.bad),
+            over: scale.and_then(|s| s.extremes.over),
+            under: scale.and_then(|s| s.extremes.under),
+        }
+    }
+
+    /// The scale these fields describe; a half-written one is malformed.
+    pub(crate) fn into_scale(
+        self,
+    ) -> Result<Option<crate::core::color::ColorScale>, crate::portable::PortableError> {
+        let extremes = crate::core::color::Extremes {
+            bad: self.bad,
+            over: self.over,
+            under: self.under,
+        };
+        match (self.cmap, self.norm) {
+            (Some(cmap), Some(norm)) => Ok(Some(crate::core::color::ColorScale {
+                cmap,
+                norm,
+                extremes,
+            })),
+            (None, None) if extremes == crate::core::color::Extremes::default() => Ok(None),
+            _ => Err(crate::portable::PortableError::Malformed(
+                "a color scale needs both a colormap and a norm".to_owned(),
+            )),
+        }
+    }
 }
 
 /// Wire mirror of [`AxesImage`](crate::artist::AxesImage).
@@ -383,6 +472,18 @@ pub(crate) struct QuadMeshSpec {
     pub(crate) visible: bool,
     /// Reserved for per-artist legend labels (issue #286); always `None` today.
     pub(crate) label: Option<String>,
+    /// The color mapping the face colors came from, flat (see
+    /// [`FlatScale`]). Absent before schema 10, which introduced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) cmap: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) norm: Option<crate::core::color::Norm>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) bad: Option<Rgba>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) over: Option<Rgba>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) under: Option<Rgba>,
 }
 
 /// Wire mirror of [`Path`](crate::core::Path): flattened vertices plus

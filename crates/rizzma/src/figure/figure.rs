@@ -21,6 +21,7 @@ use crate::skia::{PngError, SkiaRenderer};
 use crate::text::FontSource;
 
 use crate::figure::axes::Axes;
+use crate::figure::axes_colorbar::ColorbarLocation;
 use crate::figure::gridspec::GridSpec;
 use crate::figure::richtext::layout_rich_text;
 use crate::figure::text::{DEFAULT_TEXT_SIZE, HorizontalAlignment, Text, VerticalAlignment};
@@ -76,7 +77,7 @@ pub struct Figure {
     texts: Vec<Text>,
     /// Colorbars registered on this figure, drawn after the axes (see
     /// [`Figure::colorbar`]).
-    pub(crate) colorbars: Vec<crate::figure::colorbar::Colorbar>,
+    pub(crate) colorbars: Vec<crate::figure::colorbar::FigureColorbar>,
     /// Optional animation, evaluated by [`Figure::seek`] and carried by
     /// portable export.
     #[cfg(feature = "portable")]
@@ -1334,6 +1335,7 @@ impl Figure {
             (7, wire::uses_legend_markers(&spec.figure)),
             (8, wire::uses_figure_text(&spec.figure)),
             (9, wire::uses_image_norms(&spec.figure)),
+            (10, wire::uses_colorbars(&spec.figure)),
         ]);
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(
@@ -1419,6 +1421,66 @@ impl Figure {
         crate::show::show(self);
     }
 
+    /// Where axes `index` draws its data area, in figure fractions — after
+    /// tight layout, an equal aspect, and any colorbar's slice: matplotlib's
+    /// `ax.get_position()`. `None` if there is no such axes.
+    ///
+    /// ```
+    /// use rizzma::{Figure, Mappable};
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+    /// ax.imshow(&[0.0, 1.0, 2.0, 3.0], 2, 2);
+    /// ax.colorbar(Mappable::Image(0));
+    /// // The colorbar took the right 20% of the frame (its fraction plus pad).
+    /// let frame = fig.axes_frame(0).unwrap();
+    /// assert!((frame.xmax() - (0.1 + 0.8 * 0.8)).abs() < 1e-9);
+    /// ```
+    #[must_use]
+    pub fn axes_frame(&self, index: usize) -> Option<Bbox> {
+        let (w, h) = self.size_px();
+        let ax = self.axes.get(index)?;
+        let (rect, _) = ax.pixel_rect_and_trans_data_in(
+            w,
+            h,
+            self.xlim_override_for(index),
+            self.layout_rect_for(index, w, h),
+        );
+        Some(to_fractions(&rect, w, h))
+    }
+
+    /// Where the colorbar of axes `index` draws its bar, in figure fractions;
+    /// `None` without one.
+    #[must_use]
+    pub fn colorbar_frame(&self, index: usize) -> Option<Bbox> {
+        let (w, h) = self.size_px();
+        let ax = self.axes.get(index)?;
+        let (_, bar) = ax.frame_and_colorbar_px(w, h, self.layout_rect_for(index, w, h));
+        Some(to_fractions(&bar?, w, h))
+    }
+
+    /// The major ticks of the colorbar of axes `index` inside its range, each
+    /// with its label — matplotlib's `cbar.get_ticks()` with their tick
+    /// labels. Empty without a colorbar.
+    #[must_use]
+    pub fn colorbar_ticks(&self, index: usize) -> Vec<(f64, String)> {
+        let (w, h) = self.size_px();
+        let Some(ax) = self.axes.get(index) else {
+            return Vec::new();
+        };
+        let Some(cb) = ax.attached_colorbar() else {
+            return Vec::new();
+        };
+        let (_, bar) = ax.frame_and_colorbar_px(w, h, self.layout_rect_for(index, w, h));
+        let (Some(bar), Some(scale)) = (bar, ax.color_scale_of(cb.mappable())) else {
+            return Vec::new();
+        };
+        let length = match cb.location() {
+            ColorbarLocation::Right | ColorbarLocation::Left => bar.height(),
+            ColorbarLocation::Top | ColorbarLocation::Bottom => bar.width(),
+        };
+        cb.ticks(&scale, length, self.dpi / 100.0)
+    }
+
     /// Forward-map a data point in axes `axes_index` to a **top-down canvas
     /// pixel** `(px, py)` (the same pixel space [`Figure::render`] produces, with
     /// `py` measured from the top-left corner).
@@ -1493,6 +1555,16 @@ impl Figure {
         let [data_x, data_y] = ax.data_to_scaled().inverse_point(scaled_x, scaled_y);
         Some((data_x, data_y))
     }
+}
+
+/// A y-up pixel `rect` on a `w` x `h` figure, in figure fractions.
+fn to_fractions(rect: &Bbox, w: f64, h: f64) -> Bbox {
+    Bbox::from_extents(
+        rect.xmin() / w,
+        rect.ymin() / h,
+        rect.xmax() / w,
+        rect.ymax() / h,
+    )
 }
 
 #[cfg(test)]

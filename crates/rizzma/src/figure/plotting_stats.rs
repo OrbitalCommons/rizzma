@@ -95,8 +95,10 @@ impl Axes {
     ) -> &mut Collection {
         let n = x.len().min(y.len()).min(c.len());
         let offsets: Vec<[f64; 2]> = (0..n).map(|i| [x[i], y[i]]).collect();
-        let facecolors = mapping.into().colors(&c[..n]);
-        let coll = Collection::scatter(offsets).with_facecolors(facecolors);
+        let scale = mapping.into().resolve(&c[..n]);
+        let coll = Collection::scatter(offsets)
+            .with_facecolors(scale.colors(&c[..n]))
+            .with_color_scale(scale);
         self.push_collection(coll)
     }
 

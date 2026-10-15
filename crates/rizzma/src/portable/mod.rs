@@ -92,9 +92,10 @@ pub use timeline::{Interp, Target, Timeline, Track};
 /// title size/pad; schema 6 the figure-title size and the axes text size;
 /// schema 7 scatter marker samples in legends and the artist insertion order;
 /// schema 8 figure text and the figure axis labels; schema 9 image norms and
-/// bad/over/under colors.
+/// bad/over/under colors; schema 10 axes colorbars and the color scales of
+/// meshes and collections.
 #[cfg(feature = "portable")]
-pub const SCHEMA_VERSION: u32 = 9;
+pub const SCHEMA_VERSION: u32 = 10;
 
 /// Oldest schema version this build can still load.
 #[cfg(feature = "portable")]
