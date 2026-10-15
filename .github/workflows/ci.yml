@@ -25,9 +25,12 @@ env:
   # The *runtime* bundle additionally renders `.riz` artifacts, which pulls in
   # serde_json and the wire model's derives — about 590 KiB. It is fetched once
   # per host and cached, never per figure, and a host that only shows posters
-  # never fetches it at all (that is what `rizzma-portable` is for). 3.0 MiB,
-  # lowered from 3.3 MiB when the embedded DejaVu Sans went zlib-compressed
-  # (#313, −355 KiB), leaving about 50 KiB of headroom. It had been raised
+  # never fetches it at all (that is what `rizzma-portable` is for). 3.01 MiB,
+  # raised from 3.0 for schema 14's polygon collections (+19 KiB: ~6 KiB of
+  # serde_json field-name decoding, which every new wire struct costs, ~3 KiB
+  # their import and drawing, the rest the sky graticule moving into the
+  # zorder loop and inlining). 3.0 had been lowered from 3.3 MiB when the
+  # embedded DejaVu Sans went zlib-compressed (#313, −355 KiB). It had been raised
   # from 3.25 for schemas 9 and 10: image norms (+22 KiB, after giving
   # every norm one `{kind, params}` wire shape cut it from 34) and colorbars
   # (+38 KiB: ~13 KiB of decoders for the colorbar and recorded color scales,
@@ -38,7 +41,7 @@ env:
   # was raised from 3.15 for schema 4 (the Control/Grid wire derives, bilinear
   # sampling, and control evaluation — the slider manifest is hand-formatted
   # JSON precisely so that raise stayed under 8 KiB instead of 28).
-  WASM_RUNTIME_SIZE_MAX_BYTES: 3145728
+  WASM_RUNTIME_SIZE_MAX_BYTES: 3156214
 
 jobs:
   msrv:

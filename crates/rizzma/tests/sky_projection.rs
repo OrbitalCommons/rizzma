@@ -34,10 +34,9 @@ fn field(lon: &[f64], lat: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-/// The reference canvas as RGB triples, top row first.
-fn reference() -> Vec<[u8; 3]> {
-    let png_bytes = include_bytes!("fixtures/sky_mollweide_mesh.png");
-    let decoder = png::Decoder::new(std::io::Cursor::new(&png_bytes[..]));
+/// A 600x300 reference canvas as RGB triples, top row first.
+fn reference(png_bytes: &[u8]) -> Vec<[u8; 3]> {
+    let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
     let mut reader = decoder.read_info().expect("png header");
     let mut buf = vec![0; reader.output_buffer_size().expect("buffer size")];
     let info = reader.next_frame(&mut buf).expect("png frame");
@@ -61,10 +60,10 @@ fn mollweide_figure() -> Figure {
     fig
 }
 
-/// The 2° cell `(row, col)` under image point `(x, y)` (top-down pixels),
-/// by inverting the Mollweide projection of the map filling the
+/// The `step_deg` cell `(row, col)` under image point `(x, y)` (top-down
+/// pixels), by inverting the Mollweide projection of the map filling the
 /// 540x270 axes rect centered at (300, 150).
-fn cell_at(x: f64, y: f64) -> (i32, i32) {
+fn cell_at(x: f64, y: f64, step_deg: f64) -> (i32, i32) {
     let sqrt2 = std::f64::consts::SQRT_2;
     let (nx, ny) = (
         (x - 300.0) / 270.0 * 2.0 * sqrt2,
@@ -73,7 +72,7 @@ fn cell_at(x: f64, y: f64) -> (i32, i32) {
     let theta = (ny / sqrt2).clamp(-1.0, 1.0).asin();
     let lat = ((2.0 * theta + (2.0 * theta).sin()) / PI).asin();
     let lon = PI * nx / (2.0 * sqrt2 * theta.cos());
-    let step = 2f64.to_radians();
+    let step = step_deg.to_radians();
     (
         ((lat + PI / 2.0) / step).floor() as i32,
         ((lon + PI) / step).floor() as i32,
@@ -84,7 +83,7 @@ fn cell_at(x: f64, y: f64) -> (i32, i32) {
 fn mollweide_pcolormesh_matches_matplotlib() {
     let (rgb, w, h) = mollweide_figure().to_rgb8();
     assert_eq!((w as usize, h as usize), (W, H));
-    let want = reference();
+    let want = reference(include_bytes!("fixtures/sky_mollweide_mesh.png"));
 
     let diff = |a: [u8; 3], b: [u8; 3]| (0..3).map(|ch| a[ch].abs_diff(b[ch])).max().unwrap_or(0);
     let ours = |i: usize| [rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]];
@@ -113,7 +112,7 @@ fn mollweide_pcolormesh_matches_matplotlib() {
             // 5° of the poles matplotlib swaps its Newton solve for a
             // series approximation and the rows thin to slivers, so the
             // caps and the rows bordering them are left out.
-            let cell = cell_at(px as f64 + 0.5, py as f64 + 0.5);
+            let cell = cell_at(px as f64 + 0.5, py as f64 + 0.5, 2.0);
             let polar = cell.0 < 4 || cell.0 > 85;
             let near = (py - 3..=py + 3)
                 .any(|y| (px - 3..=px + 3).any(|x| diff(ours(y * W + x), want[i]) <= 1));
@@ -124,7 +123,8 @@ fn mollweide_pcolormesh_matches_matplotlib() {
             // fall in one cell, so it lies a pixel or more inside that
             // cell, where which cell owns an edge pixel cannot matter.
             let core = (0..3).all(|ny| {
-                (0..3).all(|nx| cell_at((px + nx) as f64 - 0.5, (py + ny) as f64 - 0.5) == cell)
+                (0..3)
+                    .all(|nx| cell_at((px + nx) as f64 - 0.5, (py + ny) as f64 - 0.5, 2.0) == cell)
             });
             if core {
                 cores += 1;
@@ -305,4 +305,72 @@ fn zenithal_fill_reaches_the_horizon() {
     for (x, y) in [(200, 36), (36, 200), (60, 60), (340, 340)] {
         assert_eq!(px(x, y), [255, 255, 255], "fill outside at ({x}, {y})");
     }
+}
+
+#[test]
+fn mollweide_polygons_match_matplotlib() {
+    // The fixture's 10° grid, as free-standing polygons.
+    let (lon, lat) = (edges(-180, 180, 10), edges(-90, 90, 10));
+    let mut polygons = Vec::new();
+    for j in 0..lat.len() - 1 {
+        for i in 0..lon.len() - 1 {
+            polygons.push(vec![
+                [lon[i], lat[j]],
+                [lon[i + 1], lat[j]],
+                [lon[i + 1], lat[j + 1]],
+                [lon[i], lat[j + 1]],
+            ]);
+        }
+    }
+    let c = field(&lon, &lat);
+    let mut fig = Figure::new(6.0, 3.0);
+    let ax = fig.add_axes(0.05, 0.05, 0.9, 0.9);
+    ax.set_sky_projection(SkyProjection::Mollweide)
+        .set_x_tick_labels_visible(false);
+    ax.yaxis_mut().set_tick_labels_visible(false);
+    ax.poly_collection(&polygons, &c, "viridis");
+    // A colorbar can describe the collection (attaching one would shrink
+    // the map away from the reference's layout).
+    assert!(ax.color_scale_of(Mappable::Polygons(0)).is_some());
+
+    let (rgb, _, _) = fig.to_rgb8();
+    let want = reference(include_bytes!("fixtures/sky_polys.png"));
+    // Every pixel whose 3x3 neighborhood lies in one cell matches to
+    // within one unit; edge pixels blend, antialiased, in both renders.
+    let (mut cores, mut worst) = (0usize, (0u8, (0usize, 0usize)));
+    for py in 1..H - 1 {
+        for px in 1..W - 1 {
+            let (dx, dy) = (
+                (px as f64 + 0.5 - 300.0) / 270.0,
+                (py as f64 + 0.5 - 150.0) / 135.0,
+            );
+            if dx.hypot(dy) > 0.97 {
+                continue;
+            }
+            let cell = cell_at(px as f64 + 0.5, py as f64 + 0.5, 10.0);
+            let core = (0..3).all(|ny| {
+                (0..3)
+                    .all(|nx| cell_at((px + nx) as f64 - 0.5, (py + ny) as f64 - 0.5, 10.0) == cell)
+            });
+            if !core {
+                continue;
+            }
+            cores += 1;
+            let i = py * W + px;
+            let d = (0..3)
+                .map(|ch| rgb[i * 3 + ch].abs_diff(want[i][ch]))
+                .max()
+                .unwrap_or(0);
+            if d > worst.0 {
+                worst = (d, (px, py));
+            }
+        }
+    }
+    assert!(cores > 60_000, "only {cores} cell-core pixels");
+    assert!(
+        worst.0 <= 1,
+        "cell-core pixel {:?} off by {}",
+        worst.1,
+        worst.0
+    );
 }

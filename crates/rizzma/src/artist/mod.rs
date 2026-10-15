@@ -20,6 +20,7 @@ mod image;
 mod line;
 mod marker;
 mod patch;
+mod polycollection;
 mod quadmesh;
 
 pub use collection::Collection;
@@ -27,6 +28,7 @@ pub use image::AxesImage;
 pub use line::Line2D;
 pub use marker::MarkerStyle;
 pub use patch::Patch;
+pub use polycollection::PolyCollection;
 pub use quadmesh::QuadMesh;
 
 pub use crate::core::{Affine2D, Bbox, Path, color::Rgba};

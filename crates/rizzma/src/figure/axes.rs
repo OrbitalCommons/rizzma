@@ -12,7 +12,7 @@
 //! backend applies its own Y-flip. The data-to-pixel mapping is built by
 //! [`Axes::trans_data`].
 
-use crate::artist::{Artist, AxesImage, Collection, Line2D, Patch, QuadMesh};
+use crate::artist::{Artist, AxesImage, Collection, Line2D, Patch, PolyCollection, QuadMesh};
 use std::borrow::Cow;
 
 use crate::axis::axis::{Axis, AxisSide};
@@ -420,6 +420,9 @@ pub struct Axes {
     pub(crate) images: Vec<AxesImage>,
     /// Colormapped quad meshes (`pcolormesh`), drawn beneath the other artists.
     pub(crate) meshes: Vec<QuadMesh>,
+    /// Colormapped polygon collections, drawn in zorder with the lines,
+    /// patches and collections.
+    pub(crate) poly_collections: Vec<PolyCollection>,
     /// Label candidates for the most recently generated line contour set.
     pub(crate) contour_label_candidates:
         Vec<crate::figure::plotting_contour::ContourLabelCandidate>,
@@ -536,12 +539,17 @@ enum DrawableArtist<'a> {
     Line(&'a Line2D),
     Patch(&'a Patch),
     Collection(&'a Collection),
+    Polys(&'a PolyCollection),
 }
 
 /// Lines with fewer vertices are drawn exactly as given. matplotlib
 /// simplifies from 128; rizzma waits until simplification pays for itself,
 /// so ordinary lines render as they always have.
 const SIMPLIFY_MIN_VERTICES: usize = 1000;
+
+/// Where a sky map's graticule draws among the artists: matplotlib's grid
+/// zorder (`axes.axisbelow: "line"`).
+const SKY_GRID_ZORDER: f64 = 1.5;
 
 /// The simplification threshold `rc` asks for: its `path_simplify_threshold`
 /// when `path_simplify` is on and the threshold is positive.
@@ -555,6 +563,7 @@ impl DrawableArtist<'_> {
             DrawableArtist::Line(line) => line.zorder(),
             DrawableArtist::Patch(patch) => patch.zorder(),
             DrawableArtist::Collection(collection) => collection.zorder(),
+            DrawableArtist::Polys(polys) => polys.zorder(),
         }
     }
 
@@ -563,6 +572,7 @@ impl DrawableArtist<'_> {
             DrawableArtist::Line(line) => line.visible(),
             DrawableArtist::Patch(patch) => patch.visible(),
             DrawableArtist::Collection(collection) => collection.visible(),
+            DrawableArtist::Polys(polys) => polys.visible(),
         }
     }
 
@@ -603,6 +613,9 @@ impl DrawableArtist<'_> {
                 let offsets = mapper.map_points_cow(collection.offsets());
                 collection.draw_with_offsets(renderer, offsets.as_ref(), transform);
             }
+            DrawableArtist::Polys(polys) => {
+                polys.draw_mapped(renderer, transform, |path| mapper.map_path_cow(path));
+            }
         }
     }
 }
@@ -641,6 +654,7 @@ impl Axes {
             artist_order: Vec::new(),
             images: Vec::new(),
             meshes: Vec::new(),
+            poly_collections: Vec::new(),
             contour_label_candidates: Vec::new(),
             extra_data_bbox: None,
             xaxis: Axis::new(AxisSide::Bottom),
@@ -1311,6 +1325,7 @@ impl Axes {
             Mappable::Image(i) => self.images.get(i).map(AxesImage::color_scale),
             Mappable::Mesh(i) => self.meshes.get(i)?.color_scale().cloned(),
             Mappable::Collection(i) => self.collections.get(i)?.color_scale().cloned(),
+            Mappable::Polygons(i) => self.poly_collections.get(i)?.color_scale().cloned(),
         }
     }
 
@@ -2044,11 +2059,16 @@ impl Axes {
         let collection_extents = self.collections.iter().filter_map(Artist::data_extents);
         let image_extents = self.images.iter().filter_map(Artist::data_extents);
         let mesh_extents = self.meshes.iter().filter_map(Artist::data_extents);
+        let poly_extents = self
+            .poly_collections
+            .iter()
+            .filter_map(Artist::data_extents);
         for e in line_extents
             .chain(patch_extents)
             .chain(collection_extents)
             .chain(image_extents)
             .chain(mesh_extents)
+            .chain(poly_extents)
             .chain(self.extra_data_bbox)
         {
             acc = Some(match acc {
@@ -2449,12 +2469,6 @@ impl Axes {
                 }
             }
 
-            // 3a''. A sky map's graticule sits above its fills and below the
-            // other artists (matplotlib's grid zorder of 1.5).
-            if let Some(sky) = self.sky {
-                self.draw_sky_grid(clipped, sky, &td);
-            }
-
             // 3b. Draw full-span shaded bands (axhspan/axvspan) beneath the
             // artists, resolving their open extent against the effective
             // limits.
@@ -2481,6 +2495,7 @@ impl Axes {
             artists.extend(self.lines.iter().map(DrawableArtist::Line));
             artists.extend(self.patches.iter().map(DrawableArtist::Patch));
             artists.extend(self.collections.iter().map(DrawableArtist::Collection));
+            artists.extend(self.poly_collections.iter().map(DrawableArtist::Polys));
             let mut order: Vec<usize> = (0..artists.len())
                 .filter(|&i| artists[i].visible())
                 .collect();
@@ -2490,8 +2505,20 @@ impl Axes {
                     .partial_cmp(&artists[b].zorder())
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
+            // A sky map's graticule takes its place among them at
+            // matplotlib's grid zorder of 1.5: above fills and scatters,
+            // below lines.
+            let mut grid = self.sky;
             for i in order {
+                if artists[i].zorder() >= SKY_GRID_ZORDER {
+                    if let Some(sky) = grid.take() {
+                        self.draw_sky_grid(clipped, sky, &td);
+                    }
+                }
                 artists[i].draw_scaled(clipped, &td, &mapper, self.path_simplify);
+            }
+            if let Some(sky) = grid {
+                self.draw_sky_grid(clipped, sky, &td);
             }
 
             // 4a. Draw full-span reference lines (axhline/axvline) above the
@@ -3070,6 +3097,11 @@ impl Axes {
             artist_order: ArtistKind::order_to_portable(&self.artist_order),
             images: self.images.iter().map(|i| i.to_portable(bank)).collect(),
             meshes: self.meshes.iter().map(|m| m.to_portable(bank)).collect(),
+            poly_collections: self
+                .poly_collections
+                .iter()
+                .map(|p| p.to_portable(bank))
+                .collect(),
             extra_data_bbox: self.extra_data_bbox,
             xaxis: self.xaxis.to_portable()?,
             yaxis: self.yaxis.to_portable()?,
@@ -3149,6 +3181,11 @@ impl Axes {
                 .meshes
                 .iter()
                 .map(|m| QuadMesh::from_portable(m, reader))
+                .collect::<Result<_, _>>()?,
+            poly_collections: spec
+                .poly_collections
+                .iter()
+                .map(|p| PolyCollection::from_portable(p, reader))
                 .collect::<Result<_, _>>()?,
             contour_label_candidates: spec.contour_label_candidates.clone(),
             extra_data_bbox: spec.extra_data_bbox,

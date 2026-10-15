@@ -81,6 +81,9 @@ pub enum Mappable {
     /// A collection from
     /// [`scatter_mapped`](crate::figure::Axes::scatter_mapped).
     Collection(usize),
+    /// A polygon collection from
+    /// [`poly_collection`](crate::figure::Axes::poly_collection).
+    Polygons(usize),
 }
 
 /// A colorbar attached to an axes, describing one of its colormapped

@@ -96,6 +96,13 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   left. The outline is the horizon, with N/E/S/W outside it, and `grid(true)` draws
   altitude rings every 30° and azimuth spokes every 45°. Fills, meshes and colorbars
   work as on the all-sky projections, and the standalone `SkyAxes` draws it too.
+- **Colour-mapped polygon fills.** `Axes::poly_collection(polygons, c, mapping)` fills
+  each polygon with the color of its value through a colormap and norm, as
+  matplotlib's `PolyCollection` with `set_array` does. The polygons need not share a
+  grid, so it covers HEALPix pixels, survey footprints and Voronoi cells. It returns
+  a `PolyCollection` (edge color, width, zorder), and `Mappable::Polygons` gives it a
+  colorbar. On a sky projection each edge follows the projection: a Mollweide fill
+  matches matplotlib 3.11's inside every cell to within one unit per channel.
 - **`Axes::pcolormesh_xy(x, y, c, mapping)`** draws a mesh over explicit cell edges
   (`ncols + 1` x edges and `nrows + 1` y edges, unevenly spaced if need be), such as
   a longitude/latitude grid on a sky projection.
@@ -123,13 +130,17 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   still load.
 - Portable figures are schema 13 when an axes has a sky projection (written only
   then); schema 1–12 artifacts still load.
+- Portable figures are schema 14 when an axes has a polygon collection (written
+  only then); schema 1–13 artifacts still load.
 
 ### Output changes
 - `legend_auto` lists rows in the order the artists were added, as matplotlib does,
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":13`.
+- Every `.riz` artifact now declares `"schema":14`.
+- **A sky map's graticule draws at matplotlib's grid zorder (1.5)**: above
+  fills, meshes and scatters, below lines, where it drew beneath every artist.
 - **Mesh cells fill without antialiasing**, as matplotlib's `pcolormesh` does
   (`antialiased=False`), so neighboring cells no longer leave a faint background-
   tinted seam along every shared edge. Affected: `pcolormesh`, `hist2d`, `contourf`

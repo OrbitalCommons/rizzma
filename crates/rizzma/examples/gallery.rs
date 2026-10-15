@@ -2,7 +2,7 @@
 //! A quick visual catalogue of what rizzma can draw today — each case sticks
 //! to its plot type but plots something worth looking at.
 
-use std::f64::consts::{PI, TAU};
+use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use chrono::NaiveDate;
 use rizzma::artist::Patch;
@@ -1612,6 +1612,44 @@ fn main() {
             .set_label("sky brightness (mag/arcsec²)");
         ax.set_title("zenithal fisheye: night-sky brightness");
         fig.save_png("target/gallery_sky_zenithal.png").unwrap();
+    }
+
+    // 63. polygon fill — survey depth over an equal-area pixelization:
+    // rings of cells whose count follows cos(latitude), HEALPix-style, each
+    // a free-standing polygon colored through `poly_collection`.
+    {
+        use rizzma::figure::{ColorbarLocation, Mappable};
+        let mut fig = gallery_figure(8.0, 4.6);
+        let mut polygons = Vec::new();
+        let mut depth = Vec::new();
+        let rings = 24;
+        for ring in 0..rings {
+            let (lat0, lat1) = (
+                -FRAC_PI_2 + PI * f64::from(ring) / f64::from(rings),
+                -FRAC_PI_2 + PI * f64::from(ring + 1) / f64::from(rings),
+            );
+            let cells = (48.0 * (0.5 * (lat0 + lat1)).cos()).round().max(4.0) as usize;
+            for k in 0..cells {
+                let lon0 = -PI + TAU * k as f64 / cells as f64;
+                let lon1 = -PI + TAU * (k + 1) as f64 / cells as f64;
+                polygons.push(vec![[lon0, lat0], [lon1, lat0], [lon1, lat1], [lon0, lat1]]);
+                let (lo, la) = (0.5 * (lon0 + lon1), 0.5 * (lat0 + lat1));
+                // Deeper toward the ecliptic poles, shallow near the plane.
+                let ecliptic = (la.sin() * 0.917 - la.cos() * 0.398 * lo.sin()).abs();
+                depth.push(20.0 + 2.5 * ecliptic + 0.3 * (3.0 * lo).cos());
+            }
+        }
+        let ax = fig.add_subplot(1, 1, 1);
+        ax.set_sky_projection(SkyProjection::Mollweide);
+        ax.poly_collection(&polygons, &depth, "viridis")
+            .set_edgecolor(Some(Rgba::WHITE))
+            .set_linewidth(0.3);
+        ax.colorbar(Mappable::Polygons(0))
+            .set_location(ColorbarLocation::Bottom)
+            .set_shrink(0.6)
+            .set_label("5σ depth (mag)");
+        ax.set_title("poly_collection: survey depth per sky cell");
+        fig.save_png("target/gallery_sky_polygons.png").unwrap();
     }
 
     println!("wrote target/gallery_*.png");

@@ -7,7 +7,7 @@
 //! artists (see [`Axes::draw`](super::Axes::draw)) and their data-space extent
 //! participates in autoscaling.
 
-use crate::artist::QuadMesh;
+use crate::artist::{PolyCollection, QuadMesh};
 use crate::core::color::{ColorMapping, Colormap, LinearNorm, Normalize, default_colormap};
 
 use crate::figure::Axes;
@@ -169,6 +169,65 @@ impl Axes {
             QuadMesh::new(nrows, ncols, coordinates, scale.colors(c)).with_color_scale(scale);
         self.meshes.push(mesh);
         self.meshes.last_mut().expect("just pushed a mesh")
+    }
+
+    /// Fill each of `polygons` with the color of its value in `c`, through
+    /// `mapping` — matplotlib's `PolyCollection` with `set_array(c)` added
+    /// to the axes.
+    ///
+    /// Each polygon is a list of data-space vertices, closed implicitly;
+    /// they need not share a grid, so this fills sky pixelizations such as
+    /// HEALPix, survey footprints and Voronoi cells. On a
+    /// [sky projection](Axes::set_sky_projection) the vertices are
+    /// longitude/latitude in radians and each edge follows the projection.
+    /// Colors map as in [`pcolormesh_mapped`](Axes::pcolormesh_mapped); NaN
+    /// values take the bad color. The collection draws in zorder with the
+    /// lines, patches and scatters (zorder `1.0`, no edge), and
+    /// [`Mappable::Polygons`](crate::figure::Mappable::Polygons) gives it a
+    /// colorbar.
+    ///
+    /// ![sky polygons](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_sky_polygons.png)
+    ///
+    /// # Panics
+    ///
+    /// Panics if `c.len()` differs from `polygons.len()`, or a polygon is
+    /// empty or has a non-finite vertex.
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    /// use rizzma::figure::Mappable;
+    ///
+    /// // Two triangles and a square, colored 0, 5 and 10.
+    /// let polygons = vec![
+    ///     vec![[0.0, 0.0], [1.0, 0.0], [0.5, 1.0]],
+    ///     vec![[1.0, 0.0], [2.0, 0.0], [1.5, 1.0]],
+    ///     vec![[2.5, 0.0], [3.5, 0.0], [3.5, 1.0], [2.5, 1.0]],
+    /// ];
+    /// let mut fig = Figure::new(4.0, 2.0);
+    /// let ax = fig.add_subplot(1, 1, 1);
+    /// ax.poly_collection(&polygons, &[0.0, 5.0, 10.0], "plasma");
+    /// ax.colorbar(Mappable::Polygons(0));
+    /// assert_eq!(ax.data_limits().unwrap().xmax(), 3.5);
+    /// ```
+    pub fn poly_collection(
+        &mut self,
+        polygons: &[Vec<[f64; 2]>],
+        c: &[f64],
+        mapping: impl Into<ColorMapping>,
+    ) -> &mut PolyCollection {
+        assert_eq!(
+            c.len(),
+            polygons.len(),
+            "poly_collection: {} values for {} polygons",
+            c.len(),
+            polygons.len()
+        );
+        let scale = mapping.into().resolve(c);
+        let polys = PolyCollection::new(polygons, scale.colors(c)).with_color_scale(scale);
+        self.poly_collections.push(polys);
+        self.poly_collections
+            .last_mut()
+            .expect("just pushed a polygon collection")
     }
 
     /// Draw a smoothly shaded pseudocolor mesh (matplotlib's

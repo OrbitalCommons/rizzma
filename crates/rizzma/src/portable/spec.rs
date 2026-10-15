@@ -242,6 +242,10 @@ pub(crate) struct AxesSpec {
     pub(crate) collections: Vec<CollectionSpec>,
     pub(crate) images: Vec<ImageSpec>,
     pub(crate) meshes: Vec<QuadMeshSpec>,
+    /// The axes' polygon collections. Absent before schema 14, which
+    /// introduced them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) poly_collections: Vec<PolyCollectionSpec>,
     pub(crate) extra_data_bbox: Option<Bbox>,
     pub(crate) xaxis: AxisSpec,
     pub(crate) yaxis: AxisSpec,
@@ -516,6 +520,42 @@ pub(crate) struct QuadMeshSpec {
     pub(crate) over: Option<Rgba>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) under: Option<Rgba>,
+}
+
+/// Wire mirror of [`PolyCollection`](crate::artist::PolyCollection).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg(feature = "portable")]
+pub(crate) struct PolyCollectionSpec {
+    /// Every polygon's vertices, flattened `[x0, y0, x1, y1, …]`, with a
+    /// NaN pair between consecutive polygons.
+    pub(crate) vertices: ArrF64,
+    pub(crate) facecolors: Vec<Rgba>,
+    pub(crate) edgecolor: Option<Rgba>,
+    pub(crate) linewidth: f64,
+    pub(crate) zorder: f64,
+    pub(crate) visible: bool,
+    /// The color mapping the face colors came from, flat (see
+    /// [`FlatScale`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) cmap: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) norm: Option<crate::core::color::Norm>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) bad: Option<Rgba>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) over: Option<Rgba>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) under: Option<Rgba>,
+}
+
+/// Whether any axes carries schema-14 polygon collections.
+#[cfg(feature = "portable")]
+pub(crate) fn uses_poly_collections(figure: &FigureSpec) -> bool {
+    figure
+        .axes
+        .iter()
+        .any(|axes| !axes.poly_collections.is_empty())
 }
 
 /// Wire mirror of [`Path`](crate::core::Path): flattened vertices plus

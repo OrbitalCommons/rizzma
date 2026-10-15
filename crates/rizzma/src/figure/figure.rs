@@ -1339,6 +1339,7 @@ impl Figure {
             (11, wire::uses_image_normalize(&spec.figure)),
             (12, wire::uses_path_simplify(&spec.figure)),
             (13, wire::uses_sky_projection(&spec.figure)),
+            (14, wire::uses_poly_collections(&spec.figure)),
         ]);
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(
