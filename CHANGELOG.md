@@ -103,6 +103,12 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   a `PolyCollection` (edge color, width, zorder), and `Mappable::Polygons` gives it a
   colorbar. On a sky projection each edge follows the projection: a Mollweide fill
   matches matplotlib 3.11's inside every cell to within one unit per channel.
+- **A migrating-from-plotters guide**, `crates/rizzma/docs/migrating-from-plotters.md`
+  (also `rizzma::guide::migrating_from_plotters` on docs.rs), linked from the README.
+  It has a concept map from plotters, naming traps for people arriving from
+  matplotlib, side-by-side ports of ten idioms, and a worked port of starfield's
+  Hipparcos × Gaia plot. Every rizzma snippet runs as a doc test, and a test holds
+  each one identical to the gallery case that draws the image beside it.
 - **`Axes::pcolormesh_xy(x, y, c, mapping)`** draws a mesh over explicit cell edges
   (`ncols + 1` x edges and `nrows + 1` y edges, unevenly spaced if need be), such as
   a longitude/latitude grid on a sky projection.

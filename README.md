@@ -30,6 +30,10 @@ stateful facade, with a single `Renderer` trait driving multiple targets: a `tin
 raster backend (PNG), an SVG emitter, and a browser `<canvas>` backend — the same figure,
 rendered anywhere.
 
+Coming from plotters? [Migrating from plotters](crates/rizzma/docs/migrating-from-plotters.md)
+maps its concepts onto rizzma, ports the ten idioms astronomy code hand-rolls most, and
+works through a real program.
+
 ## Gallery
 
 One figure per Tier-1 plot type, auto-rendered from
