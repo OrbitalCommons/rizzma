@@ -365,6 +365,34 @@ impl Collection {
         if !self.visible {
             return;
         }
+        // One size, face and edge for every point: hand the renderer the
+        // marker once and the points together, so a raster backend can
+        // rasterize the marker a single time (matplotlib's `draw_markers`
+        // path). Per-point styles draw point by point below.
+        if self.sizes.len() <= 1 && self.facecolors.len() <= 1 && self.edgecolors.len() <= 1 {
+            let size = renderer.points_to_pixels(self.size_at(0));
+            let gc = GraphicsContext {
+                line_width: self.linewidth,
+                stroke: self.edgecolor_at(0),
+                ..GraphicsContext::new()
+            };
+            let points: Vec<[f64; 2]> = offsets
+                .iter()
+                .copied()
+                .filter(|[x, y]| x.is_finite() && y.is_finite())
+                .collect();
+            if !points.is_empty() {
+                renderer.draw_markers(
+                    &gc,
+                    &self.marker,
+                    &Affine2D::from_scale(size, size),
+                    &Path::from_polyline(&points),
+                    transform,
+                    self.facecolor_at(0),
+                );
+            }
+            return;
+        }
         for (i, &[x, y]) in offsets.iter().enumerate() {
             if !x.is_finite() || !y.is_finite() {
                 continue;

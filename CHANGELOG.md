@@ -73,6 +73,13 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   0.6 s instead of 34 s (matplotlib: 0.43 s on the same machine). It applies to lines
   of 1000 or more vertices and can be turned off with `RcParams::path_simplify`; the
   `bench_noisy_line` example measures it.
+- **Large uniform scatters render about 15× faster in PNG.** A scatter with one size,
+  face and edge color hands its markers to `Renderer::draw_markers` together, and the
+  tiny-skia backend rasterizes the marker once per sub-pixel phase (1/64 px) and
+  stamps it, compositing exactly as tiny-skia would — matplotlib Agg's
+  `draw_markers` approach, without its pixel snapping. 1e6 markers render in about
+  0.32 s instead of 5.1 s (matplotlib 3.11: 1.9 s at the same size); per-point styles
+  draw as before. The `bench_scatter` example measures it.
 
 ### Changed
 - **The embedded DejaVu Sans is stored zlib-compressed** (379 KB instead of 756 KB in
@@ -107,6 +114,12 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   streamplot changes in one antialiased edge pixel), and SVG and PDF output carry the
   simplified vertices. Shorter lines, and every other artist, are byte-identical; set
   `path_simplify: false` for the exact previous drawing.
+- Uniform scatters of 10 000 or more markers are stamped from sprites in PNG and
+  other raster output: each marker sits within 1/128 px of its exact position, so
+  99.2–99.9% of inked pixels match the previous per-marker drawing to within one unit
+  (at most 35 units apart on antialiased edges), and they are as close to
+  matplotlib's output as before. Smaller scatters, and all SVG and PDF output, are
+  unchanged.
 - NaN values in `scatter_mapped` and `pcolormesh` take the bad color (transparent
   unless set) rather than the colormap's bottom color, as in matplotlib; images
   already did. Renders without NaN in their color data are unchanged.
