@@ -52,15 +52,27 @@ struct FigureHead {
     axes: Vec<AxesHead>,
 }
 
-/// Presence of an axes' title style, text size and minor-tick settings.
+/// Presence of an axes' title style, text size, minor-tick settings, artist
+/// order and legend marker samples.
 #[derive(Debug, Deserialize)]
 struct AxesHead {
     #[serde(default)]
     title_style: Option<serde::de::IgnoredAny>,
     #[serde(default)]
     text_size: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    artist_order: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    legend: Vec<LegendHead>,
     xaxis: AxisHead,
     yaxis: AxisHead,
+}
+
+/// Presence of a legend row's scatter marker sample.
+#[derive(Debug, Deserialize)]
+struct LegendHead {
+    #[serde(default)]
+    marker: Option<serde::de::IgnoredAny>,
 }
 
 /// Presence of an axis' minor-tick settings.
@@ -81,6 +93,13 @@ impl FigureHead {
     /// Mirrors [`uses_text_sizes`](super::spec::uses_text_sizes).
     fn uses_text_sizes(&self) -> bool {
         self.suptitle_size.is_some() || self.axes.iter().any(|axes| axes.text_size.is_some())
+    }
+
+    /// Mirrors [`uses_legend_markers`](super::spec::uses_legend_markers).
+    fn uses_legend_markers(&self) -> bool {
+        self.axes.iter().any(|axes| {
+            axes.artist_order.is_some() || axes.legend.iter().any(|entry| entry.marker.is_some())
+        })
     }
 }
 
@@ -162,6 +181,7 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
         !header.controls.is_empty(),
         header.figure.uses_axis_styling(),
         header.figure.uses_text_sizes(),
+        header.figure.uses_legend_markers(),
     );
     if header.schema < required {
         return Err(PortableError::Malformed(format!(

@@ -14,6 +14,23 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   `set_edgecolors`, `set_linewidth`, `set_zorder` and `set_visible` restyle the
   collection `Axes::scatter` returns in place, without cloning its offsets. The
   `with_*` builders now delegate to them.
+- **Scatter series in automatic legends.** `Collection::set_label` / `with_label` /
+  `label`; `Axes::legend_auto` keys a labelled collection with one of its markers
+  (its shape, first face and edge colors, and the middle of its size range, as
+  matplotlib's scatter legend does). Unlabelled and `_`-prefixed collections are
+  skipped and shared labels share a row, as for lines and patches.
+
+### Changed
+- Portable figures are schema 7. Scatter legend samples, and the insertion order of
+  an axes' lines, patches and collections when it is not lines first, then patches,
+  then collections, are written only when present; schema 1–6 artifacts still load.
+
+### Output changes
+- `legend_auto` lists rows in the order the artists were added, as matplotlib does,
+  rather than every line before every patch: a labelled patch added before a
+  labelled line now comes first. Legends built from lines alone, or from lines added
+  before patches, render byte-identically.
+- Every `.riz` artifact now declares `"schema":7`.
 
 ## [1.13.7] - 2026-10-08
 

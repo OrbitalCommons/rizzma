@@ -3,23 +3,110 @@
 //! [`Axes::legend`] stores a list of `(color, label)` entries and
 //! [`Axes::legend_auto`] derives them from the artists' own labels;
 //! [`Axes::draw`] renders them as a boxed key in the upper-right corner inside
-//! the axes. Each row pairs a short colored line sample with its label, drawn
-//! via [`FontSource::text_to_path`].
+//! the axes. Each row pairs a sample — a short colored line, or one marker for
+//! a scatter series — with its label, drawn via [`FontSource::text_to_path`].
 
+use crate::artist::Collection;
 use crate::core::{Affine2D, Bbox, Path, color::Rgba};
 use crate::render::{GraphicsContext, Renderer};
 use crate::text::FontSource;
 
 use crate::figure::axes::Axes;
 
-/// A single legend row: a color swatch paired with a label.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
+/// A single legend row: a sample paired with a label.
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LegendEntry {
     /// The color of the line sample drawn beside the label.
     pub(crate) color: Rgba,
     /// The label text drawn to the right of the sample.
     pub(crate) label: String,
+    /// For a scatter series, a one-marker template drawn in place of the line
+    /// sample (see [`Collection::legend_sample`]).
+    pub(crate) marker: Option<Collection>,
+}
+
+/// The kind of artist at one position of an axes' insertion order.
+///
+/// Declared in the order a figure without a recorded order is assumed to have
+/// been built: every line, then every patch, then every collection.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ArtistKind {
+    /// A [`Line2D`](crate::artist::Line2D).
+    Line,
+    /// A [`Patch`](crate::artist::Patch).
+    Patch,
+    /// A [`Collection`].
+    Collection,
+}
+
+#[cfg(feature = "portable")]
+impl ArtistKind {
+    /// The order to write to an artifact: `None` when it is the canonical
+    /// lines-patches-collections order, which import assumes.
+    pub(crate) fn order_to_portable(order: &[ArtistKind]) -> Option<Vec<ArtistKind>> {
+        (!order.is_sorted()).then(|| order.to_vec())
+    }
+
+    /// The order an imported axes was built in, checked against the artists
+    /// the artifact actually carries.
+    pub(crate) fn order_from_portable(
+        spec: &crate::portable::spec::AxesSpec,
+    ) -> Result<Vec<ArtistKind>, crate::portable::PortableError> {
+        let counts = [
+            (ArtistKind::Line, spec.lines.len()),
+            (ArtistKind::Patch, spec.patches.len()),
+            (ArtistKind::Collection, spec.collections.len()),
+        ];
+        let Some(order) = &spec.artist_order else {
+            return Ok(counts
+                .iter()
+                .flat_map(|&(kind, n)| std::iter::repeat_n(kind, n))
+                .collect());
+        };
+        for (kind, n) in counts {
+            let listed = order.iter().filter(|&&k| k == kind).count();
+            if listed != n {
+                return Err(crate::portable::PortableError::Malformed(format!(
+                    "artist order lists {listed} {kind:?} entries for {n} artists"
+                )));
+            }
+        }
+        Ok(order.clone())
+    }
+}
+
+#[cfg(feature = "portable")]
+impl LegendEntry {
+    /// Flatten this row into its wire form.
+    pub(crate) fn to_portable(
+        &self,
+        bank: &mut crate::portable::data::BankWriter,
+    ) -> crate::portable::spec::LegendEntrySpec {
+        crate::portable::spec::LegendEntrySpec {
+            color: self.color,
+            label: self.label.clone(),
+            marker: self.marker.as_ref().map(|m| m.to_portable(bank)),
+        }
+    }
+
+    /// Rebuild a row from its wire form during portable-figure import.
+    pub(crate) fn from_portable(
+        spec: &crate::portable::spec::LegendEntrySpec,
+        reader: &crate::portable::data::BankReader<'_>,
+    ) -> Result<LegendEntry, crate::portable::PortableError> {
+        Ok(LegendEntry {
+            color: spec.color,
+            label: spec.label.clone(),
+            marker: spec
+                .marker
+                .as_ref()
+                .map(|m| Collection::from_portable(m, reader))
+                .transpose()?,
+        })
+    }
 }
 
 /// Corner of an axes in which a legend is placed.
@@ -69,7 +156,11 @@ impl Axes {
     pub fn legend(&mut self, entries: Vec<(Rgba, String)>) -> &mut Self {
         self.legend = entries
             .into_iter()
-            .map(|(color, label)| LegendEntry { color, label })
+            .map(|(color, label)| LegendEntry {
+                color,
+                label,
+                marker: None,
+            })
             .collect();
         self
     }
@@ -77,17 +168,22 @@ impl Axes {
     /// Build the legend from the artists' own labels — matplotlib's bare
     /// `ax.legend()`.
     ///
-    /// Walks every [`Line2D`](crate::artist::Line2D), then every
-    /// [`Patch`](crate::artist::Patch), in insertion order and adds one row per
-    /// labelled artist, keyed by the artist's color: a line's stroke, a patch's
-    /// face (or its edge when unfilled). Because the color is read from the
-    /// artist, the legend cannot drift from the plot when a series is restyled.
+    /// Walks every [`Line2D`](crate::artist::Line2D),
+    /// [`Patch`](crate::artist::Patch) and [`Collection`] in the order they
+    /// were added, as matplotlib does, and adds one row per labelled artist: a
+    /// line keyed by a sample of its stroke, a patch by its face (or its edge
+    /// when unfilled), and a scatter collection by one of its markers — its
+    /// shape, first face and edge colors, and the middle of its size range.
+    /// Because the key is read from the artist, the legend cannot drift from
+    /// the plot when a series is restyled.
     ///
     /// Skipped, as in matplotlib: unlabelled artists, empty labels, and labels
     /// starting with `_`. A label shared by several artists — a series split
     /// into runs, or one line per interval — yields a single row colored by its
     /// first artist, so callers need not de-duplicate. Replaces any previously
     /// set entries; the title and location are kept.
+    ///
+    /// ![legend_auto](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_legend_auto.png)
     ///
     /// ```
     /// use rizzma::artist::Line2D;
@@ -103,17 +199,29 @@ impl Axes {
     /// ax.legend_auto();
     /// ```
     pub fn legend_auto(&mut self) -> &mut Self {
-        let lines = self
-            .lines
-            .iter()
-            .filter_map(|line| line.label().map(|label| (line.color(), label)));
-        let patches = self.patches.iter().filter_map(|patch| {
-            let color = patch.face().or_else(|| patch.edge())?;
-            patch.label().map(|label| (color, label))
-        });
+        let mut lines = self.lines.iter();
+        let mut patches = self.patches.iter();
+        let mut collections = self.collections.iter();
 
         let mut entries: Vec<LegendEntry> = Vec::new();
-        for (color, label) in lines.chain(patches) {
+        for kind in &self.artist_order {
+            let row = match kind {
+                ArtistKind::Line => lines
+                    .next()
+                    .and_then(|line| Some((line.label()?, line.color(), None))),
+                ArtistKind::Patch => patches.next().and_then(|patch| {
+                    let color = patch.face().or_else(|| patch.edge())?;
+                    Some((patch.label()?, color, None))
+                }),
+                ArtistKind::Collection => collections.next().and_then(|coll| {
+                    let label = coll.label()?;
+                    let (color, marker) = coll.legend_sample()?;
+                    Some((label, color, Some(marker)))
+                }),
+            };
+            let Some((label, color, marker)) = row else {
+                continue;
+            };
             if label.is_empty() || label.starts_with('_') {
                 continue;
             }
@@ -123,6 +231,7 @@ impl Axes {
             entries.push(LegendEntry {
                 color,
                 label: label.to_owned(),
+                marker,
             });
         }
         self.legend = entries;
@@ -274,14 +383,18 @@ impl Axes {
             let row_top = y1 - pad - (i as f64 + title_rows) * row_height;
             let row_mid = row_top - row_height / 2.0;
 
-            // Colored line sample.
+            // One marker centered in the sample slot, or a colored line.
             let sx0 = x0 + pad;
             let sx1 = sx0 + sample_len;
-            let sample = Path::from_polyline(&[[sx0, row_mid], [sx1, row_mid]]);
-            let sample_gc = GraphicsContext::new()
-                .with_stroke(entry.color)
-                .with_line_width(layout::SAMPLE_WIDTH);
-            renderer.draw_path(&sample_gc, &sample, &id, None);
+            if let Some(marker) = &entry.marker {
+                marker.draw_with_offsets(renderer, &[[(sx0 + sx1) / 2.0, row_mid]], &id);
+            } else {
+                let sample = Path::from_polyline(&[[sx0, row_mid], [sx1, row_mid]]);
+                let sample_gc = GraphicsContext::new()
+                    .with_stroke(entry.color)
+                    .with_line_width(layout::SAMPLE_WIDTH);
+                renderer.draw_path(&sample_gc, &sample, &id, None);
+            }
 
             // Label text, baseline centered on the row.
             let tx = sx1 + sample_gap;
@@ -307,7 +420,7 @@ fn rect_path(bbox: &Bbox) -> Path {
 #[cfg(test)]
 mod tests {
     use super::Axes;
-    use crate::artist::{Line2D, Patch};
+    use crate::artist::{Collection, Line2D, Patch};
     use crate::core::Bbox;
 
     #[test]
@@ -377,6 +490,89 @@ mod tests {
         ax.legend_auto();
         assert_eq!(ax.legend.len(), 1);
         assert_eq!(ax.legend[0].color, Rgba::BLUE);
+    }
+
+    #[test]
+    fn legend_auto_mixes_scatter_rows_in_insertion_order() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        ax.scatter(&[0.0], &[0.0])
+            .set_facecolors(vec![Rgba::RED])
+            .set_edgecolors(vec![Rgba::BLACK])
+            .set_sizes(vec![4.0, 12.0])
+            .set_label("data");
+        ax.plot(&[0.0, 1.0], &[0.0, 1.0]).set_label("model");
+        // An unlabelled scatter is skipped, as are `_`-prefixed ones.
+        ax.scatter(&[0.5], &[0.5]);
+        ax.scatter(&[0.5], &[0.5]).set_label("_hidden");
+        ax.add_patch(
+            Patch::rectangle(0.0, 0.0, 1.0, 1.0)
+                .facecolor(Some(Rgba::GREEN))
+                .with_label("band"),
+        );
+        // A second "data" scatter shares the first row.
+        ax.scatter(&[1.0], &[1.0]).set_label("data");
+
+        ax.legend_auto();
+        let labels: Vec<&str> = ax.legend.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(labels, ["data", "model", "band"]);
+
+        let data = &ax.legend[0];
+        assert_eq!(data.color, Rgba::RED);
+        let marker = data.marker.as_ref().expect("scatter rows carry a marker");
+        let expected = Collection::scatter(Vec::new())
+            .with_sizes(vec![8.0])
+            .with_facecolors(vec![Rgba::RED])
+            .with_edgecolors(vec![Rgba::BLACK]);
+        assert_eq!(marker, &expected);
+        assert!(ax.legend[1].marker.is_none());
+        assert!(ax.legend[2].marker.is_none());
+    }
+
+    #[test]
+    fn removing_lines_keeps_the_artist_order_aligned() {
+        let mut ax = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        ax.plot(&[0.0, 1.0], &[0.0, 1.0]).set_label("first");
+        ax.scatter(&[0.0], &[0.0]).set_label("points");
+        ax.plot(&[0.0, 1.0], &[1.0, 0.0]).set_label("second");
+        ax.remove_line(0);
+        ax.legend_auto();
+        let labels: Vec<&str> = ax.legend.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(labels, ["points", "second"]);
+    }
+
+    #[test]
+    fn scatter_row_draws_a_marker_not_a_line() {
+        let mut fig = Figure::new(4.0, 4.0).with_dpi(100.0);
+        let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+        ax.scatter(&[0.0, 1.0], &[0.0, 1.0])
+            .set_marker(
+                crate::artist::MarkerStyle::from_char('s')
+                    .unwrap()
+                    .path()
+                    .clone(),
+            )
+            .set_facecolors(vec![Rgba::RED])
+            .set_label("pts");
+        ax.legend_auto();
+        let r = fig.render();
+
+        // Find the row's sample slot: the red ink inside the legend box.
+        let (w, h) = (r.pixmap().width(), r.pixmap().height());
+        let red: Vec<(u32, u32)> = (h / 10..h / 4)
+            .flat_map(|y| (w / 2..w).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let [pr, pg, pb, _] = pixel(&r, x, y);
+                pr > 200 && pg < 60 && pb < 60
+            })
+            .collect();
+        assert!(!red.is_empty(), "no marker ink in the legend");
+        let xs = red.iter().map(|p| p.0);
+        let ys = red.iter().map(|p| p.1);
+        let width = xs.clone().max().unwrap() - xs.min().unwrap();
+        let height = ys.clone().max().unwrap() - ys.min().unwrap();
+        // A square marker, not the 20 px wide, 2 px tall line sample.
+        assert!(width < 12 && height > 2, "{width}x{height}");
+        assert!(width.abs_diff(height) <= 1, "{width}x{height}");
     }
 
     #[test]

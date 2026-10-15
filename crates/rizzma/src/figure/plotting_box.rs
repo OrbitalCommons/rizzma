@@ -191,7 +191,7 @@ impl Axes {
                     .expect("'o' is a known marker")
                     .path()
                     .clone();
-                self.collections.push(
+                self.push_collection(
                     Collection::scatter(offsets)
                         .with_marker(marker)
                         .with_sizes(vec![FLIER_SIZE])

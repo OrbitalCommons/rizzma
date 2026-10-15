@@ -63,8 +63,7 @@ impl Axes {
 
         // A single marker collection at the tips.
         let offsets: Vec<[f64; 2]> = (0..n).map(|i| [x[i], y[i]]).collect();
-        self.collections
-            .push(Collection::scatter(offsets).with_facecolors(vec![stem_color]));
+        self.push_collection(Collection::scatter(offsets).with_facecolors(vec![stem_color]));
 
         // One horizontal baseline across the x data range.
         let (mut xmin, mut xmax) = (x[0], x[0]);

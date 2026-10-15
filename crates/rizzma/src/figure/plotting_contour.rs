@@ -298,7 +298,7 @@ impl Axes {
         candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.line_index));
         for candidate in candidates {
             if candidate.line_index < self.lines.len() {
-                self.lines.remove(candidate.line_index);
+                self.remove_line(candidate.line_index);
             }
             self.add_contour_label(
                 format_contour_level(candidate.level),

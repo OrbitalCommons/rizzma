@@ -48,6 +48,10 @@ pub struct Collection {
     visible: bool,
     /// Stacking order; higher draws on top.
     zorder: f64,
+    /// Legend label, collected by
+    /// [`Axes::legend_auto`](crate::figure::Axes::legend_auto); `None` for an
+    /// anonymous collection.
+    label: Option<String>,
 }
 
 impl Collection {
@@ -71,7 +75,41 @@ impl Collection {
             linewidth: 1.0,
             visible: true,
             zorder: 1.0,
+            label: None,
         }
+    }
+
+    /// The legend label, if any.
+    #[must_use]
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
+    /// Set the legend label in place. Labels are collected by
+    /// [`Axes::legend_auto`](crate::figure::Axes::legend_auto), which keys a
+    /// labelled collection with a sample of its marker; a label starting with
+    /// `_` is kept on the collection but never shown in a legend, as in
+    /// matplotlib.
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_subplot(1, 1, 1);
+    /// ax.scatter(&[1.0, 2.0], &[3.0, 4.0]).set_label("data");
+    /// ax.plot(&[1.0, 2.0], &[3.0, 4.0]).set_label("model");
+    /// ax.legend_auto();
+    /// ```
+    pub fn set_label(&mut self, label: impl Into<String>) -> &mut Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Set the legend label, returning `self` for chaining; see
+    /// [`set_label`](Collection::set_label).
+    #[must_use]
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.set_label(label);
+        self
     }
 
     /// Set the unit marker path in place.
@@ -226,6 +264,38 @@ impl Collection {
         self
     }
 
+    /// The legend key for this collection: its color (the first face color,
+    /// else the first edge color) and a one-marker template drawn as the
+    /// sample, as matplotlib's scatter legend handle does — the same marker and
+    /// first face/edge colors, sized at the middle of the finite size range.
+    /// `None` when the collection has neither a face nor an edge to show.
+    pub(crate) fn legend_sample(&self) -> Option<(Rgba, Collection)> {
+        let face = self.facecolors.first().copied();
+        let edge = self.edgecolors.first().copied();
+        let color = face.or(edge)?;
+        let (lo, hi) = self
+            .sizes
+            .iter()
+            .copied()
+            .filter(|s| s.is_finite())
+            .fold(None, |range: Option<(f64, f64)>, s| {
+                Some(range.map_or((s, s), |(lo, hi)| (lo.min(s), hi.max(s))))
+            })
+            .unwrap_or((DEFAULT_SIZE, DEFAULT_SIZE));
+        let sample = Collection {
+            offsets: Vec::new(),
+            marker: self.marker.clone(),
+            sizes: vec![0.5 * (lo + hi)],
+            facecolors: face.into_iter().collect(),
+            edgecolors: edge.into_iter().collect(),
+            linewidth: self.linewidth,
+            visible: true,
+            zorder: self.zorder,
+            label: None,
+        };
+        Some((color, sample))
+    }
+
     /// The fill color for point `i`, broadcasting over `facecolors`.
     ///
     /// Returns `None` only when `facecolors` is empty (no fill).
@@ -360,7 +430,7 @@ impl Collection {
             linewidth: self.linewidth,
             visible: self.visible,
             zorder: self.zorder,
-            label: None,
+            label: self.label.clone(),
         }
     }
 
@@ -379,6 +449,7 @@ impl Collection {
             linewidth: spec.linewidth,
             visible: spec.visible,
             zorder: spec.zorder,
+            label: spec.label.clone(),
         })
     }
 }

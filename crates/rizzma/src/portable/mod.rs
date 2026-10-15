@@ -89,9 +89,10 @@ pub use timeline::{Interp, Target, Timeline, Track};
 /// renders. Schema 1 is the original static+interactive model; schema 2 adds
 /// the [`Meta`] block and the poster chunk; schema 3 the [`Timeline`]; schema
 /// 4 user-driven [`Control`]s; schema 5 axis minor ticks, minor grids and
-/// title size/pad; schema 6 the figure-title size and the axes text size.
+/// title size/pad; schema 6 the figure-title size and the axes text size;
+/// schema 7 scatter marker samples in legends and the artist insertion order.
 #[cfg(feature = "portable")]
-pub const SCHEMA_VERSION: u32 = 6;
+pub const SCHEMA_VERSION: u32 = 7;
 
 /// Oldest schema version this build can still load.
 #[cfg(feature = "portable")]
@@ -112,8 +113,11 @@ pub(crate) fn required_schema(
     has_controls: bool,
     has_axis_styling: bool,
     has_text_sizes: bool,
+    has_legend_markers: bool,
 ) -> u32 {
-    if has_text_sizes {
+    if has_legend_markers {
+        7
+    } else if has_text_sizes {
         6
     } else if has_axis_styling {
         5
