@@ -90,6 +90,8 @@ struct AxesHead {
     meshes: Vec<ScaledHead>,
     #[serde(default)]
     collections: Vec<ScaledHead>,
+    #[serde(default)]
+    sky: Option<serde::de::IgnoredAny>,
     xaxis: AxisHead,
     yaxis: AxisHead,
 }
@@ -308,6 +310,7 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
             header.figure.rc.path_simplify.is_some()
                 || header.figure.rc.path_simplify_threshold.is_some(),
         ),
+        (13, header.figure.axes.iter().any(|axes| axes.sky.is_some())),
     ]);
     if header.schema < required {
         return Err(PortableError::Malformed(format!(

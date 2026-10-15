@@ -162,6 +162,16 @@ impl QuadMesh {
         self
     }
 
+    /// This mesh with every grid corner passed through `map` — how a mesh
+    /// draws under a non-linear scale or a projection, which move corners
+    /// but keep cells straight-edged quads, as matplotlib's do.
+    pub(crate) fn mapped(&self, map: impl Fn([f64; 2]) -> [f64; 2]) -> QuadMesh {
+        QuadMesh {
+            coordinates: self.coordinates.iter().map(|&p| map(p)).collect(),
+            ..self.clone()
+        }
+    }
+
     /// The grid corner at row `r`, column `c` (`0 <= r <= nrows`,
     /// `0 <= c <= ncols`).
     fn corner(&self, r: usize, c: usize) -> [f64; 2] {
@@ -324,9 +334,13 @@ impl Artist for QuadMesh {
             }
             return;
         }
+        // Cells fill aliased, as matplotlib's `pcolormesh` (`antialiased=False`)
+        // does: antialiased neighbors would leave background-tinted seams
+        // along every shared edge.
         let gc = GraphicsContext {
             line_width: self.linewidth,
             stroke: self.edgecolor,
+            antialiased: false,
             ..GraphicsContext::new()
         };
         for r in 0..self.nrows {

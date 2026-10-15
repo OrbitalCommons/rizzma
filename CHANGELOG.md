@@ -80,6 +80,19 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   `draw_markers` approach, without its pixel snapping. 1e6 markers render in about
   0.32 s instead of 5.1 s (matplotlib 3.11: 1.9 s at the same size); per-point styles
   draw as before. The `bench_scatter` example measures it.
+- **Sky projections on regular axes.** `Axes::set_sky_projection(SkyProjection::
+  Mollweide | Aitoff)` turns an axes into an all-sky map, matplotlib's
+  `add_subplot(projection="mollweide")`: data is longitude/latitude in radians and
+  every artist projects at draw time, so `plot`, `scatter`, fills, meshes, colorbars
+  and legends all work on it. Straight segments are subdivided to follow the
+  projection, as matplotlib's geo axes interpolate them. The frame becomes the
+  elliptical outline with degree labels on the equator and western edge, and
+  `grid(true)` draws the graticule (meridians every 30°, parallels every 15°). Cell
+  interiors of a Mollweide `pcolormesh` match matplotlib 3.11 to within one unit per
+  channel.
+- **`Axes::pcolormesh_xy(x, y, c, mapping)`** draws a mesh over explicit cell edges
+  (`ncols + 1` x edges and `nrows + 1` y edges, unevenly spaced if need be), such as
+  a longitude/latitude grid on a sky projection.
 
 ### Changed
 - **The embedded DejaVu Sans is stored zlib-compressed** (379 KB instead of 756 KB in
@@ -102,13 +115,22 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 - Portable figures are schema 12 when their rc turns line simplification off or
   changes its threshold (the settings are written only then); schema 1–11 artifacts
   still load.
+- Portable figures are schema 13 when an axes has a sky projection (written only
+  then); schema 1–12 artifacts still load.
 
 ### Output changes
 - `legend_auto` lists rows in the order the artists were added, as matplotlib does,
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":12`.
+- Every `.riz` artifact now declares `"schema":13`.
+- **Mesh cells fill without antialiasing**, as matplotlib's `pcolormesh` does
+  (`antialiased=False`), so neighboring cells no longer leave a faint background-
+  tinted seam along every shared edge. Affected: `pcolormesh`, `hist2d`, `contourf`
+  and the colorbars beside them; edge pixels change, cell interiors are unchanged.
+  Gouraud meshes are unchanged.
+- **`pcolormesh` draws on non-linear axes.** Meshes on log, symlog, logit and asinh
+  axes were skipped; their corners now map through the scales, as matplotlib's do.
 - Lines of 1000 or more vertices are drawn simplified: PNG pixels move by at most one
   unit on all but a few hundredths of a percent of the image (the gallery's
   streamplot changes in one antialiased edge pixel), and SVG and PDF output carry the
