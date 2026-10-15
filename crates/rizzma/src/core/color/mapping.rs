@@ -163,13 +163,14 @@ impl ColorMapping {
         &self.cmap
     }
 
-    /// The norm this mapping applies to `data`: the explicit norm, else a
-    /// linear one over `vmin`/`vmax`, each defaulting to the finite data's
-    /// extreme (`(0, 1)` when there is none).
+    /// The norm this mapping applies to `data`: the explicit norm (with any
+    /// limits it takes from the data fixed from `data`), else a linear one
+    /// over `vmin`/`vmax`, each defaulting to the finite data's extreme
+    /// (`(0, 1)` when there is none).
     #[must_use]
     pub fn resolved_norm(&self, data: &[f64]) -> Norm {
         if let Some(norm) = &self.norm {
-            return norm.clone();
+            return norm.autoscaled(data);
         }
         let (lo, hi) = finite_range(data).unwrap_or((0.0, 1.0));
         Norm::Linear(LinearNorm::new(

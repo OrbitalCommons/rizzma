@@ -1,0 +1,8 @@
+# stretches.f64 holds these forward transforms on linspace(0, 1, 2001)
+linear
+sqrt
+power
+log
+asinh
+sinh
+histeq

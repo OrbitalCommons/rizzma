@@ -93,9 +93,9 @@ pub use timeline::{Interp, Target, Timeline, Track};
 /// schema 7 scatter marker samples in legends and the artist insertion order;
 /// schema 8 figure text and the figure axis labels; schema 9 image norms and
 /// bad/over/under colors; schema 10 axes colorbars and the color scales of
-/// meshes and collections.
+/// meshes and collections; schema 11 the astronomical `ImageNormalize` norm.
 #[cfg(feature = "portable")]
-pub const SCHEMA_VERSION: u32 = 10;
+pub const SCHEMA_VERSION: u32 = 11;
 
 /// Oldest schema version this build can still load.
 #[cfg(feature = "portable")]

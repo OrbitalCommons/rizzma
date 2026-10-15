@@ -1336,6 +1336,7 @@ impl Figure {
             (8, wire::uses_figure_text(&spec.figure)),
             (9, wire::uses_image_norms(&spec.figure)),
             (10, wire::uses_colorbars(&spec.figure)),
+            (11, wire::uses_image_normalize(&spec.figure)),
         ]);
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(

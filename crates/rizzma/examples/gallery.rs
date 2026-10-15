@@ -1474,5 +1474,50 @@ fn main() {
         fig.save_png("target/gallery_colorbar_norms.png").unwrap();
     }
 
+    // 59. astronomical normalization — one star field three ways: the full
+    // min/max range (a black frame and a few dots), IRAF's zscale, and
+    // zscale with an asinh stretch that keeps the bright cores.
+    {
+        use rizzma::Mappable;
+        use rizzma::core::color::{ImageNormalize, Interval, Stretch};
+        let mut fig = gallery_figure(10.0, 3.6);
+        let mut noise = rng(59);
+        let n = 96;
+        let mut sky: Vec<f64> = (0..n * n).map(|_| 100.0 + 12.0 * (noise() - 0.5)).collect();
+        for _ in 0..60 {
+            let (cx, cy) = (noise() * n as f64, noise() * n as f64);
+            let amp = 10f64.powf(1.0 + 3.5 * noise());
+            for r in 0..n {
+                for c in 0..n {
+                    let d2 = (c as f64 - cx).powi(2) + (r as f64 - cy).powi(2);
+                    sky[r * n + c] += amp * (-d2 / 3.0).exp();
+                }
+            }
+        }
+        let panels = [
+            (
+                "min/max, linear",
+                ImageNormalize::new(Interval::MinMax, Stretch::linear()),
+            ),
+            (
+                "zscale, linear",
+                ImageNormalize::new(Interval::zscale(), Stretch::linear()),
+            ),
+            (
+                "zscale, asinh(0.1)",
+                ImageNormalize::new(Interval::zscale(), Stretch::Asinh(0.1)),
+            ),
+        ];
+        for (i, (title, norm)) in panels.into_iter().enumerate() {
+            let ax = fig.add_subplot(1, 3, i + 1);
+            ax.imshow(&sky, n, n).cmap("gray").norm(norm);
+            ax.set_title(title);
+            if i == 2 {
+                ax.colorbar(Mappable::Image(0)).set_label("counts");
+            }
+        }
+        fig.save_png("target/gallery_astro_normalize.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

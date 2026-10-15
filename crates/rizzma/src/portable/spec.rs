@@ -152,6 +152,19 @@ pub(crate) fn uses_colorbars(figure: &FigureSpec) -> bool {
     })
 }
 
+/// Whether any artist is colored through a schema-11 astronomical
+/// [`ImageNormalize`](crate::core::color::ImageNormalize).
+#[cfg(feature = "portable")]
+pub(crate) fn uses_image_normalize(figure: &FigureSpec) -> bool {
+    use crate::core::color::Norm;
+    let astro = |norm: &Option<Norm>| matches!(norm, Some(Norm::ImageNormalize(_)));
+    figure.axes.iter().any(|axes| {
+        axes.images.iter().any(|i| astro(&i.norm))
+            || axes.meshes.iter().any(|m| astro(&m.norm))
+            || axes.collections.iter().any(|c| astro(&c.norm))
+    })
+}
+
 /// Wire mirror of [`Figure`](crate::figure::Figure).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

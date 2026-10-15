@@ -11,6 +11,7 @@
 //! [`to_rgba_array`] helper ties a [`Normalize`] and a [`Colormap`] together
 //! into the data-to-color pipeline used by scatter/imshow.
 
+pub mod astro;
 mod cet_data;
 pub mod cmap;
 mod cmap_data;
@@ -19,6 +20,7 @@ pub mod misleading;
 pub mod named;
 pub mod norm;
 
+pub use astro::{ImageNormalize, Interval, Stretch, ZScaleInterval};
 pub use cmap::{
     Colormap, DEFAULT_COLORMAP, LinearSegmentedColormap, ListedColormap, SegmentPoint,
     VIRIDIS_DATA, cet_c1, cet_c2, cet_c3, cet_c5, cet_d01, cet_d04, cet_d07, cet_d11, cet_i1,

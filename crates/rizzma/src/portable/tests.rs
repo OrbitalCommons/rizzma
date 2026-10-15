@@ -1980,7 +1980,7 @@ fn schema_cannot_be_under_declared() {
     // runtime watches it rejected for the unknown field. Both inspection and
     // import refuse the lie.
     let bytes = controlled_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":3"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":11", "\"schema\":3"));
 
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -1997,7 +1997,7 @@ fn schema_cannot_be_under_declared() {
 
     // The same floor applies one level down: a timeline needs schema 3.
     let bytes = animated_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":2"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":11", "\"schema\":2"));
     let Err(err) = Figure::from_portable(&forged) else {
         panic!("a timeline under schema 3 must not import");
     };
@@ -2013,7 +2013,7 @@ fn schema_cannot_be_under_declared() {
     ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
     ax.minorticks_on();
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":4"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":11", "\"schema\":4"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2032,7 +2032,7 @@ fn schema_cannot_be_under_declared() {
     fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
     fig.suptitle("sized").set_suptitle_size(20.0);
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":5"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":11", "\"schema\":5"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2048,7 +2048,7 @@ fn schema_cannot_be_under_declared() {
 
     // Scatter legend samples and the artist order are schema 7.
     let bytes = scatter_legend_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":6"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":11", "\"schema\":6"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2064,7 +2064,7 @@ fn schema_cannot_be_under_declared() {
 
     // Figure text and figure axis labels are schema 8.
     let bytes = figure_text_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":7"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":11", "\"schema\":7"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2080,7 +2080,7 @@ fn schema_cannot_be_under_declared() {
 
     // Image norms and extreme colors are schema 9.
     let bytes = image_norm_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":8"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":11", "\"schema\":8"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2096,7 +2096,7 @@ fn schema_cannot_be_under_declared() {
 
     // Colorbars and recorded color scales are schema 10.
     let bytes = colorbar_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":10", "\"schema\":9"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":11", "\"schema\":9"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2109,6 +2109,53 @@ fn schema_cannot_be_under_declared() {
             "{err}"
         );
     }
+
+    // An astronomical image normalization is schema 11.
+    let bytes = astro_figure().to_portable().expect("export");
+    let forged = reforge_json(&bytes, |json| {
+        json.replace("\"schema\":11", "\"schema\":10")
+    });
+    for result in [
+        Figure::from_portable(&forged).map(|_| ()),
+        crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
+    ] {
+        let Err(err) = result else {
+            panic!("an image normalization under schema 11 must not be accepted");
+        };
+        assert!(
+            matches!(&err, PortableError::Malformed(m) if m.contains("requiring schema 11")),
+            "{err}"
+        );
+    }
+}
+
+/// A star-field image through ZScale and a histogram-equalization stretch,
+/// with a colorbar.
+fn astro_figure() -> Figure {
+    use crate::core::color::{ImageNormalize, Interval, Stretch};
+    use crate::figure::Mappable;
+    let sky: Vec<f64> = (0..100)
+        .map(|i| 100.0 + f64::from(i % 9) + if i == 44 { 4e4 } else { 0.0 })
+        .collect();
+    let mut fig = Figure::new(3.0, 3.0);
+    let ax = fig.add_subplot(1, 1, 1);
+    ax.imshow(&sky, 10, 10)
+        .cmap("gray")
+        .norm(ImageNormalize::new(
+            Interval::zscale(),
+            Stretch::histeq(&sky),
+        ));
+    ax.colorbar(Mappable::Image(0));
+    fig
+}
+
+#[test]
+fn image_normalize_round_trips() {
+    let fig = astro_figure();
+    let bytes = fig.to_portable().expect("export");
+    let back = Figure::from_portable(&bytes).expect("import");
+    assert_eq!(back.to_portable().expect("re-export"), bytes);
+    assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
 }
 
 /// Two colorbarred panels: an image through a log norm, and a mapped scatter
