@@ -5,26 +5,44 @@
 //! `wasm32-unknown-unknown`. The default source is DejaVu Sans, vendored from
 //! matplotlib's `mpl-data` (see `fonts/LICENSE_DEJAVU`).
 
+use std::borrow::Cow;
+use std::sync::LazyLock;
+
 use ttf_parser::{Face, GlyphId};
 
-/// Raw bytes of the vendored DejaVu Sans face, embedded at compile time.
-///
-/// This is the same TTF matplotlib ships as its default sans-serif font.
-pub static DEJAVU_SANS_TTF: &[u8] = include_bytes!("fonts/DejaVuSans.ttf");
+/// The vendored DejaVu Sans face, zlib-compressed (379 KB instead of 756 KB
+/// in every binary that embeds rizzma). Regenerate from the TTF with
+/// `python3 -c "import zlib,sys; sys.stdout.buffer.write(zlib.compress(open('DejaVuSans.ttf','rb').read(), 9))" > DejaVuSans.ttf.zlib`.
+static DEJAVU_SANS_ZLIB: &[u8] = include_bytes!("fonts/DejaVuSans.ttf.zlib");
+
+/// The face inflated once, on first use; zlib's Adler-32 check guards it.
+static DEJAVU_SANS: LazyLock<Vec<u8>> = LazyLock::new(|| {
+    miniz_oxide::inflate::decompress_to_vec_zlib(DEJAVU_SANS_ZLIB)
+        .expect("the embedded DejaVu Sans inflates")
+});
+
+/// Raw bytes of the vendored DejaVu Sans face — the same TTF matplotlib
+/// ships as its default sans-serif font. Inflated on the first call and
+/// shared after.
+#[must_use]
+pub fn dejavu_sans_ttf() -> &'static [u8] {
+    &DEJAVU_SANS
+}
 
 /// A set of embedded font faces usable for text measurement.
 ///
-/// Faces are stored as owned byte buffers; a [`Face`] is parsed on demand from a
-/// buffer. No filesystem or system font database is touched, which keeps the
-/// type usable under `wasm32`.
+/// Faces are byte buffers — the default face borrowed from the embedded
+/// font, registered ones owned; a [`Face`] is parsed on demand from a buffer.
+/// No filesystem or system font database is touched, which keeps the type
+/// usable under `wasm32`.
 ///
 /// Construct the default with [`FontSource::dejavu_sans`], or build a custom set
 /// and add faces with [`FontSource::register_face`].
 #[derive(Clone, Default)]
 pub struct FontSource {
-    /// Owned font file buffers, in registration order. The first entry is the
+    /// Font file buffers, in registration order. The first entry is the
     /// primary face used by measurement.
-    faces: Vec<Vec<u8>>,
+    faces: Vec<Cow<'static, [u8]>>,
 }
 
 impl FontSource {
@@ -36,12 +54,13 @@ impl FontSource {
         Self { faces: Vec::new() }
     }
 
-    /// Creates a font source backed by the embedded DejaVu Sans face.
+    /// Creates a font source backed by the embedded DejaVu Sans face, which
+    /// every such source shares rather than copies.
     #[must_use]
     pub fn dejavu_sans() -> Self {
-        let mut source = Self::new();
-        source.register_face(DEJAVU_SANS_TTF);
-        source
+        Self {
+            faces: vec![Cow::Borrowed(dejavu_sans_ttf())],
+        }
     }
 
     /// Registers an additional face from raw TrueType/OpenType bytes.
@@ -50,7 +69,7 @@ impl FontSource {
     /// alive. The newly added face becomes available for measurement; the first
     /// registered face remains the primary one.
     pub fn register_face(&mut self, data: &[u8]) {
-        self.faces.push(data.to_vec());
+        self.faces.push(Cow::Owned(data.to_vec()));
     }
 
     /// Returns the number of registered faces.
@@ -118,4 +137,29 @@ pub(crate) fn horizontal_kerning(face: &Face<'_>, left: GlyphId, right: GlyphId)
         }
     }
     f64::from(units)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The embedded font inflates to exactly matplotlib's DejaVuSans.ttf
+    /// (756 072 bytes, SHA-256
+    /// 3fdf69cabf06049ea70a00b5919340e2ce1e6d02b0cc3c4b44fb6801bd1e0d22),
+    /// pinned here by its FNV-1a hash.
+    #[test]
+    fn embedded_font_inflates_to_the_vendored_ttf() {
+        let ttf = dejavu_sans_ttf();
+        assert_eq!(ttf.len(), 756_072);
+        let fnv = ttf.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
+            (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+        });
+        assert_eq!(fnv, 0xc6bb_b6aa_5af4_6d0b);
+    }
+
+    #[test]
+    fn default_sources_share_the_inflated_font() {
+        let (a, b) = (FontSource::dejavu_sans(), FontSource::dejavu_sans());
+        assert!(std::ptr::eq(a.faces[0].as_ref(), b.faces[0].as_ref()));
+    }
 }

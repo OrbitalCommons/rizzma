@@ -75,6 +75,11 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   `bench_noisy_line` example measures it.
 
 ### Changed
+- **The embedded DejaVu Sans is stored zlib-compressed** (379 KB instead of 756 KB in
+  every binary and wasm bundle) and inflated once on first use, through
+  `miniz_oxide`, which `png` already brought in. Every default `FontSource` (so
+  every `Figure`) now shares that one copy instead of copying 756 KB. The
+  `DEJAVU_SANS_TTF` static becomes `text::font::dejavu_sans_ttf()`.
 - Portable figures are schema 7. Scatter legend samples, and the insertion order of
   an axes' lines, patches and collections when it is not lines first, then patches,
   then collections, are written only when present; schema 1–6 artifacts still load.
