@@ -7,7 +7,7 @@
 //! color and above `1` the *over* color, falling back to the colormap's ends
 //! when they are unset, which is matplotlib's `Colormap.__call__`.
 
-use super::{Colormap, DEFAULT_COLORMAP, LinearNorm, Norm, Normalize, Rgba, colormap};
+use super::{Colormap, DEFAULT_COLORMAP, LinearNorm, Norm, Normalize, Rgba};
 
 /// Colors for values a colormap cannot place: matplotlib's
 /// `Colormap.with_extremes(bad=…, over=…, under=…)`.
@@ -202,7 +202,7 @@ impl ColorMapping {
 /// [`Colorbar`](crate::figure::Colorbar) can describe the artist exactly.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColorScale {
-    /// The colormap name (see [`colormap`]).
+    /// The colormap name (see [`colormap`](super::colormap)).
     pub cmap: String,
     /// The norm the data were mapped through.
     pub norm: Norm,
@@ -233,9 +233,49 @@ impl ColorScale {
 }
 
 /// The named colormap, or the default map for an unknown name, so a stray
-/// name never produces an invisible plot.
+/// name never produces an invisible plot. The first time a name misses it
+/// is reported, with the names to use instead (see [`warn_unknown_colormap`]).
 pub(crate) fn resolve_cmap(name: &str) -> Box<dyn Colormap> {
-    colormap(name).unwrap_or_else(|| Box::new(super::default_colormap()))
+    super::try_colormap(name).unwrap_or_else(|unknown| {
+        warn_unknown_colormap(&unknown, "drawing with the default \"bgyw\"");
+        Box::new(super::default_colormap())
+    })
+}
+
+/// Report `unknown` and what happens instead (`consequence`), once per
+/// distinct name per process: on stderr natively, `console.warn` in the
+/// browser. Returns whether this call reported.
+pub(crate) fn warn_unknown_colormap(unknown: &super::UnknownColormap, consequence: &str) -> bool {
+    // A handful of names at most, so a list beats a set (and the wasm
+    // bundle carries no B-tree for it).
+    static REPORTED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    let first = REPORTED
+        .lock()
+        .map(|mut reported| {
+            let new = !reported.iter().any(|name| name == unknown.name());
+            if new {
+                reported.push(unknown.name().to_owned());
+            }
+            new
+        })
+        .unwrap_or(false);
+    if first {
+        let message = format!("rizzma: {unknown} ({consequence})");
+        #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
+        console_warn(&message);
+        #[cfg(not(all(feature = "wasm", target_arch = "wasm32")))]
+        eprintln!("{message}");
+    }
+    first
+}
+
+// `console.warn`, bound directly: web-sys's `console` feature would carry
+// a descriptor for every console binding into the wasm bundle.
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
+#[wasm_bindgen::prelude::wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console, js_name = warn)]
+    fn console_warn(message: &str);
 }
 
 /// The `(min, max)` of the finite values in `data`, if any.

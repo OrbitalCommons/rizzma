@@ -6,7 +6,8 @@
 //! a few nicely placed tick labels.
 
 use crate::axis::ticker::{AutoLocator, Formatter, Locator, ScalarFormatter};
-use crate::core::{Affine2D, Bbox, Path, color::Colormap, color::Rgba, color::colormap};
+use crate::core::color::mapping::warn_unknown_colormap;
+use crate::core::{Affine2D, Bbox, Path, color::Colormap, color::Rgba, color::try_colormap};
 use crate::render::{GraphicsContext, Renderer};
 use crate::text::FontSource;
 
@@ -50,9 +51,10 @@ pub(crate) struct FigureColorbar {
 impl Figure {
     /// Add a vertical colorbar on the right of the figure.
     ///
-    /// `cmap_name` is a builtin colormap name (see [`colormap`]); `vmin`/`vmax`
-    /// label the bottom and top of the gradient. Unknown colormap names render
-    /// no gradient (the strip is skipped at draw time).
+    /// `cmap_name` is a builtin colormap name (see
+    /// [`colormap`](crate::core::color::colormap)); `vmin`/`vmax` label the
+    /// bottom and top of the gradient. An unknown colormap name draws no
+    /// colorbar, and is reported once with the names to use instead.
     pub fn colorbar(&mut self, cmap_name: &str, vmin: f64, vmax: f64) -> &mut Self {
         self.colorbars.push(FigureColorbar {
             cmap_name: cmap_name.to_string(),
@@ -137,8 +139,12 @@ impl Figure {
 impl FigureColorbar {
     /// Draw this colorbar into `renderer` given the figure size in pixels.
     fn draw(&self, renderer: &mut dyn Renderer, fig_w: f64, fig_h: f64, font: &FontSource) {
-        let Some(cmap) = colormap(&self.cmap_name) else {
-            return;
+        let cmap = match try_colormap(&self.cmap_name) {
+            Ok(cmap) => cmap,
+            Err(unknown) => {
+                warn_unknown_colormap(&unknown, "drawing no colorbar");
+                return;
+            }
         };
 
         let frac = self

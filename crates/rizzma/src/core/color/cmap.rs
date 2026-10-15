@@ -706,6 +706,140 @@ pub fn colormap(name: &str) -> Option<Box<dyn Colormap>> {
     base_colormap(name).map(|m| Box::new(m) as Box<dyn Colormap>)
 }
 
+/// [`colormap`], failing with the names to use instead when `name` doesn't
+/// resolve — for callers who want an unknown name to be an error rather
+/// than the default map the plotting methods fall back to.
+///
+/// ```
+/// use rizzma::core::color::try_colormap;
+///
+/// assert!(try_colormap("misleading:jet").is_ok());
+/// let err = try_colormap("jet").err().expect("jet is quarantined");
+/// assert_eq!(err.suggestions(), ["misleading:jet", "cet_r2"]);
+/// ```
+///
+/// # Errors
+///
+/// [`UnknownColormap`] when no builtin map has that name.
+pub fn try_colormap(name: &str) -> Result<Box<dyn Colormap>, UnknownColormap> {
+    colormap(name).ok_or_else(|| UnknownColormap::new(name))
+}
+
+/// The registry names [`colormap`] resolves, before any `_r` suffix or
+/// `misleading:` prefix.
+const NAMES: &[&str] = &[
+    "viridis", "gray", "magma", "inferno", "plasma", "cividis", "RdBu", "coolwarm", "cet_l01",
+    "cet_l03", "fire", "cet_l05", "cet_l09", "bgyw", "cet_l10", "cet_d01", "cet_d04", "cet_d07",
+    "cet_d11", "cet_r2", "cet_c1", "cet_c2", "cet_c3", "cet_c5", "cet_i1",
+];
+
+/// The quarantined vendor maps: each one's exact rendition and its
+/// perceptually uniform replacement.
+const QUARANTINED: &[(&str, &str)] = &[
+    ("jet", "cet_r2"),
+    ("rainbow", "cet_r2"),
+    ("hot", "cet_l03"),
+    ("hsv", "cet_c1"),
+];
+
+/// A colormap name that doesn't resolve, with the names to use instead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownColormap {
+    name: String,
+    suggestions: Vec<String>,
+}
+
+impl UnknownColormap {
+    /// The unresolved `name` and what to use instead: for a quarantined
+    /// vendor map its `misleading:` form and its honest replacement, else
+    /// the registry names within two edits (case aside).
+    fn new(name: &str) -> Self {
+        let (base, suffix) = match name.strip_suffix("_r") {
+            Some(base) => (base, "_r"),
+            None => (name, ""),
+        };
+        let suggestions = match QUARANTINED.iter().find(|(vendor, _)| *vendor == base) {
+            Some((vendor, honest)) => {
+                vec![
+                    format!("misleading:{vendor}{suffix}"),
+                    format!("{honest}{suffix}"),
+                ]
+            }
+            None => {
+                let lower = base.to_ascii_lowercase();
+                let distance = |known: &str| edit_distance(&lower, &known.to_ascii_lowercase());
+                // Nearest first, in registry order within a distance (no
+                // sort: it would cost the wasm bundle a sort instantiation).
+                let mut near: Vec<&&str> = Vec::new();
+                for d in 0..=2 {
+                    near.extend(NAMES.iter().filter(|known| distance(known) == d));
+                    // A name that differs only in case has one answer.
+                    if d == 0 && !near.is_empty() {
+                        break;
+                    }
+                }
+                near.into_iter()
+                    .take(3)
+                    .map(|known| format!("{known}{suffix}"))
+                    .collect()
+            }
+        };
+        Self {
+            name: name.to_owned(),
+            suggestions,
+        }
+    }
+
+    /// The name that didn't resolve.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Valid names to use instead, best first; empty when nothing is close.
+    #[must_use]
+    pub fn suggestions(&self) -> &[String] {
+        &self.suggestions
+    }
+}
+
+impl std::fmt::Display for UnknownColormap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unknown colormap \"{}\"", self.name)?;
+        match self.suggestions.as_slice() {
+            [] => Ok(()),
+            [only] => write!(f, "; did you mean \"{only}\"?"),
+            [first, rest @ ..] => {
+                write!(f, "; did you mean \"{first}\"")?;
+                for s in rest {
+                    write!(f, " or \"{s}\"")?;
+                }
+                write!(f, "?")
+            }
+        }
+    }
+}
+
+impl std::error::Error for UnknownColormap {}
+
+/// Levenshtein distance between `a` and `b`, by characters.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        for (j, &cb) in b.iter().enumerate() {
+            let next = (row[j] + 1)
+                .min(row[j + 1] + 1)
+                .min(diagonal + usize::from(ca != cb));
+            diagonal = row[j + 1];
+            row[j + 1] = next;
+        }
+    }
+    row[b.len()]
+}
+
 /// The forward (non-reversed) builtin colormaps by name.
 fn base_colormap(name: &str) -> Option<LinearSegmentedColormap> {
     if let Some(vendor) = name.strip_prefix("misleading:") {
@@ -742,6 +876,50 @@ fn base_colormap(name: &str) -> Option<LinearSegmentedColormap> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_listed_name_resolves() {
+        for name in NAMES {
+            assert!(
+                colormap(name).is_some(),
+                "{name} is listed but does not resolve"
+            );
+        }
+    }
+
+    #[test]
+    fn quarantined_names_suggest_both_forms() {
+        let suggest = |name: &str| try_colormap(name).err().expect(name).suggestions().to_vec();
+        assert_eq!(suggest("jet"), ["misleading:jet", "cet_r2"]);
+        assert_eq!(suggest("rainbow"), ["misleading:rainbow", "cet_r2"]);
+        assert_eq!(suggest("hot"), ["misleading:hot", "cet_l03"]);
+        assert_eq!(suggest("hsv"), ["misleading:hsv", "cet_c1"]);
+        assert_eq!(suggest("jet_r"), ["misleading:jet_r", "cet_r2_r"]);
+        assert!(try_colormap("misleading:jet").is_ok());
+        let err = try_colormap("jet").err().expect("jet is quarantined");
+        assert_eq!(
+            err.to_string(),
+            r#"unknown colormap "jet"; did you mean "misleading:jet" or "cet_r2"?"#
+        );
+    }
+
+    #[test]
+    fn other_names_suggest_close_matches() {
+        let suggest = |name: &str| try_colormap(name).err().expect(name).suggestions().to_vec();
+        assert_eq!(suggest("virdis"), ["viridis"]);
+        assert_eq!(suggest("rdbu"), ["RdBu"]);
+        assert_eq!(suggest("magma_r_r"), ["magma_r"]);
+        assert_eq!(suggest("Viridis_r"), ["viridis_r"]);
+        assert!(suggest("does-not-exist").is_empty());
+        assert_eq!(
+            try_colormap("does-not-exist")
+                .err()
+                .expect("unknown")
+                .to_string(),
+            r#"unknown colormap "does-not-exist""#
+        );
+        assert!(try_colormap("viridis").is_ok());
+    }
 
     fn approx(a: f64, b: f64) {
         assert!((a - b).abs() < 1e-6, "{a} !~ {b}");
