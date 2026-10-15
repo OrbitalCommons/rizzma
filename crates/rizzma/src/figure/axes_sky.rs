@@ -1,14 +1,16 @@
-//! All-sky projections on a regular [`Axes`]: matplotlib's
-//! `add_subplot(projection="mollweide")` / `"aitoff"`.
+//! Sky projections on a regular [`Axes`]: matplotlib's
+//! `add_subplot(projection="mollweide")` / `"aitoff"`, and a zenithal
+//! fisheye of the sky overhead.
 //!
-//! [`Axes::set_sky_projection`] turns an axes into a map of the whole sky.
-//! Data coordinates become `(longitude, latitude)` in **radians** and every
-//! artist — lines, scatters, fills, meshes — projects through the
-//! projection at draw time, so the ordinary plotting methods, colorbars and
-//! legends all work on it. The rectangular frame and axes give way to the
-//! projection's elliptical outline, degree labels along the equator and the
-//! western edge, and (with [`Axes::grid`]) a graticule — matplotlib's
-//! layout for these projections.
+//! [`Axes::set_sky_projection`] turns an axes into a sky map. Data
+//! coordinates become `(longitude, latitude)` — or `(azimuth, altitude)` for
+//! the zenithal view — in **radians**, and every artist — lines, scatters,
+//! fills, meshes — projects through the projection at draw time, so the
+//! ordinary plotting methods, colorbars and legends all work on it. The
+//! rectangular frame and axes give way to the projection's outline and
+//! labels, and (with [`Axes::grid`]) a graticule: matplotlib's layout for
+//! the all-sky projections, altitude rings and compass points for the
+//! zenithal one.
 
 use std::f64::consts::{FRAC_PI_2, PI};
 
@@ -31,6 +33,23 @@ const LON_LABEL_PAD: f64 = 4.0;
 /// Latitude labels end this far left of the outline, in pixels at 100 DPI.
 const LAT_LABEL_PAD: f64 = 8.0;
 
+/// Zenithal azimuth spokes every 45°.
+const AZ_STEP_DEG: i32 = 45;
+/// Zenithal altitude rings every 30°.
+const ALT_STEP_DEG: i32 = 30;
+/// Cardinal labels sit this far outside the horizon, in pixels at 100 DPI.
+const CARDINAL_PAD: f64 = 6.0;
+/// Ring labels sit this far right of and above the northern spoke's
+/// crossing, in pixels at 100 DPI.
+const RING_LABEL_PAD: f64 = 3.0;
+/// The compass points and their azimuths, north through east.
+const CARDINALS: [(&str, i32); 4] = [("N", 0), ("E", 90), ("S", 180), ("W", 270)];
+
+/// The zenithal altitude rings in degrees, horizon and zenith excluded.
+fn altitude_rings() -> impl Iterator<Item = i32> {
+    (ALT_STEP_DEG..90).step_by(ALT_STEP_DEG as usize)
+}
+
 /// The tick values `-limit + step, …, limit - step` in degrees.
 fn ticks(step: i32, limit: i32) -> impl Iterator<Item = i32> {
     (-limit + step..limit).step_by(step as usize)
@@ -52,7 +71,15 @@ impl Axes {
     /// the graticule and the tick-label visibility of each axis hides its
     /// labels.
     ///
+    /// [`SkyProjection::Zenithal`] instead shows the sky overhead: data is
+    /// azimuth (from north through east, `[0, 2π)`) and altitude, the
+    /// horizon is the circular outline with N/E/S/W outside it (east on the
+    /// left, as looking up), and the grid draws altitude rings every 30° and
+    /// azimuth spokes every 45°, the rings labeled along the northern spoke.
+    /// Below the horizon draws outside the circle, within the axes square.
+    ///
     /// ![sky fill](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_sky_fill.png)
+    /// ![zenithal](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_sky_zenithal.png)
     ///
     /// ```
     /// use std::f64::consts::{FRAC_PI_2, PI};
@@ -78,8 +105,14 @@ impl Axes {
     pub fn set_sky_projection(&mut self, projection: SkyProjection) -> &mut Self {
         self.sky = Some(projection);
         self.aspect_equal = true;
-        self.xlim = Some((-PI, PI));
-        self.ylim = Some((-FRAC_PI_2, FRAC_PI_2));
+        // Limits only bound what spans fill (`axhline` at an altitude is a
+        // ring); the view always shows the whole projection.
+        let (xlim, ylim) = match projection {
+            SkyProjection::Zenithal => ((0.0, 2.0 * PI), (0.0, FRAC_PI_2)),
+            _ => ((-PI, PI), (-FRAC_PI_2, FRAC_PI_2)),
+        };
+        self.xlim = Some(xlim);
+        self.ylim = Some(ylim);
         self
     }
 
@@ -108,9 +141,10 @@ impl Axes {
         );
     }
 
-    /// The graticule, when the grid is on: parallels across the whole sky,
-    /// meridians stopping short of the poles. Drawn beneath the data, like
-    /// a cartesian grid.
+    /// The graticule, when the grid is on, drawn beneath the data like a
+    /// cartesian grid. All-sky maps get parallels across the whole sky and
+    /// meridians stopping short of the poles; the zenithal view gets
+    /// altitude rings and azimuth spokes meeting at the zenith.
     pub(crate) fn draw_sky_grid(
         &self,
         renderer: &mut dyn Renderer,
@@ -125,23 +159,37 @@ impl Axes {
                 let path = sky::project_path(sky, &Path::from_polyline(&points));
                 renderer.draw_path(&gc, &path, td, None);
             };
+        let deg = |d: i32| f64::from(d).to_radians();
+        if sky == SkyProjection::Zenithal {
+            if let Some(style) = self.xaxis.grid_stroke() {
+                for az in (0..360).step_by(AZ_STEP_DEG as usize) {
+                    stroke([[deg(az), 0.0], [deg(az), FRAC_PI_2]], style);
+                }
+            }
+            if let Some(style) = self.yaxis.grid_stroke() {
+                for alt in altitude_rings() {
+                    stroke([[0.0, deg(alt)], [2.0 * PI, deg(alt)]], style);
+                }
+            }
+            return;
+        }
         if let Some(style) = self.xaxis.grid_stroke() {
             let cap = MERIDIAN_CAP_DEG.to_radians();
             for lon in ticks(LON_STEP_DEG, 180) {
-                let lon = f64::from(lon).to_radians();
-                stroke([[lon, -cap], [lon, cap]], style);
+                stroke([[deg(lon), -cap], [deg(lon), cap]], style);
             }
         }
         if let Some(style) = self.yaxis.grid_stroke() {
             for lat in ticks(LAT_STEP_DEG, 90) {
-                let lat = f64::from(lat).to_radians();
-                stroke([[-PI, lat], [PI, lat]], style);
+                stroke([[-PI, deg(lat)], [PI, deg(lat)]], style);
             }
         }
     }
 
-    /// The outline (when the frame is on) and the degree labels: longitudes
-    /// just above the equator, latitudes right-aligned off the western edge.
+    /// The outline (when the frame is on) and the labels: on all-sky maps
+    /// longitudes just above the equator and latitudes right-aligned off the
+    /// western edge; on the zenithal view N/E/S/W outside the horizon and
+    /// the altitude of each ring beside the northern spoke.
     pub(crate) fn draw_sky_decorations(
         &self,
         renderer: &mut dyn Renderer,
@@ -183,6 +231,32 @@ impl Axes {
                     );
                 }
             };
+        if sky == SkyProjection::Zenithal {
+            let pad = CARDINAL_PAD * s;
+            if self.xaxis.tick_labels_visible() {
+                let (color, size) = (self.xaxis.color(), self.xaxis.tick_label_size());
+                for (text, az) in CARDINALS {
+                    let (px, py) = to_px(f64::from(az).to_radians(), 0.0);
+                    label(text, color, size, &|w, ascent, descent| match az {
+                        0 => (px - w / 2.0, py + pad + descent),
+                        180 => (px - w / 2.0, py - pad - ascent),
+                        90 => (px - pad - w, py - (ascent - descent) / 2.0),
+                        _ => (px + pad, py - (ascent - descent) / 2.0),
+                    });
+                }
+            }
+            if self.yaxis.tick_labels_visible() {
+                let (color, size) = (self.yaxis.color(), self.yaxis.tick_label_size());
+                let gap = RING_LABEL_PAD * s;
+                for alt in altitude_rings() {
+                    let (px, py) = to_px(0.0, f64::from(alt).to_radians());
+                    label(&format!("{alt}°"), color, size, &|_, _, descent| {
+                        (px + gap, py + gap + descent)
+                    });
+                }
+            }
+            return;
+        }
         if self.xaxis.tick_labels_visible() {
             let (color, size) = (self.xaxis.color(), self.xaxis.tick_label_size());
             for lon in ticks(LON_STEP_DEG, 180) {
@@ -203,10 +277,43 @@ impl Axes {
         }
     }
 
+    /// How far the sky decorations reach above the axes rectangle — the
+    /// zenithal view's "N"; nothing on the all-sky maps — which the title
+    /// clears.
+    pub(crate) fn sky_top_extent(&self, sky: SkyProjection, font: &FontSource, s: f64) -> f64 {
+        if sky != SkyProjection::Zenithal || !self.axis_visible || !self.xaxis.tick_labels_visible()
+        {
+            return 0.0;
+        }
+        let north = layout_rich_text(font, "N", self.xaxis.tick_label_size() * s);
+        CARDINAL_PAD * s + north.ascent + north.descent
+    }
+
     /// The room the sky decorations need outside the axes rectangle
     /// `(left, right, bottom, top)`: the latitude labels off the western
-    /// edge. Longitude labels lie inside the outline.
-    pub(crate) fn sky_layout_insets(&self, font: &FontSource, s: f64) -> (f64, f64, f64, f64) {
+    /// edge of an all-sky map (its longitude labels lie inside the
+    /// outline), or the cardinal labels around the zenithal horizon.
+    pub(crate) fn sky_layout_insets(
+        &self,
+        sky: SkyProjection,
+        font: &FontSource,
+        s: f64,
+    ) -> (f64, f64, f64, f64) {
+        if sky == SkyProjection::Zenithal {
+            if !self.axis_visible || !self.xaxis.tick_labels_visible() {
+                return (0.0, 0.0, 0.0, 0.0);
+            }
+            let size = self.xaxis.tick_label_size() * s;
+            let pad = CARDINAL_PAD * s;
+            let measure = |text| layout_rich_text(font, text, size);
+            let (e, south, w) = (measure("E"), measure("S"), measure("W"));
+            return (
+                pad + e.width,
+                pad + w.width,
+                pad + south.ascent + south.descent,
+                self.sky_top_extent(sky, font, s),
+            );
+        }
         if !self.axis_visible || !self.yaxis.tick_labels_visible() {
             return (0.0, 0.0, 0.0, 0.0);
         }

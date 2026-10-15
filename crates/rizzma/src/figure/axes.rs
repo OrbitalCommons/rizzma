@@ -2265,8 +2265,8 @@ impl Axes {
         xlim_override: Option<(f64, f64)>,
     ) -> (f64, f64, f64, f64) {
         let (mut left, mut right, mut bottom, mut top) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
-        if self.sky.is_some() {
-            (left, right, bottom, top) = self.sky_layout_insets(font, s);
+        if let Some(sky) = self.sky {
+            (left, right, bottom, top) = self.sky_layout_insets(sky, font, s);
         } else if self.axis_visible {
             let (xlim, ylim) = self.limits_with_override(xlim_override);
             if !self.xaxis_hidden {
@@ -2592,7 +2592,11 @@ impl Axes {
             // A top or secondary x axis occupies the strip above the spine
             // (ticks, tick labels, axis label); lift the title clear of its
             // measured extent — the same number tight layout reserves.
-            let top_clearance = self.top_decoration_extent(xlim, font, s);
+            // A sky map's labels above its outline count the same way.
+            let top_clearance = match self.sky {
+                Some(sky) => self.sky_top_extent(sky, font, s),
+                None => self.top_decoration_extent(xlim, font, s),
+            };
             let y = axes_px.ymax() + self.title_pad * s + top_clearance;
             let shift = Affine2D::from_translation(x, y);
             for path in &rich.paths {

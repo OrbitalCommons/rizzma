@@ -90,6 +90,12 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   `grid(true)` draws the graticule (meridians every 30°, parallels every 15°). Cell
   interiors of a Mollweide `pcolormesh` match matplotlib 3.11 to within one unit per
   channel.
+- **A zenithal fisheye projection**, `SkyProjection::Zenithal`: the azimuthal
+  equidistant view of the sky overhead, with data as azimuth and altitude. The zenith
+  is at the center, the horizon on the unit circle, and north is up with east on the
+  left. The outline is the horizon, with N/E/S/W outside it, and `grid(true)` draws
+  altitude rings every 30° and azimuth spokes every 45°. Fills, meshes and colorbars
+  work as on the all-sky projections, and the standalone `SkyAxes` draws it too.
 - **`Axes::pcolormesh_xy(x, y, c, mapping)`** draws a mesh over explicit cell edges
   (`ncols + 1` x edges and `nrows + 1` y edges, unevenly spaced if need be), such as
   a longitude/latitude grid on a sky projection.

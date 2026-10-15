@@ -242,3 +242,67 @@ fn sky_lines_follow_the_projection() {
         "western ink rows {west:?} should sit above {expected}"
     );
 }
+
+#[test]
+fn zenithal_places_known_altaz_points() {
+    // A 320 px square axes centered at (200, 200): the horizon is the
+    // circle of radius 160 around it, the zenith its center, east left.
+    let mut fig = Figure::new(4.0, 4.0);
+    let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+    ax.set_sky_projection(SkyProjection::Zenithal);
+    let deg = |d: f64| d.to_radians();
+    let r = 160.0;
+    let s45 = std::f64::consts::FRAC_1_SQRT_2;
+    let cases = [
+        // (azimuth, altitude) → top-down pixel
+        ((deg(123.0), deg(90.0)), (200.0, 200.0)),
+        ((deg(0.0), 0.0), (200.0, 200.0 - r)),
+        ((deg(90.0), 0.0), (200.0 - r, 200.0)),
+        ((deg(180.0), 0.0), (200.0, 200.0 + r)),
+        ((deg(270.0), 0.0), (200.0 + r, 200.0)),
+        ((deg(90.0), deg(45.0)), (200.0 - r / 2.0, 200.0)),
+        (
+            (deg(225.0), deg(30.0)),
+            (200.0 + 2.0 / 3.0 * r * s45, 200.0 + 2.0 / 3.0 * r * s45),
+        ),
+    ];
+    for ((az, alt), (want_x, want_y)) in cases {
+        let (px, py) = fig.data_to_pixel(0, az, alt).expect("axes 0");
+        assert!(
+            (px - want_x).abs() < 1e-9 && (py - want_y).abs() < 1e-9,
+            "az {az} alt {alt}: ({px}, {py}) vs ({want_x}, {want_y})"
+        );
+        if alt > 0.0 && alt < deg(89.0) {
+            let (az2, alt2) = fig.pixel_to_data(0, px, py).expect("inside the axes");
+            assert!(
+                (az2 - az).abs() < 1e-6 && (alt2 - alt).abs() < 1e-6,
+                "({az2}, {alt2}) vs ({az}, {alt})"
+            );
+        }
+    }
+}
+
+#[test]
+fn zenithal_fill_reaches_the_horizon() {
+    // A mesh over the whole sky above the horizon fills the disk: ink just
+    // inside the horizon at every compass point, none outside it.
+    let az: Vec<f64> = (0..=72).map(|i| f64::from(5 * i).to_radians()).collect();
+    let alt: Vec<f64> = (0..=18).map(|i| f64::from(5 * i).to_radians()).collect();
+    let c = vec![1.0; 72 * 18];
+    let mut fig = Figure::new(4.0, 4.0);
+    let ax = fig.add_axes(0.1, 0.1, 0.8, 0.8);
+    ax.set_sky_projection(SkyProjection::Zenithal)
+        .set_axis_off();
+    ax.pcolormesh_xy(&az, &alt, &c, "viridis");
+    let (rgb, w, _) = fig.to_rgb8();
+    let px = |x: usize, y: usize| {
+        let i = (y * w as usize + x) * 3;
+        [rgb[i], rgb[i + 1], rgb[i + 2]]
+    };
+    for (x, y) in [(200, 44), (44, 200), (200, 356), (356, 200), (200, 200)] {
+        assert_ne!(px(x, y), [255, 255, 255], "no fill at ({x}, {y})");
+    }
+    for (x, y) in [(200, 36), (36, 200), (60, 60), (340, 340)] {
+        assert_eq!(px(x, y), [255, 255, 255], "fill outside at ({x}, {y})");
+    }
+}
