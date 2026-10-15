@@ -7,6 +7,14 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [Unreleased]
+
+### Added
+- **`Collection` `&mut` setters.** `set_marker`, `set_sizes`, `set_facecolors`,
+  `set_edgecolors`, `set_linewidth`, `set_zorder` and `set_visible` restyle the
+  collection `Axes::scatter` returns in place, without cloning its offsets. The
+  `with_*` builders now delegate to them.
+
 ## [1.13.7] - 2026-10-08
 
 ### Changed
