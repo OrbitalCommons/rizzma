@@ -44,6 +44,14 @@ pub enum SkyProjection {
     Aitoff,
     /// The Mollweide equal-area projection (`projection="mollweide"`).
     Mollweide,
+    /// The zenithal equidistant ("fisheye") view of the sky overhead: data
+    /// is azimuth (from north through east) and altitude. The zenith sits at
+    /// the center, the horizon on the unit circle and the radius runs
+    /// linearly in altitude; north is up and east to the left, as seen
+    /// looking up at the sky.
+    ///
+    /// ![zenithal](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_sky_zenithal.png)
+    Zenithal,
 }
 
 /// A sky curve added with [`SkyAxes::plot`].
@@ -117,9 +125,14 @@ pub struct SkyAxes {
 /// `(x, y)` plane.
 ///
 /// Aitoff: `x ∈ [-π, π]`, `y ∈ [-π/2, π/2]`. Mollweide: `x ∈ [-2√2, 2√2]`,
-/// `y ∈ [-√2, √2]`. Both are 2:1.
+/// `y ∈ [-√2, √2]`. Both are 2:1. Zenithal takes `(azimuth, altitude)`
+/// and puts the sky above the horizon in the unit disk, east at `-x`.
 pub(crate) fn project(projection: SkyProjection, lon: f64, lat: f64) -> (f64, f64) {
     match projection {
+        SkyProjection::Zenithal => {
+            let r = (FRAC_PI_2 - lat) / FRAC_PI_2;
+            (-r * lon.sin(), r * lon.cos())
+        }
         SkyProjection::Aitoff => {
             // α is the angular distance from the center along the great
             // circle; sinc(α) → 1 as α → 0 keeps the center regular.
@@ -161,6 +174,7 @@ pub(crate) fn native_extents(projection: SkyProjection) -> (f64, f64) {
     match projection {
         SkyProjection::Aitoff => (PI, FRAC_PI_2),
         SkyProjection::Mollweide => (2.0 * SQRT_2, SQRT_2),
+        SkyProjection::Zenithal => (1.0, 1.0),
     }
 }
 
@@ -240,11 +254,19 @@ fn segment_interior(a: [f64; 2], b: [f64; 2]) -> impl Iterator<Item = [f64; 2]> 
 
 /// Invert [`project`]: the `(lon, lat)` (radians) at native point `(x, y)`.
 ///
-/// Points outside the projection's outline come back clamped onto it.
-/// Mollweide inverts in closed form; Aitoff, which has none, by Newton
+/// Points outside the all-sky projections' outlines come back clamped onto
+/// them; outside the zenithal horizon they come back below it. Mollweide and
+/// zenithal invert in closed form; Aitoff, which has none, by Newton
 /// iteration on the forward map from the equirectangular guess.
 pub(crate) fn unproject(projection: SkyProjection, x: f64, y: f64) -> (f64, f64) {
     match projection {
+        SkyProjection::Zenithal => {
+            // atan2 lands in (-π, π]; one turn lifts it into [0, 2π).
+            // (`rem_euclid` would cost the wasm bundle `fmod`.)
+            let az = (-x).atan2(y);
+            let az = if az < 0.0 { az + 2.0 * PI } else { az };
+            (az, FRAC_PI_2 * (1.0 - x.hypot(y)))
+        }
         SkyProjection::Mollweide => {
             let theta = (y / SQRT_2).clamp(-1.0, 1.0).asin();
             let lat = ((2.0 * theta + (2.0 * theta).sin()) / PI)
@@ -422,6 +444,16 @@ impl SkyAxes {
 
     /// Sample a graticule line: fixed-`lon` meridian (`along_lat = true`) or
     /// fixed-`lat` parallel, projected to pixels.
+    /// The lowest latitude the graticule covers: the south pole, or the
+    /// horizon for the zenithal view.
+    fn lowest_lat_deg(&self) -> i32 {
+        if self.projection == SkyProjection::Zenithal {
+            0
+        } else {
+            -90
+        }
+    }
+
     fn graticule_line(
         &self,
         fixed: f64,
@@ -429,11 +461,12 @@ impl SkyAxes {
         width: f64,
         height: f64,
     ) -> Vec<[f64; 2]> {
+        let lowest = f64::from(self.lowest_lat_deg()).to_radians();
         (0..=GRATICULE_SAMPLES)
             .map(|i| {
                 let t = i as f64 / GRATICULE_SAMPLES as f64;
                 let (lon, lat) = if along_lat {
-                    (fixed, -FRAC_PI_2 + t * PI)
+                    (fixed, lowest + t * (FRAC_PI_2 - lowest))
                 } else {
                     (-PI + t * 2.0 * PI, fixed)
                 };
@@ -452,7 +485,7 @@ impl SkyAxes {
         // 1. Graticule parallels (skipping the poles, which are points or
         // lines of zero visual weight) and meridians (skipping ±180°, which
         // trace the boundary drawn below).
-        let mut lat_deg = -90 + PARALLEL_STEP_DEG;
+        let mut lat_deg = self.lowest_lat_deg() + PARALLEL_STEP_DEG;
         while lat_deg < 90 {
             let line = self.graticule_line(f64::from(lat_deg).to_radians(), false, width, height);
             Self::stroke_polyline(renderer, &line, GRID_COLOR, 0.8);
@@ -465,18 +498,24 @@ impl SkyAxes {
             lon_deg += MERIDIAN_STEP_DEG;
         }
 
-        // 2. The sky boundary: the ±π meridians joined into a closed outline.
-        let mut boundary = self.graticule_line(PI - 1e-9, true, width, height);
-        let west = self.graticule_line(-PI + 1e-9, true, width, height);
-        boundary.extend(west.into_iter().rev());
-        if let Some(&first) = boundary.first() {
-            boundary.push(first);
-        }
+        // 2. The sky boundary: the ±π meridians joined into a closed outline,
+        // or the zenithal view's horizon.
+        let boundary = if self.projection == SkyProjection::Zenithal {
+            self.graticule_line(0.0, false, width, height)
+        } else {
+            let mut boundary = self.graticule_line(PI - 1e-9, true, width, height);
+            let west = self.graticule_line(-PI + 1e-9, true, width, height);
+            boundary.extend(west.into_iter().rev());
+            if let Some(&first) = boundary.first() {
+                boundary.push(first);
+            }
+            boundary
+        };
         Self::stroke_polyline(renderer, &boundary, SPINE_COLOR, 1.0);
 
         // 3. Labels: latitudes at the left boundary, longitudes along the
         // equator (matplotlib's convention for these projections).
-        let mut lat_deg = -90 + PARALLEL_STEP_DEG;
+        let mut lat_deg = self.lowest_lat_deg() + PARALLEL_STEP_DEG;
         while lat_deg < 90 {
             let lat = f64::from(lat_deg).to_radians();
             let (px, py) = self.to_pixel(-PI + 1e-9, lat, width, height);
@@ -600,6 +639,40 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn zenithal_unproject_inverts_project() {
+        for az_deg in (0..360).step_by(15) {
+            for alt_deg in (-20..90).step_by(10) {
+                let (az, alt) = (
+                    f64::from(az_deg).to_radians(),
+                    f64::from(alt_deg).to_radians(),
+                );
+                let (x, y) = project(SkyProjection::Zenithal, az, alt);
+                let (az2, alt2) = unproject(SkyProjection::Zenithal, x, y);
+                approx(az2, az, 1e-12);
+                approx(alt2, alt, 1e-12);
+            }
+        }
+        // Below the horizon lies outside the unit circle.
+        let (x, y) = project(SkyProjection::Zenithal, 0.3, -0.2);
+        assert!(x.hypot(y) > 1.0);
+    }
+
+    #[test]
+    fn standalone_zenithal_draws_its_horizon() {
+        let mut ax = SkyAxes::new(SkyProjection::Zenithal);
+        ax.scatter(&[0.0], &[FRAC_PI_2]);
+        let renderer = ax.render_png(400, 400, 100.0);
+        let pm = renderer.pixmap();
+        let ink = |x: u32, y: u32| pm.pixel(x, y).is_some_and(|p| p.red() < 200);
+        // The zenith marker sits at the center.
+        assert!(ink(200, 200));
+        // The horizon is a circle: inked straight above the center, and
+        // nothing in the corner beyond it.
+        assert!((0..200).any(|y| ink(200, y)));
+        assert!(!ink(30, 30));
     }
 
     #[test]

@@ -1584,5 +1584,35 @@ fn main() {
         fig.save_png("target/gallery_sky_fill.png").unwrap();
     }
 
+    // 62. zenithal fisheye — the night sky overhead: airglow brightening
+    // toward the horizon and a band of starlight crossing near the zenith,
+    // on a 2° azimuth/altitude grid, with altitude rings and N/E/S/W.
+    {
+        use rizzma::figure::Mappable;
+        let mut fig = gallery_figure(5.5, 5.0);
+        let az: Vec<f64> = (0..=180).map(|i| f64::from(2 * i).to_radians()).collect();
+        let alt: Vec<f64> = (0..=45).map(|i| f64::from(2 * i).to_radians()).collect();
+        let mut c = Vec::with_capacity(45 * 180);
+        for r in 0..45 {
+            for col in 0..180 {
+                let (a, h) = (0.5 * (az[col] + az[col + 1]), 0.5 * (alt[r] + alt[r + 1]));
+                let airglow = 21.6 - 1.2 * (-h / 0.35).exp();
+                // A great circle through the zenith region, tilted 70°.
+                let band = (h.sin() * 70f64.to_radians().cos()
+                    - h.cos() * 70f64.to_radians().sin() * (a - 0.6).sin())
+                .abs();
+                c.push(airglow - 0.6 * (-band * band / 0.03).exp());
+            }
+        }
+        let ax = fig.add_subplot(1, 1, 1);
+        ax.set_sky_projection(SkyProjection::Zenithal).grid(true);
+        ax.pcolormesh_xy(&az, &alt, &c, "cividis");
+        ax.colorbar(Mappable::Mesh(0))
+            .set_shrink(0.8)
+            .set_label("sky brightness (mag/arcsec²)");
+        ax.set_title("zenithal fisheye: night-sky brightness");
+        fig.save_png("target/gallery_sky_zenithal.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
