@@ -93,6 +93,15 @@ rainbow and cyclic maps keep it without the false contours. Reach for
 quarantined maps use the same lookup as the rest: `misleading:jet` matches
 matplotlib's `jet` to within one unit per channel.
 
+When a figure must keep a hand-rolled function's exact colors, keep the
+function. `ListedColormap::from_fn(|t| …)` samples it at 256 points into a
+colormap that every colormapped call and its colorbar accept, and
+`ListedColormap::from_colors` and `LinearSegmentedColormap::from_list` cover
+color tables and stops. `register_colormap(name, cmap)` gives such a map a
+name for code that only passes strings. A portable `.riz` carries its colors
+either way. The worked port at the end of this guide
+keeps starfield's HSL ramp this way.
+
 ![colormaps](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_colormaps.png)
 
 ## Ten idioms
@@ -537,25 +546,52 @@ chart.configure_series_labels().background_style(WHITE.mix(0.85)).border_style(B
 root.present()?;
 ```
 
-The rizzma port. The bounds helper, padding, label areas and the hand-made
-color ramp go away: limits autoscale with matplotlib's margins, the B−V
-coloring is a colormap with a colorbar that says what it means, and the fit
-line's label feeds the legend.
+The rizzma port. The bounds helper, padding and label areas go away: limits
+autoscale with matplotlib's margins, and the fit line's label feeds the
+legend. The hand-made color ramp stays, now as a colormap with a colorbar
+that says what it means.
 
-`coolwarm` here is a substitution, not a reproduction. The original's
-`HSLColor(0.7 − 0.7·t, 0.65, 0.45)` sweeps hue from blue through green and
-yellow to red at constant lightness: a hand-rolled rainbow, with the flaws
-described [above](#colormaps-the-default-and-what-replaces-jet). `coolwarm`
-keeps its blue-to-red reading, and stars that are bluer or redder in B−V
-read as such, but the pixels differ. A port that must match the old figure
-can compute the HSL colors itself and pass them with
-`ax.scatter(&hp, &g).set_facecolors(colors)`. That loses the colorbar,
-since named colormaps are what a colorbar can describe.
+This is a reproduction, not a substitution. `ListedColormap::from_fn` keeps
+the original `HSLColor(0.7 − 0.7·t, 0.65, 0.45)` function, plotters' HSL
+conversion included, sampled at 256 points like any matplotlib colormap.
+At those points its colors equal plotters' exactly. A star between them
+takes the nearest entry, within 3 units per channel of plotters' color.
+The original's `t` is B−V scaled over the data's range, which is what
+`scatter_mapped` does by default. The ramp is still a constant-lightness
+rainbow, with the flaws described
+[above](#colormaps-the-default-and-what-replaces-jet); for a new figure,
+`"coolwarm"` or `"cet_d01"` read blue-to-red without them.
 
 ```rust
 # // migrate: hipparcos
 use rizzma::Figure;
+use rizzma::core::color::{ListedColormap, Rgba};
 use rizzma::figure::Mappable;
+
+/// starfield's B−V color, plotters' `HSLColor(0.7 − 0.7·t, 0.65, 0.45)`,
+/// converted to RGB as plotters does.
+fn starfield_bv(t: f64) -> Rgba {
+    let (h, s, l) = (0.7 - 0.7 * t, 0.65, 0.45);
+    let q = if l < 0.5 {
+        l * (1.0 + s)
+    } else {
+        l + s - l * s
+    };
+    let p = 2.0 * l - q;
+    let channel = |t: f64| {
+        let t = t.rem_euclid(1.0);
+        if t < 1.0 / 6.0 {
+            p + (q - p) * 6.0 * t
+        } else if t < 1.0 / 2.0 {
+            q
+        } else if t < 2.0 / 3.0 {
+            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+        } else {
+            p
+        }
+    };
+    Rgba::rgb(channel(h + 1.0 / 3.0), channel(h), channel(h - 1.0 / 3.0))
+}
 
 /// G against Hp, colored by B−V, with the fitted relation at the mean B−V.
 fn plot_g_vs_hp(data: &[(f64, f64, f64)], coef: (f64, f64, f64), rms: f64) -> Figure {
@@ -573,7 +609,7 @@ fn plot_g_vs_hp(data: &[(f64, f64, f64)], coef: (f64, f64, f64), rms: f64) -> Fi
 
     let mut fig = Figure::new(8.0, 6.0);
     let ax = fig.add_subplot(1, 1, 1);
-    ax.scatter_mapped(&hp, &g, &bv, "coolwarm")
+    ax.scatter_mapped(&hp, &g, &bv, ListedColormap::from_fn(starfield_bv))
         .set_sizes(vec![4.0]);
     ax.plot(&fit_hp, &fit_g)
         .set_linewidth(2.0)
@@ -608,6 +644,11 @@ let data: Vec<(f64, f64, f64)> = (0..1500)
     .collect();
 let fig = plot_g_vs_hp(&data, (-0.2, 1.0, -0.3), 0.035);
 # assert!(!fig.encode_png().unwrap().is_empty());
+# // The ramp matches plotters at the ends and the middle (the full check is
+# // tests/custom_colormaps.rs).
+# assert_eq!(starfield_bv(0.0).to_u8_array(), [70, 40, 189, 255]);
+# assert_eq!(starfield_bv(127.0 / 255.0).to_u8_array(), [40, 189, 56, 255]);
+# assert_eq!(starfield_bv(1.0).to_u8_array(), [189, 40, 40, 255]);
 ```
 
 ![hipparcos](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_migrate_hipparcos.png)

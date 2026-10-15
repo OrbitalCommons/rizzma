@@ -23,7 +23,6 @@ use crate::axis::ticker::{
     FixedLocator, FuncFormatter, LogLocator, MaxNLocator, NBins, ScalarFormatter,
     SymlogFormatterMathtext, SymlogLocator,
 };
-use crate::core::color::mapping::resolve_cmap;
 use crate::core::color::{ColorScale, Norm, Normalize, Rgba};
 use crate::core::{Affine2D, Bbox, Path};
 use crate::render::{GraphicsContext, Renderer};
@@ -364,7 +363,7 @@ impl Colorbar {
 
         // Slice i spans [i, i + 1] / SLICES of the long axis, which the
         // axis' scale maps back to data; each takes that data's color.
-        let cmap = resolve_cmap(&scale.cmap);
+        let cmap = scale.cmap.resolve();
         let to_long = axis.scale();
         let (lo, hi) = (to_long.transform(range.0), to_long.transform(range.1));
         let id = Affine2D::identity();

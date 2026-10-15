@@ -7,9 +7,9 @@
 //! image's data-space `extent`. Resampling is nearest-neighbour, hand-rolled so
 //! the crate takes on no new dependencies.
 
-use crate::core::color::mapping::resolve_cmap;
 use crate::core::color::{
-    ColorScale, Colormap, DEFAULT_COLORMAP, Extremes, LinearNorm, Norm, Normalize, Rgba, map_color,
+    CmapSpec, ColorScale, Colormap, DEFAULT_COLORMAP, Extremes, LinearNorm, Norm, Normalize, Rgba,
+    map_color,
 };
 use crate::core::{Affine2D, Bbox};
 use crate::render::{GraphicsContext, Renderer};
@@ -38,9 +38,9 @@ pub struct AxesImage {
     vmin: f64,
     /// Upper normalization bound, mapped to colormap position `1.0`.
     vmax: f64,
-    /// Name of the colormap to colorize through (see
-    /// [`colormap`](crate::core::color::colormap)).
-    cmap_name: String,
+    /// The colormap to colorize through: a name (see
+    /// [`colormap`](crate::core::color::colormap)) or a colormap of your own.
+    cmap: CmapSpec,
     /// An explicit norm, which supersedes `vmin`/`vmax`.
     norm: Option<Norm>,
     /// Colors for bad, over and under values.
@@ -84,7 +84,7 @@ impl AxesImage {
             extent: [0.0, ncols as f64, 0.0, nrows as f64],
             vmin,
             vmax,
-            cmap_name: DEFAULT_COLORMAP.to_string(),
+            cmap: CmapSpec::from(DEFAULT_COLORMAP),
             norm: None,
             extremes: Extremes::default(),
             origin_upper: true,
@@ -121,11 +121,11 @@ impl AxesImage {
         Ok(())
     }
 
-    /// Set the colormap name (see
-    /// [`colormap`](crate::core::color::colormap)), returning `self`.
+    /// Set the colormap, a name (see
+    /// [`colormap`](crate::core::color::colormap)) or a colormap value, returning `self`.
     #[must_use]
-    pub fn with_cmap(mut self, cmap_name: impl Into<String>) -> Self {
-        self.cmap_name = cmap_name.into();
+    pub fn with_cmap(mut self, cmap: impl Into<CmapSpec>) -> Self {
+        self.cmap = cmap.into();
         self
     }
 
@@ -165,10 +165,11 @@ impl AxesImage {
         self
     }
 
-    /// Set the colormap name in place, returning `&mut self` for chaining on a
-    /// handle obtained from an axes (e.g. `ax.imshow(..).cmap("gray")`).
-    pub fn cmap(&mut self, cmap_name: impl Into<String>) -> &mut Self {
-        self.cmap_name = cmap_name.into();
+    /// Set the colormap (a name or a colormap value) in place, returning
+    /// `&mut self` for chaining on a handle obtained from an axes (e.g.
+    /// `ax.imshow(..).cmap("gray")`).
+    pub fn cmap(&mut self, cmap: impl Into<CmapSpec>) -> &mut Self {
+        self.cmap = cmap.into();
         self
     }
 
@@ -251,7 +252,7 @@ impl AxesImage {
     #[must_use]
     pub fn color_scale(&self) -> ColorScale {
         ColorScale {
-            cmap: self.cmap_name.clone(),
+            cmap: self.cmap.clone(),
             norm: self.active_norm(),
             extremes: self.extremes,
         }
@@ -289,7 +290,7 @@ impl AxesImage {
             return [0, 0, 0, 0];
         }
         let norm = self.active_norm();
-        let cmap = resolve_cmap(&self.cmap_name);
+        let cmap = self.cmap.resolve();
         let value = self.data[row * self.ncols + col];
         self.colorize(value, &norm, cmap.as_ref())
     }
@@ -368,7 +369,7 @@ impl Artist for AxesImage {
         let h_px = h_px as usize;
 
         let norm = self.active_norm();
-        let cmap = resolve_cmap(&self.cmap_name);
+        let cmap = self.cmap.resolve();
 
         let mut rgba = vec![0u8; w_px * h_px * 4];
         for ty in 0..h_px {
@@ -434,7 +435,7 @@ impl AxesImage {
             extent: self.extent,
             vmin: self.vmin,
             vmax: self.vmax,
-            cmap: self.cmap_name.clone(),
+            cmap: self.cmap.to_wire(),
             norm: self.norm.clone(),
             bad: self.extremes.bad,
             over: self.extremes.over,
@@ -468,7 +469,7 @@ impl AxesImage {
             extent: spec.extent,
             vmin: spec.vmin,
             vmax: spec.vmax,
-            cmap_name: spec.cmap.clone(),
+            cmap: CmapSpec::from_wire(&spec.cmap)?,
             norm: spec.norm.clone(),
             extremes: Extremes {
                 bad: spec.bad,

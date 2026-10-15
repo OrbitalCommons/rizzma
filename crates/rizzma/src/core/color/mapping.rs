@@ -7,7 +7,10 @@
 //! color and above `1` the *over* color, falling back to the colormap's ends
 //! when they are unset, which is matplotlib's `Colormap.__call__`.
 
-use super::{Colormap, DEFAULT_COLORMAP, LinearNorm, Norm, Normalize, Rgba};
+use super::{
+    CmapSpec, Colormap, DEFAULT_COLORMAP, LinearNorm, LinearSegmentedColormap, ListedColormap,
+    Norm, Normalize, Rgba,
+};
 
 /// Colors for values a colormap cannot place: matplotlib's
 /// `Colormap.with_extremes(bad=…, over=…, under=…)`.
@@ -76,7 +79,7 @@ pub fn map_color(
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColorMapping {
-    cmap: String,
+    cmap: CmapSpec,
     norm: Option<Norm>,
     vmin: Option<f64>,
     vmax: Option<f64>,
@@ -101,11 +104,30 @@ impl From<String> for ColorMapping {
     }
 }
 
+impl From<CmapSpec> for ColorMapping {
+    fn from(cmap: CmapSpec) -> Self {
+        Self::new(cmap)
+    }
+}
+
+impl From<ListedColormap> for ColorMapping {
+    fn from(cmap: ListedColormap) -> Self {
+        Self::new(cmap)
+    }
+}
+
+impl From<LinearSegmentedColormap> for ColorMapping {
+    fn from(cmap: LinearSegmentedColormap) -> Self {
+        Self::new(cmap)
+    }
+}
+
 impl ColorMapping {
-    /// A linear mapping over the data's range through the named colormap
-    /// (an unknown name falls back to the default map).
+    /// A linear mapping over the data's range through `cmap`: a colormap
+    /// name (an unknown one falls back to the default map) or a colormap of
+    /// your own.
     #[must_use]
-    pub fn new(cmap: impl Into<String>) -> Self {
+    pub fn new(cmap: impl Into<CmapSpec>) -> Self {
         Self {
             cmap: cmap.into(),
             norm: None,
@@ -157,9 +179,9 @@ impl ColorMapping {
         self
     }
 
-    /// The colormap name.
+    /// The colormap, by name or value.
     #[must_use]
-    pub fn cmap_name(&self) -> &str {
+    pub fn cmap(&self) -> &CmapSpec {
         &self.cmap
     }
 
@@ -197,13 +219,13 @@ impl ColorMapping {
     }
 }
 
-/// A resolved color mapping — colormap name, a concrete [`Norm`], and
+/// A resolved color mapping — the colormap, a concrete [`Norm`], and
 /// [`Extremes`] — as a colormapped artist keeps it so a
 /// [`Colorbar`](crate::figure::Colorbar) can describe the artist exactly.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColorScale {
-    /// The colormap name (see [`colormap`](super::colormap)).
-    pub cmap: String,
+    /// The colormap, by name or value (see [`colormap`](super::colormap)).
+    pub cmap: CmapSpec,
     /// The norm the data were mapped through.
     pub norm: Norm,
     /// Colors for bad, over and under values.
@@ -217,7 +239,7 @@ impl ColorScale {
         map_color(
             value,
             &self.norm,
-            resolve_cmap(&self.cmap).as_ref(),
+            self.cmap.resolve().as_ref(),
             &self.extremes,
         )
     }
@@ -225,7 +247,7 @@ impl ColorScale {
     /// The colors of `data`.
     #[must_use]
     pub fn colors(&self, data: &[f64]) -> Vec<Rgba> {
-        let cmap = resolve_cmap(&self.cmap);
+        let cmap = self.cmap.resolve();
         data.iter()
             .map(|&v| map_color(v, &self.norm, cmap.as_ref(), &self.extremes))
             .collect()
