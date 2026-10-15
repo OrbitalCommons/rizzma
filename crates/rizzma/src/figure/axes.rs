@@ -29,6 +29,7 @@ use crate::core::{Affine2D, Bbox, Path};
 use crate::render::{ClippedRenderer, GraphicsContext, Renderer};
 use crate::text::FontSource;
 
+use crate::figure::legend::ArtistKind;
 use crate::figure::richtext::layout_rich_text;
 
 /// Default fractional margin added on each side of the autoscaled data limits.
@@ -372,6 +373,12 @@ pub struct Axes {
     pub(crate) patches: Vec<Patch>,
     /// Scatter [`Collection`] artists, drawn in ascending zorder.
     pub(crate) collections: Vec<Collection>,
+    /// The kind of every line, patch and collection in the order they were
+    /// added — the k-th [`ArtistKind::Line`] is `lines[k]`, and so on — so
+    /// [`legend_auto`](Axes::legend_auto) lists rows in insertion order, as
+    /// matplotlib does. Maintained by `push_line`, `push_patch`,
+    /// `push_collection` and `remove_line`.
+    pub(crate) artist_order: Vec<ArtistKind>,
     /// Colormapped raster images, drawn beneath the other artists.
     pub(crate) images: Vec<AxesImage>,
     /// Colormapped quad meshes (`pcolormesh`), drawn beneath the other artists.
@@ -557,6 +564,7 @@ impl Axes {
             lines: Vec::new(),
             patches: Vec::new(),
             collections: Vec::new(),
+            artist_order: Vec::new(),
             images: Vec::new(),
             meshes: Vec::new(),
             contour_label_candidates: Vec::new(),
@@ -664,9 +672,7 @@ impl Axes {
     pub fn plot(&mut self, x: &[f64], y: &[f64]) -> &mut Line2D {
         let color = self.next_cycle_color();
         self.stick_x_extremes(x);
-        self.lines
-            .push(Line2D::new(x.to_vec(), y.to_vec()).with_color(color));
-        self.lines.last_mut().expect("just pushed a line")
+        self.push_line(Line2D::new(x.to_vec(), y.to_vec()).with_color(color))
     }
 
     /// Plot `y` against `x` as a new [`Line2D`] with an explicit `color`,
@@ -676,15 +682,50 @@ impl Axes {
     /// property cycle: the given color always wins.
     pub fn plot_with_color(&mut self, x: &[f64], y: &[f64], color: Rgba) -> &mut Line2D {
         self.stick_x_extremes(x);
-        self.lines
-            .push(Line2D::new(x.to_vec(), y.to_vec()).with_color(color));
-        self.lines.last_mut().expect("just pushed a line")
+        self.push_line(Line2D::new(x.to_vec(), y.to_vec()).with_color(color))
     }
 
     /// Add a pre-built [`Line2D`], returning a mutable reference to it.
     pub fn add_line(&mut self, line: Line2D) -> &mut Line2D {
+        self.push_line(line)
+    }
+
+    /// Append a line, recording its place in `artist_order`.
+    /// Every line, patch and collection enters the axes through these pushes.
+    pub(crate) fn push_line(&mut self, line: Line2D) -> &mut Line2D {
+        self.artist_order.push(ArtistKind::Line);
         self.lines.push(line);
         self.lines.last_mut().expect("just pushed a line")
+    }
+
+    /// Append a patch, recording its place in the artist order.
+    pub(crate) fn push_patch(&mut self, patch: Patch) -> &mut Patch {
+        self.artist_order.push(ArtistKind::Patch);
+        self.patches.push(patch);
+        self.patches.last_mut().expect("just pushed a patch")
+    }
+
+    /// Append a collection, recording its place in the artist order.
+    pub(crate) fn push_collection(&mut self, collection: Collection) -> &mut Collection {
+        self.artist_order.push(ArtistKind::Collection);
+        self.collections.push(collection);
+        self.collections
+            .last_mut()
+            .expect("just pushed a collection")
+    }
+
+    /// Remove line `index`, dropping its entry from the artist order.
+    pub(crate) fn remove_line(&mut self, index: usize) -> Line2D {
+        let slot = self
+            .artist_order
+            .iter()
+            .enumerate()
+            .filter(|(_, kind)| **kind == ArtistKind::Line)
+            .nth(index)
+            .map(|(slot, _)| slot)
+            .expect("artist order tracks every line");
+        self.artist_order.remove(slot);
+        self.lines.remove(index)
     }
 
     /// The `(x, y)` samples of line `index`, or `None` if there is no such
@@ -844,8 +885,7 @@ impl Axes {
 
     /// Add a [`Patch`], returning a mutable reference to it.
     pub fn add_patch(&mut self, patch: Patch) -> &mut Patch {
-        self.patches.push(patch);
-        self.patches.last_mut().expect("just pushed a patch")
+        self.push_patch(patch)
     }
 
     /// Fold the rectangle `[xmin, xmax] x [ymin, ymax]` into autoscaling without
@@ -2829,6 +2869,7 @@ impl Axes {
                 .iter()
                 .map(|c| c.to_portable(bank))
                 .collect(),
+            artist_order: ArtistKind::order_to_portable(&self.artist_order),
             images: self.images.iter().map(|i| i.to_portable(bank)).collect(),
             meshes: self.meshes.iter().map(|m| m.to_portable(bank)).collect(),
             extra_data_bbox: self.extra_data_bbox,
@@ -2852,7 +2893,7 @@ impl Axes {
             scope: self.scope,
             span_lines: self.span_lines.clone(),
             span_rects: self.span_rects.clone(),
-            legend: self.legend.clone(),
+            legend: self.legend.iter().map(|e| e.to_portable(bank)).collect(),
         })
     }
 
@@ -2898,6 +2939,7 @@ impl Axes {
                 .iter()
                 .map(|c| Collection::from_portable(c, reader))
                 .collect::<Result<_, _>>()?,
+            artist_order: ArtistKind::order_from_portable(spec)?,
             images: spec
                 .images
                 .iter()
@@ -2928,7 +2970,11 @@ impl Axes {
             prop_cycle_index: spec.prop_cycle_index,
             span_lines: spec.span_lines.clone(),
             span_rects: spec.span_rects.clone(),
-            legend: spec.legend.clone(),
+            legend: spec
+                .legend
+                .iter()
+                .map(|e| crate::figure::legend::LegendEntry::from_portable(e, reader))
+                .collect::<Result<_, _>>()?,
             legend_title: spec.legend_title.clone(),
             legend_location: spec.legend_location,
         })

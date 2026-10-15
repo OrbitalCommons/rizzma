@@ -1267,5 +1267,40 @@ fn main() {
         fig.save_png("target/gallery_text_color.png").unwrap();
     }
 
+    // 55. legend_auto with scatter rows — measurements keyed by a marker,
+    // the fitted model by a line, in the order they were added.
+    {
+        let mut fig = gallery_figure(5.0, 3.5);
+        let mut noise = rng(55);
+        let x = linspace(0.5, 9.5, 28);
+        let model = |t: f64| 4.0 * (-t / 3.5).exp() + 0.6;
+        let y: Vec<f64> = x
+            .iter()
+            .map(|&t| model(t) + 0.35 * (noise() - 0.5))
+            .collect();
+        let ax = fig.add_subplot(1, 1, 1);
+        ax.scatter(&x, &y)
+            .set_sizes(vec![5.0])
+            .set_label("measured");
+        let fit_x = linspace(0.0, 10.0, 200);
+        let fit_y: Vec<f64> = fit_x.iter().map(|&t| model(t)).collect();
+        ax.plot(&fit_x, &fit_y).set_label("model");
+        let square = rizzma::artist::MarkerStyle::from_char('s')
+            .unwrap()
+            .path()
+            .clone();
+        ax.scatter(&[2.2, 7.1], &[3.4, 2.1])
+            .set_marker(square)
+            .set_sizes(vec![6.0])
+            .set_facecolors(vec![Rgba::WHITE])
+            .set_edgecolors(vec![c(3)])
+            .set_label("rejected");
+        ax.legend_auto();
+        ax.set_title("legend_auto: scatter rows keyed by their marker");
+        ax.set_xlabel("time (h)");
+        ax.set_ylabel("flux");
+        fig.save_png("target/gallery_legend_auto.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

@@ -1195,6 +1195,7 @@ impl Figure {
             !spec.controls.is_empty(),
             crate::portable::spec::uses_axis_styling(&spec.figure),
             crate::portable::spec::uses_text_sizes(&spec.figure),
+            crate::portable::spec::uses_legend_markers(&spec.figure),
         );
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(

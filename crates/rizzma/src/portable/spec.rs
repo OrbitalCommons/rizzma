@@ -37,7 +37,7 @@ use crate::figure::axes::{Annotation, SecondaryXAxis, SpanLine, SpanRect};
 #[cfg(feature = "portable")]
 use crate::figure::colorbar::Colorbar;
 #[cfg(feature = "portable")]
-use crate::figure::legend::{LegendEntry, LegendLocation};
+use crate::figure::legend::{ArtistKind, LegendLocation};
 #[cfg(feature = "portable")]
 use crate::figure::plotting_contour::ContourLabelCandidate;
 #[cfg(feature = "portable")]
@@ -95,6 +95,15 @@ pub(crate) fn uses_axis_styling(figure: &FigureSpec) -> bool {
 #[cfg(feature = "portable")]
 pub(crate) fn uses_text_sizes(figure: &FigureSpec) -> bool {
     figure.suptitle_size.is_some() || figure.axes.iter().any(|axes| axes.text_size.is_some())
+}
+
+/// Whether any axes carries schema-7 legend data: a scatter marker sample or a
+/// recorded artist order.
+#[cfg(feature = "portable")]
+pub(crate) fn uses_legend_markers(figure: &FigureSpec) -> bool {
+    figure.axes.iter().any(|axes| {
+        axes.artist_order.is_some() || axes.legend.iter().any(|entry| entry.marker.is_some())
+    })
 }
 
 /// Wire mirror of [`Figure`](crate::figure::Figure).
@@ -174,7 +183,25 @@ pub(crate) struct AxesSpec {
     pub(crate) scope: bool,
     pub(crate) span_lines: Vec<SpanLine>,
     pub(crate) span_rects: Vec<SpanRect>,
-    pub(crate) legend: Vec<LegendEntry>,
+    pub(crate) legend: Vec<LegendEntrySpec>,
+    /// The order the lines, patches and collections were added in, present
+    /// only when it is not lines-then-patches-then-collections. Absent before
+    /// schema 7, which introduced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) artist_order: Option<Vec<ArtistKind>>,
+}
+
+/// Wire mirror of a legend row.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg(feature = "portable")]
+pub(crate) struct LegendEntrySpec {
+    pub(crate) color: Rgba,
+    pub(crate) label: String,
+    /// The one-marker sample of a scatter row. Absent before schema 7, which
+    /// introduced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) marker: Option<CollectionSpec>,
 }
 
 /// Wire mirror of [`Axis`](crate::axis::axis::Axis), with the three trait
@@ -271,7 +298,7 @@ pub(crate) struct CollectionSpec {
     pub(crate) linewidth: f64,
     pub(crate) visible: bool,
     pub(crate) zorder: f64,
-    /// Reserved for per-artist legend labels (issue #286); always `None` today.
+    /// Per-artist legend label, collected by `Axes::legend_auto`.
     pub(crate) label: Option<String>,
 }
 

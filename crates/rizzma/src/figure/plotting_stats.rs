@@ -58,10 +58,7 @@ impl Axes {
         let face = cycle_color(self.prop_cycle_index);
         self.prop_cycle_index += 1;
         let coll = Collection::scatter(offsets).with_facecolors(vec![face]);
-        self.collections.push(coll);
-        self.collections
-            .last_mut()
-            .expect("just pushed a collection")
+        self.push_collection(coll)
     }
 
     /// Scatter `y` against `x` with per-point face colors mapped from `c`.
@@ -86,10 +83,7 @@ impl Axes {
         let cmap = colormap(cmap_name).unwrap_or_else(|| Box::new(default_colormap()));
         let facecolors = to_rgba_array(&c[..n], &norm, &*cmap);
         let coll = Collection::scatter(offsets).with_facecolors(facecolors);
-        self.collections.push(coll);
-        self.collections
-            .last_mut()
-            .expect("just pushed a collection")
+        self.push_collection(coll)
     }
 
     /// Draw a histogram of `data` over `bins` equal-width bins.

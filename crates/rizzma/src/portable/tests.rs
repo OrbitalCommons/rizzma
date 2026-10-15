@@ -1980,7 +1980,7 @@ fn schema_cannot_be_under_declared() {
     // runtime watches it rejected for the unknown field. Both inspection and
     // import refuse the lie.
     let bytes = controlled_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":6", "\"schema\":3"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":7", "\"schema\":3"));
 
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -1997,7 +1997,7 @@ fn schema_cannot_be_under_declared() {
 
     // The same floor applies one level down: a timeline needs schema 3.
     let bytes = animated_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":6", "\"schema\":2"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":7", "\"schema\":2"));
     let Err(err) = Figure::from_portable(&forged) else {
         panic!("a timeline under schema 3 must not import");
     };
@@ -2013,7 +2013,7 @@ fn schema_cannot_be_under_declared() {
     ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
     ax.minorticks_on();
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":6", "\"schema\":4"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":7", "\"schema\":4"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2032,7 +2032,7 @@ fn schema_cannot_be_under_declared() {
     fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
     fig.suptitle("sized").set_suptitle_size(20.0);
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":6", "\"schema\":5"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":7", "\"schema\":5"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2045,6 +2045,65 @@ fn schema_cannot_be_under_declared() {
             "{err}"
         );
     }
+
+    // Scatter legend samples and the artist order are schema 7.
+    let bytes = scatter_legend_figure().to_portable().expect("export");
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":7", "\"schema\":6"));
+    for result in [
+        Figure::from_portable(&forged).map(|_| ()),
+        crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
+    ] {
+        let Err(err) = result else {
+            panic!("legend markers under schema 7 must not be accepted");
+        };
+        assert!(
+            matches!(&err, PortableError::Malformed(m) if m.contains("requiring schema 7")),
+            "{err}"
+        );
+    }
+}
+
+/// A scatter added before a line, both labelled, with an automatic legend.
+fn scatter_legend_figure() -> Figure {
+    let mut fig = Figure::new(4.0, 3.0);
+    let ax = fig.add_subplot(1, 1, 1);
+    ax.scatter(&[0.0, 1.0, 2.0], &[1.0, 0.0, 2.0])
+        .set_sizes(vec![4.0, 10.0])
+        .set_label("data");
+    ax.plot(&[0.0, 2.0], &[0.0, 2.0]).set_label("model");
+    ax.legend_auto();
+    fig
+}
+
+#[test]
+fn scatter_legend_round_trips() {
+    let fig = scatter_legend_figure();
+    let bytes = fig.to_portable().expect("export");
+    let json = String::from_utf8_lossy(&bytes);
+    assert!(json.contains("\"artist_order\":[\"collection\",\"line\"]"));
+    assert!(json.contains("\"label\":\"data\",\"marker\":{"));
+
+    let mut back = Figure::from_portable(&bytes).expect("import");
+    assert_eq!(back.to_portable().expect("re-export"), bytes);
+    assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
+
+    // The imported axes still knows the scatter came first.
+    let ax = &mut back.axes_mut()[0];
+    ax.legend_auto();
+    let labels: Vec<&str> = ax.legend.iter().map(|e| e.label.as_str()).collect();
+    assert_eq!(labels, ["data", "model"]);
+
+    // Lines-then-patches-then-collections, with line-only legends, writes
+    // neither schema-7 field.
+    let mut plain = Figure::new(4.0, 3.0);
+    let ax = plain.add_subplot(1, 1, 1);
+    ax.plot(&[0.0, 1.0], &[0.0, 1.0]).set_label("line");
+    ax.scatter(&[0.0, 1.0], &[1.0, 0.0]);
+    ax.legend_auto();
+    let plain = plain.to_portable().expect("export");
+    let json = String::from_utf8_lossy(&plain);
+    assert!(!json.contains("artist_order"));
+    assert!(json.contains("\"label\":\"line\"}]"));
 }
 
 #[test]
