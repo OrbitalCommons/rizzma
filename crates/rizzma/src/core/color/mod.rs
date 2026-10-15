@@ -23,9 +23,9 @@ pub mod norm;
 pub use astro::{ImageNormalize, Interval, Stretch, ZScaleInterval};
 pub use cmap::{
     Colormap, DEFAULT_COLORMAP, LinearSegmentedColormap, ListedColormap, SegmentPoint,
-    VIRIDIS_DATA, cet_c1, cet_c2, cet_c3, cet_c5, cet_d01, cet_d04, cet_d07, cet_d11, cet_i1,
-    cet_l01, cet_l03, cet_l05, cet_l09, cet_l10, cet_r2, cividis, colormap, coolwarm,
-    default_colormap, gray, inferno, magma, plasma, rdbu, viridis,
+    UnknownColormap, VIRIDIS_DATA, cet_c1, cet_c2, cet_c3, cet_c5, cet_d01, cet_d04, cet_d07,
+    cet_d11, cet_i1, cet_l01, cet_l03, cet_l05, cet_l09, cet_l10, cet_r2, cividis, colormap,
+    coolwarm, default_colormap, gray, inferno, magma, plasma, rdbu, try_colormap, viridis,
 };
 pub use mapping::{ColorMapping, ColorScale, Extremes, map_color};
 pub use named::{BASE_COLORS, CSS4_COLORS, DEFAULT_COLOR_CYCLE, TABLEAU_COLORS, to_rgba};

@@ -75,7 +75,15 @@ Two differences from matplotlib matter when you port colored plots:
 Watch for one trap when porting: a colormap name that doesn't resolve,
 bare `"jet"` included, falls back to the `bgyw` default rather than failing,
 so a plot never comes out blank. A ported `.cmap("jet")` therefore renders
-bgyw without complaint. `colormap(name).is_some()` checks a name up front.
+bgyw. rizzma reports it once per name, on stderr (or the browser console),
+with what to use instead:
+
+```text
+rizzma: unknown colormap "jet"; did you mean "misleading:jet" or "cet_r2"? (drawing with the default "bgyw")
+```
+
+`try_colormap(name)` returns that as an error, for code that would rather
+fail.
 
 Projects that hand-roll a jet-like or HSL hue sweep (fivepoints, andam and
 xdl among the plotters users surveyed) should pick from the middle column.

@@ -114,11 +114,20 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   silent fallback for unknown names.
 - `misleading:jet` joins viridis and coolwarm in the colormap lookup test against
   matplotlib, so the quarantined maps' lookup is checked too.
+- **`try_colormap(name)`** returns the map, or an `UnknownColormap` error that
+  names what to use instead. For a quarantined vendor map that is both the
+  `misleading:` form and its perceptually uniform replacement (`jet`/`rainbow` →
+  `misleading:jet` or `cet_r2`, `hot` → `cet_l03`, `hsv` → `cet_c1`); otherwise it is
+  the registry names within two edits.
 - **`Axes::pcolormesh_xy(x, y, c, mapping)`** draws a mesh over explicit cell edges
   (`ncols + 1` x edges and `nrows + 1` y edges, unevenly spaced if need be), such as
   a longitude/latitude grid on a sky projection.
 
 ### Changed
+- **An unknown colormap name is reported** once per name per process: on stderr
+  natively, `console.warn` in the browser, with the suggestions `try_colormap` gives.
+  It still draws with the `bgyw` default, so renders are unchanged; the standalone
+  `Figure::colorbar(name, ..)` still draws nothing for one.
 - **The embedded DejaVu Sans is stored zlib-compressed** (379 KB instead of 756 KB in
   every binary and wasm bundle) and inflated once on first use, through
   `miniz_oxide`, which `png` already brought in. Every default `FontSource` (so
