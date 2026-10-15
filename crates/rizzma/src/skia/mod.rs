@@ -186,6 +186,18 @@ impl SkiaRenderer {
         Some(mask)
     }
 
+    /// The pixmap pixels `[x0, x1) x [y0, y1)` a clip rectangle `bbox` covers
+    /// entirely — its mask is 255 there, so drawing inside needs no mask.
+    fn covered_interior(&self, bbox: &Bbox) -> [i64; 4] {
+        let height = f64::from(self.pixmap.height());
+        [
+            bbox.xmin().ceil() as i64,
+            (height - bbox.ymax()).ceil() as i64,
+            bbox.xmax().floor() as i64,
+            (height - bbox.ymin()).floor() as i64,
+        ]
+    }
+
     /// Ensure [`SkiaRenderer::clip_cache`] holds the mask for `gc.clip_rect`.
     ///
     /// Every artist inside one axes draws with the same clip rectangle (and
@@ -204,6 +216,271 @@ impl SkiaRenderer {
         self.clip_cache = Self::build_clip_mask(self.pixmap.width(), self.pixmap.height(), &bbox)
             .map(|mask| (bbox, mask));
     }
+}
+
+/// Fill (with `fill`) then stroke (with `gc`'s stroke) `sk_path` on `target`,
+/// through `transform` and `mask`, at `dpi` for line widths and dashes.
+fn paint_path(
+    target: &mut Pixmap,
+    sk_path: &tiny_skia::Path,
+    gc: &GraphicsContext,
+    fill: Option<Rgba>,
+    dpi: f64,
+    transform: Transform,
+    mask: Option<&Mask>,
+) {
+    let anti_alias = gc.antialiased;
+    if let Some(face) = fill {
+        let mut paint = Paint {
+            anti_alias,
+            ..Paint::default()
+        };
+        paint.set_color(to_color(face, gc.alpha));
+        target.fill_path(sk_path, &paint, FillRule::Winding, transform, mask);
+    }
+
+    if let Some(stroke_color) = gc.stroke {
+        let width = gc.line_width * dpi / 72.0;
+        let bounds = sk_path.bounds();
+        let has_extent = bounds.width() > 0.0 || bounds.height() > 0.0;
+        if width > 0.0 && has_extent {
+            let mut paint = Paint {
+                anti_alias,
+                ..Paint::default()
+            };
+            paint.set_color(to_color(stroke_color, gc.alpha));
+            let dash = gc.dashes.as_ref().and_then(|(offset, pattern)| {
+                let scale = dpi / 72.0;
+                let array: Vec<f32> = pattern.iter().map(|d| (d * scale) as f32).collect();
+                StrokeDash::new(array, (offset * scale) as f32)
+            });
+            let stroke = Stroke {
+                width: width as f32,
+                line_cap: to_line_cap(gc.cap),
+                line_join: to_line_join(gc.join),
+                dash,
+                ..Stroke::default()
+            };
+            target.stroke_path(sk_path, &paint, &stroke, transform, mask);
+        }
+    }
+}
+
+/// How finely [`SkiaRenderer::draw_markers`] places markers within a pixel:
+/// each point snaps to the nearest 1/`SUBPIXEL_PHASES` of a pixel, and each
+/// phase in use gets its own sprite (at most 4096 of them).
+const SUBPIXEL_PHASES: u32 = 64;
+
+/// Below this many markers [`SkiaRenderer::draw_markers`] draws each one
+/// exactly: the sprites would cost about as much as the markers they save.
+const SPRITE_MIN_POINTS: usize = 10_000;
+
+/// The sprites of one marker style, rasterized as each sub-pixel phase is
+/// first needed.
+struct MarkerAtlas<'a> {
+    marker: tiny_skia::Path,
+    gc: &'a GraphicsContext,
+    fill: Option<Rgba>,
+    dpi: f64,
+    sprites: Vec<Option<Option<MarkerSprite>>>,
+}
+
+impl<'a> MarkerAtlas<'a> {
+    fn new(marker: tiny_skia::Path, gc: &'a GraphicsContext, fill: Option<Rgba>, dpi: f64) -> Self {
+        let phases = (SUBPIXEL_PHASES * SUBPIXEL_PHASES) as usize;
+        Self {
+            marker,
+            gc,
+            fill,
+            dpi,
+            sprites: (0..phases).map(|_| None).collect(),
+        }
+    }
+
+    /// The sprite with the marker origin `(kx, ky) / SUBPIXEL_PHASES` past a
+    /// pixel corner; `None` if the marker draws nothing.
+    fn sprite(&mut self, kx: u32, ky: u32) -> Option<&MarkerSprite> {
+        let slot = &mut self.sprites[(ky * SUBPIXEL_PHASES + kx) as usize];
+        if slot.is_none() {
+            let q = f64::from(SUBPIXEL_PHASES);
+            let phase = (f64::from(kx) / q, f64::from(ky) / q);
+            *slot = Some(MarkerSprite::new(
+                &self.marker,
+                self.gc,
+                self.fill,
+                self.dpi,
+                phase,
+            ));
+        }
+        slot.as_ref().and_then(Option::as_ref)
+    }
+}
+
+/// A clip mask, with the rectangle of pixels it covers fully.
+struct Clip<'a> {
+    mask: &'a Mask,
+    interior: [i64; 4],
+}
+
+/// A marker rasterized once for [`SkiaRenderer::draw_markers`], with the
+/// marker's origin at its phase past the corner of pixel `(cx, cy)`: the
+/// fill and the stroke as separate premultiplied layers (tiny-skia composites
+/// them one after the other, and so must the stamp), each with its rows'
+/// inked spans.
+struct MarkerSprite {
+    layers: Vec<SpriteLayer>,
+    cx: i64,
+    cy: i64,
+    width: i64,
+    height: i64,
+}
+
+/// One layer of a [`MarkerSprite`].
+struct SpriteLayer {
+    pixmap: Pixmap,
+    /// Per row, the half-open column range holding non-transparent pixels.
+    spans: Vec<(i64, i64)>,
+}
+
+impl SpriteLayer {
+    /// `paint` drawn into a fresh `width` x `height` layer; `None` when it
+    /// leaves the layer empty.
+    fn paint(width: u32, height: u32, paint: impl FnOnce(&mut Pixmap)) -> Option<Self> {
+        let mut pixmap = Pixmap::new(width, height)?;
+        paint(&mut pixmap);
+        let spans: Vec<(i64, i64)> = pixmap
+            .data()
+            .chunks_exact(width as usize * 4)
+            .map(|row| {
+                let inked = |px: &[u8]| px[3] != 0;
+                let first = row.chunks_exact(4).position(inked);
+                let last = row.chunks_exact(4).rposition(inked);
+                match (first, last) {
+                    (Some(a), Some(b)) => (a as i64, b as i64 + 1),
+                    _ => (0, 0),
+                }
+            })
+            .collect();
+        spans
+            .iter()
+            .any(|(a, b)| a < b)
+            .then_some(Self { pixmap, spans })
+    }
+}
+
+impl MarkerSprite {
+    /// Rasterize `marker` (already in pixmap orientation, origin at its
+    /// anchor) filled with `fill` and stroked per `gc`, its origin `phase`
+    /// past a pixel corner. `None` when it draws nothing.
+    fn new(
+        marker: &tiny_skia::Path,
+        gc: &GraphicsContext,
+        fill: Option<Rgba>,
+        dpi: f64,
+        phase: (f64, f64),
+    ) -> Option<Self> {
+        let bounds = marker.bounds();
+        // Room for the stroke, including miter joins, plus antialiasing.
+        let stroke = if gc.stroke.is_some() {
+            gc.line_width * dpi / 72.0
+        } else {
+            0.0
+        };
+        let margin = 2.0 * stroke + 2.0;
+        let left = (f64::from(bounds.left()) - margin).floor();
+        let top = (f64::from(bounds.top()) - margin).floor();
+        let right = (f64::from(bounds.right()) + margin).ceil();
+        let bottom = (f64::from(bounds.bottom()) + margin).ceil();
+        let (width, height) = ((right - left) as u32 + 2, (bottom - top) as u32 + 2);
+        // The marker's origin lands `phase` past the corner of sprite pixel
+        // (cx, cy).
+        let (cx, cy) = (-left, -top);
+        let shift = Transform::from_translate((cx + phase.0) as f32, (cy + phase.1) as f32);
+        let face_only = GraphicsContext {
+            stroke: None,
+            ..gc.clone()
+        };
+        let layers: Vec<SpriteLayer> = [
+            SpriteLayer::paint(width, height, |p| {
+                paint_path(p, marker, &face_only, fill, dpi, shift, None);
+            }),
+            SpriteLayer::paint(width, height, |p| {
+                paint_path(p, marker, gc, None, dpi, shift, None);
+            }),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        (!layers.is_empty()).then_some(Self {
+            layers,
+            cx: cx as i64,
+            cy: cy as i64,
+            width: i64::from(width),
+            height: i64::from(height),
+        })
+    }
+
+    /// Composite the sprite's layers source-over onto `target` with the
+    /// marker origin at its phase past the corner of pixel `(px, py)`,
+    /// through `clip` (skipped where the sprite lies wholly inside the
+    /// mask's fully covered interior).
+    fn stamp(&self, target: &mut Pixmap, px: i64, py: i64, clip: Option<&Clip<'_>>) {
+        let (tw, th) = (i64::from(target.width()), i64::from(target.height()));
+        let (sw, sh) = (self.width, self.height);
+        let (ox, oy) = (px - self.cx, py - self.cy);
+        let mask = clip
+            .filter(|c| {
+                let [ix0, iy0, ix1, iy1] = c.interior;
+                !(ox >= ix0 && oy >= iy0 && ox + sw <= ix1 && oy + sh <= iy1)
+            })
+            .map(|c| c.mask.data());
+        let dst = target.data_mut();
+        for layer in &self.layers {
+            let src = layer.pixmap.data();
+            for row in oy.max(0)..(oy + sh).min(th) {
+                let (a, b) = layer.spans[(row - oy) as usize];
+                let (x0, x1) = ((ox + a).max(0), (ox + b).min(tw));
+                for x in x0..x1 {
+                    let s = (((row - oy) * sw + (x - ox)) * 4) as usize;
+                    let d = ((row * tw + x) * 4) as usize;
+                    let pixel = &src[s..s + 4];
+                    match mask {
+                        // Scale by the clip's coverage as tiny-skia's mask
+                        // stage does.
+                        Some(cov) => {
+                            let c = u32::from(cov[(row * tw + x) as usize]);
+                            if c != 0 {
+                                let scaled =
+                                    [0, 1, 2, 3].map(|k| div255(u32::from(pixel[k]) * c) as u8);
+                                source_over(&mut dst[d..d + 4], &scaled);
+                            }
+                        }
+                        None => source_over(&mut dst[d..d + 4], pixel),
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Premultiplied source-over of `src` onto `dst`, in tiny-skia's arithmetic,
+/// so a sprite pixel lands exactly as the same fill drawn in place would.
+fn source_over(dst: &mut [u8], src: &[u8]) {
+    match src[3] {
+        0 => {}
+        255 => dst.copy_from_slice(src),
+        alpha => {
+            let keep = 255 - u32::from(alpha);
+            for k in 0..4 {
+                dst[k] = (u32::from(src[k]) + div255(u32::from(dst[k]) * keep)) as u8;
+            }
+        }
+    }
+}
+
+/// tiny-skia's `div255`: `(x + 255) >> 8`.
+fn div255(x: u32) -> u32 {
+    (x + 255) >> 8
 }
 
 /// Convert an [`Rgba`] (optionally tinted by `gc.alpha`) into a tiny-skia
@@ -272,47 +549,71 @@ impl Renderer for SkiaRenderer {
         };
         self.ensure_clip_mask(gc);
         let mask_ref = self.clip_cache.as_ref().map(|(_, mask)| mask);
-        let anti_alias = gc.antialiased;
+        paint_path(
+            &mut self.pixmap,
+            &sk_path,
+            gc,
+            fill,
+            self.dpi,
+            Transform::identity(),
+            mask_ref,
+        );
+    }
 
-        if let Some(face) = fill {
-            let mut paint = Paint {
-                anti_alias,
-                ..Paint::default()
-            };
-            paint.set_color(to_color(face, gc.alpha));
-            self.pixmap.fill_path(
-                &sk_path,
-                &paint,
-                FillRule::Winding,
-                Transform::identity(),
-                mask_ref,
-            );
+    /// Stamp one marker at many points: the marker is rasterized into a
+    /// sprite once per sub-pixel phase in use, and each point composites the
+    /// sprite for its phase at its pixel — matplotlib Agg's `draw_markers`
+    /// caches the marker's scanlines the same way, though it snaps every
+    /// point to a pixel center. Here a point lands within 1/128 px of where a
+    /// per-point draw puts it, and fewer than 10 000 markers draw exactly.
+    fn draw_markers(
+        &mut self,
+        gc: &GraphicsContext,
+        marker_path: &Path,
+        marker_transform: &Affine2D,
+        path: &Path,
+        transform: &Affine2D,
+        fill: Option<Rgba>,
+    ) {
+        // Few markers draw exactly, one path each, which costs about what
+        // building the sprites would.
+        if path.vertices().len() < SPRITE_MIN_POINTS {
+            for &[vx, vy] in path.vertices() {
+                let (dx, dy) = transform.transform_point((vx, vy));
+                self.draw_path(gc, marker_path, &marker_transform.translate(dx, dy), fill);
+            }
+            return;
         }
-
-        if let Some(stroke_color) = gc.stroke {
-            let width = self.points_to_pixels(gc.line_width);
-            let bounds = sk_path.bounds();
-            let has_extent = bounds.width() > 0.0 || bounds.height() > 0.0;
-            if width > 0.0 && has_extent {
-                let mut paint = Paint {
-                    anti_alias,
-                    ..Paint::default()
-                };
-                paint.set_color(to_color(stroke_color, gc.alpha));
-                let dash = gc.dashes.as_ref().and_then(|(offset, pattern)| {
-                    let scale = self.dpi / 72.0;
-                    let array: Vec<f32> = pattern.iter().map(|d| (d * scale) as f32).collect();
-                    StrokeDash::new(array, (offset * scale) as f32)
-                });
-                let stroke = Stroke {
-                    width: width as f32,
-                    line_cap: to_line_cap(gc.cap),
-                    line_join: to_line_join(gc.join),
-                    dash,
-                    ..Stroke::default()
-                };
-                self.pixmap
-                    .stroke_path(&sk_path, &paint, &stroke, Transform::identity(), mask_ref);
+        let local = marker_transform.then(&Affine2D::from_scale(1.0, -1.0));
+        let Some(marker) = Self::build_device_path(marker_path, &local) else {
+            return;
+        };
+        let mut atlas = MarkerAtlas::new(marker, gc, fill, self.dpi);
+        self.ensure_clip_mask(gc);
+        let device = transform.then(&self.flip_transform());
+        let clip = self.clip_cache.as_ref().map(|(bbox, mask)| Clip {
+            mask,
+            interior: self.covered_interior(bbox),
+        });
+        let q = f64::from(SUBPIXEL_PHASES);
+        for &[vx, vy] in path.vertices() {
+            let (x, y) = device.transform_point((vx, vy));
+            if !(x.abs() < 1e9 && y.abs() < 1e9) {
+                continue;
+            }
+            // Split each coordinate into a pixel and the nearest phase.
+            let split = |v: f64| {
+                let base = v.floor();
+                let phase = ((v - base) * q).round() as u32;
+                if phase == SUBPIXEL_PHASES {
+                    (base + 1.0, 0)
+                } else {
+                    (base, phase)
+                }
+            };
+            let ((px, kx), (py, ky)) = (split(x), split(y));
+            if let Some(sprite) = atlas.sprite(kx, ky) {
+                sprite.stamp(&mut self.pixmap, px as i64, py as i64, clip.as_ref());
             }
         }
     }
