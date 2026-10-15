@@ -8,9 +8,7 @@
 //! focused on the line/patch convenience methods.
 
 use crate::artist::{Collection, Line2D, Patch};
-use crate::core::color::{
-    DEFAULT_COLOR_CYCLE, LinearNorm, Rgba, colormap, default_colormap, to_rgba_array,
-};
+use crate::core::color::{ColorMapping, DEFAULT_COLOR_CYCLE, Rgba};
 
 use crate::figure::Axes;
 
@@ -63,25 +61,41 @@ impl Axes {
 
     /// Scatter `y` against `x` with per-point face colors mapped from `c`.
     ///
-    /// Like [`scatter`](Axes::scatter), but each marker's face color is taken by
-    /// normalizing `c` linearly over its own `(vmin, vmax)` and sampling the
-    /// named colormap `cmap_name` (falling back to the default map for an unknown
-    /// name). The property cycle is left untouched. Only the common prefix of
-    /// `x`, `y`, and `c` is used. Returns a mutable reference for further
-    /// styling.
+    /// Like [`scatter`](Axes::scatter), but each marker's face color is taken
+    /// from `c` through `mapping`: a colormap name (`"viridis"`), which maps
+    /// `c` linearly over its own finite range, or a [`ColorMapping`] with
+    /// `vmin`/`vmax`, a norm, and bad/over/under colors. Points whose `c` is
+    /// NaN take the bad color (transparent by default), as matplotlib leaves
+    /// them unplotted. The property cycle is left untouched. Only the common
+    /// prefix of `x`, `y`, and `c` is used. Returns a mutable reference for
+    /// further styling.
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    /// use rizzma::core::color::{ColorMapping, TwoSlopeNorm};
+    /// let (x, y) = ([0.0, 1.0, 2.0, 3.0], [1.0, 3.0, 2.0, 4.0]);
+    /// let residual = [-0.4, 0.1, 2.5, f64::NAN];
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_subplot(1, 1, 1);
+    /// ax.scatter_mapped(&x, &y, &residual, "viridis");
+    /// ax.scatter_mapped(
+    ///     &x,
+    ///     &y,
+    ///     &residual,
+    ///     ColorMapping::new("RdBu").norm(TwoSlopeNorm::new(-0.5, 0.0, 3.0)),
+    /// );
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
     pub fn scatter_mapped(
         &mut self,
         x: &[f64],
         y: &[f64],
         c: &[f64],
-        cmap_name: &str,
+        mapping: impl Into<ColorMapping>,
     ) -> &mut Collection {
         let n = x.len().min(y.len()).min(c.len());
         let offsets: Vec<[f64; 2]> = (0..n).map(|i| [x[i], y[i]]).collect();
-        let (vmin, vmax) = finite_min_max(&c[..n]).unwrap_or((0.0, 1.0));
-        let norm = LinearNorm::new(vmin, vmax);
-        let cmap = colormap(cmap_name).unwrap_or_else(|| Box::new(default_colormap()));
-        let facecolors = to_rgba_array(&c[..n], &norm, &*cmap);
+        let facecolors = mapping.into().colors(&c[..n]);
         let coll = Collection::scatter(offsets).with_facecolors(facecolors);
         self.push_collection(coll)
     }

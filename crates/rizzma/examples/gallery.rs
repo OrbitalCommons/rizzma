@@ -1337,5 +1337,74 @@ fn main() {
         fig.save_png("target/gallery_figtext.png").unwrap();
     }
 
+    // 57. norms — a star field through LogNorm with dead pixels marked bad
+    // and saturation marked over; residuals through TwoSlopeNorm; signed
+    // fluxes spanning decades through SymLogNorm.
+    {
+        use rizzma::core::color::{ColorMapping, LogNorm, SymLogNorm, TwoSlopeNorm};
+        let mut fig = gallery_figure(9.0, 3.0);
+        let mut noise = rng(57);
+        let n = 48;
+        let mut sky = vec![0.0; n * n];
+        let stars = [
+            (12.0, 30.0, 4000.0),
+            (33.0, 14.0, 900.0),
+            (36.0, 38.0, 60.0),
+        ];
+        for r in 0..n {
+            for c in 0..n {
+                let mut v = 2.0 + 1.5 * noise();
+                for (sx, sy, amp) in stars {
+                    let d2 = (c as f64 - sx).powi(2) + (r as f64 - sy).powi(2);
+                    v += amp * (-d2 / 6.0).exp();
+                }
+                sky[r * n + c] = v;
+            }
+        }
+        for dead in [5 * n + 40, 6 * n + 40, 7 * n + 40, 30 * n + 8] {
+            sky[dead] = f64::NAN;
+        }
+        let ax = fig.add_subplot(1, 3, 1);
+        ax.imshow(&sky, n, n)
+            .cmap("magma")
+            .norm(LogNorm::new(1.0, 1000.0))
+            .bad(Rgba::from_hex("#00e5ff").unwrap())
+            .over(Rgba::WHITE);
+        ax.set_title("imshow · LogNorm, bad + over");
+
+        let (rows, cols) = (12, 16);
+        let residual: Vec<f64> = (0..rows * cols)
+            .map(|i| {
+                let (r, c) = ((i / cols) as f64, (i % cols) as f64);
+                3.0 * ((c - 11.0).powi(2) + (r - 4.0).powi(2)).sqrt().cos() * (-c / 9.0).exp() - 0.4
+            })
+            .collect();
+        let ax = fig.add_subplot(1, 3, 2);
+        ax.pcolormesh_mapped(
+            &residual,
+            rows,
+            cols,
+            ColorMapping::new("coolwarm").norm(TwoSlopeNorm::new(-1.0, 0.0, 3.0)),
+        );
+        ax.set_title("pcolormesh · TwoSlopeNorm");
+
+        let x = linspace(0.0, 10.0, 120);
+        let y: Vec<f64> = x.iter().map(|t| (t * 0.9).sin() + 0.3 * noise()).collect();
+        let flux: Vec<f64> = x
+            .iter()
+            .map(|t| (t - 5.0).signum() * 10f64.powf((t - 5.0).abs() * 0.7 - 1.0))
+            .collect();
+        let ax = fig.add_subplot(1, 3, 3);
+        ax.scatter_mapped(
+            &x,
+            &y,
+            &flux,
+            ColorMapping::new("RdBu").norm(SymLogNorm::new(0.5, -1000.0, 1000.0)),
+        )
+        .set_sizes(vec![7.0]);
+        ax.set_title("scatter_mapped · SymLogNorm");
+        fig.save_png("target/gallery_norms.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

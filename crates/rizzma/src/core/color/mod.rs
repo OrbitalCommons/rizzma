@@ -14,6 +14,7 @@
 mod cet_data;
 pub mod cmap;
 mod cmap_data;
+pub mod mapping;
 pub mod misleading;
 pub mod named;
 pub mod norm;
@@ -24,8 +25,12 @@ pub use cmap::{
     cet_l01, cet_l03, cet_l05, cet_l09, cet_l10, cet_r2, cividis, colormap, coolwarm,
     default_colormap, gray, inferno, magma, plasma, rdbu, viridis,
 };
+pub use mapping::{ColorMapping, Extremes, map_color};
 pub use named::{BASE_COLORS, CSS4_COLORS, DEFAULT_COLOR_CYCLE, TABLEAU_COLORS, to_rgba};
-pub use norm::{BoundaryNorm, LinearNorm, LogNorm, Normalize, PowerNorm};
+pub use norm::{
+    BoundaryNorm, CenteredNorm, LinearNorm, LogNorm, Norm, Normalize, PowerNorm, SymLogNorm,
+    TwoSlopeNorm,
+};
 
 /// Map a data array to colors through a [`Normalize`] then a [`Colormap`].
 ///

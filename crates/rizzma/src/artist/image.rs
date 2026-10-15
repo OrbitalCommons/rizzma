@@ -1,13 +1,15 @@
 //! The [`AxesImage`] artist: a colormapped raster of scalar data (`imshow`).
 //!
 //! Mirrors matplotlib's `AxesImage`. A row-major `nrows x ncols` array of `f64`
-//! samples is normalized through a [`LinearNorm`] and colorized through a named
-//! [`Colormap`], then blitted into the device target rectangle spanned by the
+//! samples is normalized — linearly between `vmin` and `vmax`, or through an
+//! explicit [`Norm`] — and colorized through a named [`Colormap`] with its
+//! [`Extremes`], then blitted into the device target rectangle spanned by the
 //! image's data-space `extent`. Resampling is nearest-neighbour, hand-rolled so
 //! the crate takes on no new dependencies.
 
+use crate::core::color::mapping::resolve_cmap;
 use crate::core::color::{
-    Colormap, DEFAULT_COLORMAP, LinearNorm, Normalize, colormap, default_colormap,
+    Colormap, DEFAULT_COLORMAP, Extremes, LinearNorm, Norm, Normalize, Rgba, map_color,
 };
 use crate::core::{Affine2D, Bbox};
 use crate::render::{GraphicsContext, Renderer};
@@ -36,8 +38,13 @@ pub struct AxesImage {
     vmin: f64,
     /// Upper normalization bound, mapped to colormap position `1.0`.
     vmax: f64,
-    /// Name of the colormap to colorize through (see [`colormap`]).
+    /// Name of the colormap to colorize through (see
+    /// [`colormap`](crate::core::color::colormap)).
     cmap_name: String,
+    /// An explicit norm, which supersedes `vmin`/`vmax`.
+    norm: Option<Norm>,
+    /// Colors for bad, over and under values.
+    extremes: Extremes,
     /// When `true`, data row `0` maps to the top of the extent
     /// (matplotlib's `origin="upper"`); when `false`, to the bottom.
     origin_upper: bool,
@@ -78,6 +85,8 @@ impl AxesImage {
             vmin,
             vmax,
             cmap_name: DEFAULT_COLORMAP.to_string(),
+            norm: None,
+            extremes: Extremes::default(),
             origin_upper: true,
             zorder: 0.0,
             visible: true,
@@ -112,7 +121,8 @@ impl AxesImage {
         Ok(())
     }
 
-    /// Set the colormap name (see [`colormap`]), returning `self`.
+    /// Set the colormap name (see
+    /// [`colormap`](crate::core::color::colormap)), returning `self`.
     #[must_use]
     pub fn with_cmap(mut self, cmap_name: impl Into<String>) -> Self {
         self.cmap_name = cmap_name.into();
@@ -174,6 +184,66 @@ impl AxesImage {
         self
     }
 
+    /// Normalize through `norm` — matplotlib's `imshow(norm=…)` — in place.
+    /// The norm carries its own limits and supersedes `vmin`/`vmax`.
+    ///
+    /// ![norms](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_norms.png)
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    /// use rizzma::core::color::{LogNorm, Rgba};
+    /// let data: Vec<f64> = (0..64).map(|i| 10f64.powf(f64::from(i) / 16.0)).collect();
+    /// let mut fig = Figure::new(3.0, 3.0);
+    /// fig.add_subplot(1, 1, 1)
+    ///     .imshow(&data, 8, 8)
+    ///     .cmap("magma")
+    ///     .norm(LogNorm::new(1.0, 1e3))
+    ///     .over(Rgba::WHITE);
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn norm(&mut self, norm: impl Into<Norm>) -> &mut Self {
+        self.norm = Some(norm.into());
+        self
+    }
+
+    /// Normalize through `norm`, returning `self`; see
+    /// [`norm`](AxesImage::norm).
+    #[must_use]
+    pub fn with_norm(mut self, norm: impl Into<Norm>) -> Self {
+        self.norm = Some(norm.into());
+        self
+    }
+
+    /// Color NaN, infinite and unplaceable cells `color` (transparent by
+    /// default) — matplotlib's `cmap.with_extremes(bad=…)`.
+    pub fn bad(&mut self, color: Rgba) -> &mut Self {
+        self.extremes.bad = Some(color);
+        self
+    }
+
+    /// Color cells above the norm's range `color` (the colormap's top color
+    /// by default).
+    pub fn over(&mut self, color: Rgba) -> &mut Self {
+        self.extremes.over = Some(color);
+        self
+    }
+
+    /// Color cells below the norm's range `color` (the colormap's bottom
+    /// color by default).
+    pub fn under(&mut self, color: Rgba) -> &mut Self {
+        self.extremes.under = Some(color);
+        self
+    }
+
+    /// The norm the image draws through: the explicit one, else linear over
+    /// `vmin`/`vmax`.
+    #[must_use]
+    pub fn active_norm(&self) -> Norm {
+        self.norm
+            .clone()
+            .unwrap_or(Norm::Linear(LinearNorm::new(self.vmin, self.vmax)))
+    }
+
     /// Set the data-space extent in place, returning `&mut self`.
     pub fn set_extent(&mut self, extent: [f64; 4]) -> &mut Self {
         self.extent = extent;
@@ -195,33 +265,27 @@ impl AxesImage {
     /// Colorize the source cell at data row `row` (0 at the top when
     /// `origin_upper`) and column `col` into a straight RGBA8 quad.
     ///
-    /// This is the per-cell color pipeline (`LinearNorm` then the named
-    /// colormap) exposed for testing. Out-of-range indices return transparent.
+    /// This is the per-cell color pipeline (the [`active_norm`], the named
+    /// colormap and its extremes) exposed for testing. Out-of-range indices
+    /// return transparent.
+    ///
+    /// [`active_norm`]: AxesImage::active_norm
     #[must_use]
     pub fn colorize_cell(&self, row: usize, col: usize) -> [u8; 4] {
         if row >= self.nrows || col >= self.ncols {
             return [0, 0, 0, 0];
         }
-        let norm = LinearNorm::new(self.vmin, self.vmax);
+        let norm = self.active_norm();
         let cmap = resolve_cmap(&self.cmap_name);
         let value = self.data[row * self.ncols + col];
-        colorize(value, &norm, cmap.as_ref())
+        self.colorize(value, &norm, cmap.as_ref())
     }
-}
 
-/// Resolve a colormap by name, falling back to the default map for unknown
-/// names so a stray name never produces an all-transparent image.
-fn resolve_cmap(name: &str) -> Box<dyn Colormap> {
-    colormap(name).unwrap_or_else(|| Box::new(default_colormap()))
-}
-
-/// Colorize a single scalar `value` through `norm` then `cmap` into straight
-/// RGBA8. A non-finite value yields a transparent pixel.
-fn colorize(value: f64, norm: &dyn Normalize, cmap: &dyn Colormap) -> [u8; 4] {
-    if !value.is_finite() {
-        return [0, 0, 0, 0];
+    /// Colorize one scalar into straight RGBA8 through `norm`, `cmap` and the
+    /// image's extremes.
+    fn colorize(&self, value: f64, norm: &dyn Normalize, cmap: &dyn Colormap) -> [u8; 4] {
+        map_color(value, norm, cmap, &self.extremes).to_u8_array()
     }
-    cmap.sample(norm.normalize(value)).to_u8_array()
 }
 
 /// The finite min and max of `data`, or `(0.0, 1.0)` when there is no finite
@@ -264,7 +328,8 @@ impl Artist for AxesImage {
     /// fractional position across the grid. With `origin_upper` the top device
     /// row samples data row `0`; otherwise the top device row samples the last
     /// data row, so the image is flipped vertically. Each sampled value is
-    /// colorized through [`LinearNorm`] then the named colormap. The finished
+    /// colorized through the [`active_norm`](AxesImage::active_norm), the
+    /// named colormap and its extremes. The finished
     /// buffer is handed to `draw_image` with its lower-left corner at the
     /// device target rectangle's `(x, y)` minimum.
     fn draw(&self, renderer: &mut dyn Renderer, transform: &Affine2D) {
@@ -289,7 +354,7 @@ impl Artist for AxesImage {
         let w_px = w_px as usize;
         let h_px = h_px as usize;
 
-        let norm = LinearNorm::new(self.vmin, self.vmax);
+        let norm = self.active_norm();
         let cmap = resolve_cmap(&self.cmap_name);
 
         let mut rgba = vec![0u8; w_px * h_px * 4];
@@ -303,7 +368,7 @@ impl Artist for AxesImage {
                 let fx = (tx as f64 + 0.5) / w_px as f64;
                 let col = ((fx * self.ncols as f64) as usize).min(self.ncols - 1);
                 let value = self.data[row * self.ncols + col];
-                let [r, g, b, a] = colorize(value, &norm, cmap.as_ref());
+                let [r, g, b, a] = self.colorize(value, &norm, cmap.as_ref());
                 let i = (ty * w_px + tx) * 4;
                 rgba[i] = r;
                 rgba[i + 1] = g;
@@ -357,6 +422,10 @@ impl AxesImage {
             vmin: self.vmin,
             vmax: self.vmax,
             cmap: self.cmap_name.clone(),
+            norm: self.norm.clone(),
+            bad: self.extremes.bad,
+            over: self.extremes.over,
+            under: self.extremes.under,
             origin_upper: self.origin_upper,
             zorder: self.zorder,
             visible: self.visible,
@@ -387,6 +456,12 @@ impl AxesImage {
             vmin: spec.vmin,
             vmax: spec.vmax,
             cmap_name: spec.cmap.clone(),
+            norm: spec.norm.clone(),
+            extremes: Extremes {
+                bad: spec.bad,
+                over: spec.over,
+                under: spec.under,
+            },
             origin_upper: spec.origin_upper,
             zorder: spec.zorder,
             visible: spec.visible,
@@ -441,10 +516,26 @@ mod tests {
     }
 
     #[test]
-    fn nonfinite_value_colorizes_transparent() {
-        let norm = LinearNorm::new(0.0, 1.0);
-        let cm = default_colormap();
-        assert_eq!(colorize(f64::NAN, &norm, &cm), [0, 0, 0, 0]);
+    fn nonfinite_value_colorizes_transparent_unless_bad_is_set() {
+        let mut img = AxesImage::new(vec![f64::NAN, 1.0], 1, 2);
+        assert_eq!(img.colorize_cell(0, 0), [0, 0, 0, 0]);
+        img.bad(Rgba::RED);
+        assert_eq!(img.colorize_cell(0, 0), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn norm_supersedes_vmin_vmax_and_sends_outliers_to_over_under() {
+        use crate::core::color::LogNorm;
+        let mut img = AxesImage::new(vec![0.5, 10.0, 1e4, -1.0], 2, 2);
+        img.norm(LogNorm::new(1.0, 1e3))
+            .over(Rgba::WHITE)
+            .under(Rgba::BLACK)
+            .bad(Rgba::RED);
+        assert_eq!(img.colorize_cell(0, 0), [0, 0, 0, 255]); // below vmin
+        assert_eq!(img.colorize_cell(1, 0), [255, 255, 255, 255]); // above vmax
+        assert_eq!(img.colorize_cell(1, 1), [255, 0, 0, 255]); // non-positive
+        let mid = default_colormap().sample(1.0 / 3.0).to_u8_array();
+        assert_eq!(img.colorize_cell(0, 1), mid);
     }
 
     #[test]

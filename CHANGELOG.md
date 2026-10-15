@@ -32,6 +32,15 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   (minifb, softbuffer). Opaque layouts composite over the face color; a buffer of the
   wrong length is a `BufferSizeError`, never a panic. `Figure::raster_size` and
   `Figure::facecolor` report what they need.
+- **Norms and bad/over/under colors for images, scatter and pcolormesh.** New
+  `TwoSlopeNorm`, `CenteredNorm` and `SymLogNorm`, and a `Norm` enum every norm
+  converts into. `AxesImage::norm` / `with_norm` (superseding `vmin`/`vmax`) and
+  `bad` / `over` / `under`; `scatter_mapped` now takes `impl Into<ColorMapping>`, so a
+  colormap name still works and a `ColorMapping` adds `vmin`/`vmax`, a norm and
+  extreme colors; `Axes::pcolormesh_mapped` does the same for meshes.
+  `Normalize::normalize_unclipped` (a provided method) reports out-of-range data, and
+  `map_color` colors one value as matplotlib's `Colormap.__call__` does. Every norm
+  matches matplotlib 3.11's `imshow(norm=…)` to within one unit per channel.
 
 ### Changed
 - Portable figures are schema 7. Scatter legend samples, and the insertion order of
@@ -39,13 +48,18 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   then collections, are written only when present; schema 1–6 artifacts still load.
 - Portable figures are schema 8: figure text and figure axis labels, written only
   when present; schema 1–7 artifacts still load.
+- Portable figures are schema 9: an image's norm and bad/over/under colors, written
+  only when set; schema 1–8 artifacts still load.
 
 ### Output changes
 - `legend_auto` lists rows in the order the artists were added, as matplotlib does,
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":8`.
+- Every `.riz` artifact now declares `"schema":9`.
+- NaN values in `scatter_mapped` and `pcolormesh` take the bad color (transparent
+  unless set) rather than the colormap's bottom color, as in matplotlib; images
+  already did. Renders without NaN in their color data are unchanged.
 - **Colormap lookups pick matplotlib's entry**, `floor(t · 256)` (the last entry at
   `t = 1`), instead of `round(t · 255)`, so colormapped pixels now match matplotlib
   3.11's colors. A colormapped pixel moves by at most one lookup-table step: up to 3

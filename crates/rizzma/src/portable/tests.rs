@@ -1980,7 +1980,7 @@ fn schema_cannot_be_under_declared() {
     // runtime watches it rejected for the unknown field. Both inspection and
     // import refuse the lie.
     let bytes = controlled_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":8", "\"schema\":3"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":3"));
 
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -1997,7 +1997,7 @@ fn schema_cannot_be_under_declared() {
 
     // The same floor applies one level down: a timeline needs schema 3.
     let bytes = animated_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":8", "\"schema\":2"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":2"));
     let Err(err) = Figure::from_portable(&forged) else {
         panic!("a timeline under schema 3 must not import");
     };
@@ -2013,7 +2013,7 @@ fn schema_cannot_be_under_declared() {
     ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
     ax.minorticks_on();
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":8", "\"schema\":4"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":4"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2032,7 +2032,7 @@ fn schema_cannot_be_under_declared() {
     fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
     fig.suptitle("sized").set_suptitle_size(20.0);
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":8", "\"schema\":5"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":5"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2048,7 +2048,7 @@ fn schema_cannot_be_under_declared() {
 
     // Scatter legend samples and the artist order are schema 7.
     let bytes = scatter_legend_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":8", "\"schema\":6"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":6"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2064,7 +2064,7 @@ fn schema_cannot_be_under_declared() {
 
     // Figure text and figure axis labels are schema 8.
     let bytes = figure_text_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":8", "\"schema\":7"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":7"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2077,6 +2077,64 @@ fn schema_cannot_be_under_declared() {
             "{err}"
         );
     }
+
+    // Image norms and extreme colors are schema 9.
+    let bytes = image_norm_figure().to_portable().expect("export");
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":9", "\"schema\":8"));
+    for result in [
+        Figure::from_portable(&forged).map(|_| ()),
+        crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
+    ] {
+        let Err(err) = result else {
+            panic!("image norms under schema 9 must not be accepted");
+        };
+        assert!(
+            matches!(&err, PortableError::Malformed(m) if m.contains("requiring schema 9")),
+            "{err}"
+        );
+    }
+}
+
+/// An image through a symlog norm with every extreme color set.
+fn image_norm_figure() -> Figure {
+    use crate::core::color::SymLogNorm;
+    let data: Vec<f64> = (0..48)
+        .map(|i| {
+            if i == 7 {
+                f64::NAN
+            } else {
+                (f64::from(i) - 20.0).powi(3)
+            }
+        })
+        .collect();
+    let mut fig = Figure::new(3.0, 3.0);
+    fig.add_subplot(1, 1, 1)
+        .imshow(&data, 6, 8)
+        .cmap("RdBu")
+        .norm(SymLogNorm::new(2.0, -500.0, 500.0).with_linscale(0.5))
+        .bad(Rgba::BLACK)
+        .over(Rgba::GREEN)
+        .under(Rgba::BLUE);
+    fig
+}
+
+#[test]
+fn image_norms_round_trip() {
+    let fig = image_norm_figure();
+    let bytes = fig.to_portable().expect("export");
+    let back = Figure::from_portable(&bytes).expect("import");
+    assert_eq!(back.to_portable().expect("re-export"), bytes);
+    assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
+
+    // A plain image writes neither schema-9 field.
+    let mut plain = Figure::new(3.0, 3.0);
+    plain
+        .add_subplot(1, 1, 1)
+        .imshow(&[0.0, 1.0, 2.0, 3.0], 2, 2);
+    let plain = plain.to_portable().expect("export");
+    let json = String::from_utf8_lossy(&plain);
+    assert!(!json.contains("\"norm\""));
+    assert!(!json.contains("\"extremes\""));
 }
 
 /// Two subplots sharing figure axis labels, with styled free text.

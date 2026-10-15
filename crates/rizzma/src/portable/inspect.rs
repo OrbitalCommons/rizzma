@@ -70,8 +70,23 @@ struct AxesHead {
     artist_order: Option<serde::de::IgnoredAny>,
     #[serde(default)]
     legend: Vec<LegendHead>,
+    #[serde(default)]
+    images: Vec<ImageHead>,
     xaxis: AxisHead,
     yaxis: AxisHead,
+}
+
+/// Presence of an image's schema-9 norm and extreme colors.
+#[derive(Debug, Deserialize)]
+struct ImageHead {
+    #[serde(default)]
+    norm: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    bad: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    over: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    under: Option<serde::de::IgnoredAny>,
 }
 
 /// Presence of a legend row's scatter marker sample.
@@ -99,6 +114,18 @@ impl FigureHead {
     /// Mirrors [`uses_text_sizes`](super::spec::uses_text_sizes).
     fn uses_text_sizes(&self) -> bool {
         self.suptitle_size.is_some() || self.axes.iter().any(|axes| axes.text_size.is_some())
+    }
+
+    /// Mirrors [`uses_image_norms`](super::spec::uses_image_norms).
+    fn uses_image_norms(&self) -> bool {
+        self.axes.iter().any(|axes| {
+            axes.images.iter().any(|image| {
+                image.norm.is_some()
+                    || image.bad.is_some()
+                    || image.over.is_some()
+                    || image.under.is_some()
+            })
+        })
     }
 
     /// Mirrors [`uses_figure_text`](super::spec::uses_figure_text).
@@ -186,15 +213,16 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
 
     // Schema is the compatibility decision — a host selects a runtime from
     // the declaration — so features must not be able to under-declare it.
-    let required = super::required_schema(
-        header.meta.is_some(),
-        header.timeline.is_some(),
-        !header.controls.is_empty(),
-        header.figure.uses_axis_styling(),
-        header.figure.uses_text_sizes(),
-        header.figure.uses_legend_markers(),
-        header.figure.uses_figure_text(),
-    );
+    let required = super::required_schema(&[
+        (2, header.meta.is_some()),
+        (3, header.timeline.is_some()),
+        (4, !header.controls.is_empty()),
+        (5, header.figure.uses_axis_styling()),
+        (6, header.figure.uses_text_sizes()),
+        (7, header.figure.uses_legend_markers()),
+        (8, header.figure.uses_figure_text()),
+        (9, header.figure.uses_image_norms()),
+    ]);
     if header.schema < required {
         return Err(PortableError::Malformed(format!(
             "declares schema {} but carries features requiring schema {required}",
