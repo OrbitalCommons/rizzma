@@ -1302,5 +1302,40 @@ fn main() {
         fig.save_png("target/gallery_legend_auto.png").unwrap();
     }
 
+    // 56. fig.text / supxlabel / supylabel — shared axis labels for a pair of
+    // panels, a metadata footer, and a boxed stamp over everything.
+    {
+        use rizzma::{HorizontalAlignment, VerticalAlignment};
+        let mut fig = gallery_figure(6.0, 3.2);
+        let t = linspace(0.0, 4.0 * PI, 300);
+        let left: Vec<f64> = t.iter().map(|t| t.sin() * (-t / 8.0).exp()).collect();
+        let right: Vec<f64> = t
+            .iter()
+            .map(|t| (1.7 * t).cos() * (-t / 6.0).exp())
+            .collect();
+        fig.add_subplot(1, 2, 1).plot(&t, &left);
+        fig.add_subplot(1, 2, 2).plot(&t, &right).set_color(c(1));
+        fig.suptitle("fig.text: figure-level labels and notes");
+        fig.supxlabel("time (s)");
+        fig.supylabel("displacement (mm)");
+        fig.text(0.995, 0.005, "run 42 · 2026-10-14 · rizzma")
+            .set_ha(HorizontalAlignment::Right)
+            .set_va(VerticalAlignment::Bottom)
+            .set_size(7.0)
+            .set_color(Rgba::from_hex("#565f89").unwrap());
+        fig.text(0.5, 0.55, "PRELIMINARY")
+            .set_ha(HorizontalAlignment::Center)
+            .set_va(VerticalAlignment::Center)
+            .set_size(22.0)
+            .set_rotation(18.0)
+            .set_color(c(3))
+            .set_bbox(Some(TextBoxStyle {
+                facecolor: Rgba::new(1.0, 1.0, 1.0, 0.8),
+                edgecolor: Some(c(3)),
+                ..TextBoxStyle::default()
+            }));
+        fig.save_png("target/gallery_figtext.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

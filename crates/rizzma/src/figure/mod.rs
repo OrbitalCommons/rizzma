@@ -78,6 +78,7 @@ pub mod polar;
 pub mod richtext;
 pub mod sky;
 mod subplotspec;
+pub(crate) mod text;
 
 pub use axes::{Axes, TextBoxStyle};
 pub use event::{Event, MouseButton};
@@ -88,3 +89,4 @@ pub use legend::LegendLocation;
 pub use polar::PolarAxes;
 pub use sky::{SkyAxes, SkyProjection};
 pub use subplotspec::SubplotSpec;
+pub use text::{HorizontalAlignment, Text, VerticalAlignment};

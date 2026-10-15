@@ -19,18 +19,26 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   (its shape, first face and edge colors, and the middle of its size range, as
   matplotlib's scatter legend does). Unlabelled and `_`-prefixed collections are
   skipped and shared labels share a row, as for lines and patches.
+- **Figure text.** `Figure::text(x, y, s)` places text in figure fractions and returns
+  a styleable `Text` (size, color, `HorizontalAlignment` / `VerticalAlignment`,
+  rotation, background box), drawn on top of every axes. It aligns by matplotlib
+  3.11's layout box, landing within a pixel of matplotlib at 100 and 200 DPI.
+  `Figure::supxlabel` / `supylabel` add shared axis labels that tight layout makes
+  room for; the pyplot facade gains `figtext`, `supxlabel` and `supylabel`.
 
 ### Changed
 - Portable figures are schema 7. Scatter legend samples, and the insertion order of
   an axes' lines, patches and collections when it is not lines first, then patches,
   then collections, are written only when present; schema 1–6 artifacts still load.
+- Portable figures are schema 8: figure text and figure axis labels, written only
+  when present; schema 1–7 artifacts still load.
 
 ### Output changes
 - `legend_auto` lists rows in the order the artists were added, as matplotlib does,
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":7`.
+- Every `.riz` artifact now declares `"schema":8`.
 
 ## [1.13.7] - 2026-10-08
 
