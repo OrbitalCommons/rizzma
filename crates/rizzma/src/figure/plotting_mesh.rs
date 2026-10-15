@@ -8,7 +8,7 @@
 //! participates in autoscaling.
 
 use crate::artist::QuadMesh;
-use crate::core::color::{Colormap, LinearNorm, Normalize, default_colormap};
+use crate::core::color::{ColorMapping, Colormap, LinearNorm, Normalize, default_colormap};
 
 use crate::figure::Axes;
 
@@ -64,6 +64,42 @@ impl Axes {
     /// assert_eq!((limits.ymin(), limits.ymax()), (0.0, 2.0));
     /// ```
     pub fn pcolormesh(&mut self, c: &[f64], nrows: usize, ncols: usize) -> &mut QuadMesh {
+        self.pcolormesh_mapped(c, nrows, ncols, ColorMapping::default())
+    }
+
+    /// [`pcolormesh`](Axes::pcolormesh) with an explicit color `mapping`: a
+    /// colormap name, or a [`ColorMapping`] with `vmin`/`vmax`, a norm, and
+    /// bad/over/under colors. NaN cells take the bad color (transparent by
+    /// default).
+    ///
+    /// ![norms](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_norms.png)
+    ///
+    /// # Panics
+    ///
+    /// Panics if `c.len()` is not exactly `nrows * ncols`.
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    /// use rizzma::core::color::{ColorMapping, LogNorm, Rgba};
+    /// let c = [1.0, 10.0, 100.0, 1000.0, f64::NAN, 5.0];
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// fig.add_subplot(1, 1, 1).pcolormesh_mapped(
+    ///     &c,
+    ///     2,
+    ///     3,
+    ///     ColorMapping::new("magma")
+    ///         .norm(LogNorm::new(1.0, 1000.0))
+    ///         .bad(Rgba::BLACK),
+    /// );
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn pcolormesh_mapped(
+        &mut self,
+        c: &[f64],
+        nrows: usize,
+        ncols: usize,
+        mapping: impl Into<ColorMapping>,
+    ) -> &mut QuadMesh {
         assert_eq!(
             c.len(),
             nrows * ncols,
@@ -80,12 +116,7 @@ impl Axes {
             }
         }
 
-        // Colormap the cell values through LinearNorm + viridis.
-        let (vmin, vmax) = data_min_max(c);
-        let norm = LinearNorm::new(vmin, vmax);
-        let cmap = default_colormap();
-        let facecolors = c.iter().map(|&v| cmap.sample(norm.normalize(v))).collect();
-
+        let facecolors = mapping.into().colors(c);
         let mesh = QuadMesh::new(nrows, ncols, coordinates, facecolors);
         self.meshes.push(mesh);
         self.meshes.last_mut().expect("just pushed a mesh")

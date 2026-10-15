@@ -115,6 +115,20 @@ pub(crate) fn uses_figure_text(figure: &FigureSpec) -> bool {
     !figure.texts.is_empty() || figure.supxlabel.is_some() || figure.supylabel.is_some()
 }
 
+/// Whether any image carries schema-9 color mapping: an explicit norm or
+/// bad/over/under colors.
+#[cfg(feature = "portable")]
+pub(crate) fn uses_image_norms(figure: &FigureSpec) -> bool {
+    figure.axes.iter().any(|axes| {
+        axes.images.iter().any(|image| {
+            image.norm.is_some()
+                || image.bad.is_some()
+                || image.over.is_some()
+                || image.under.is_some()
+        })
+    })
+}
+
 /// Wire mirror of [`Figure`](crate::figure::Figure).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -333,6 +347,17 @@ pub(crate) struct ImageSpec {
     pub(crate) vmin: f64,
     pub(crate) vmax: f64,
     pub(crate) cmap: String,
+    /// An explicit norm. Absent before schema 9, which introduced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) norm: Option<crate::core::color::Norm>,
+    /// The bad, over and under colors, each present only when set. Absent
+    /// before schema 9, which introduced them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) bad: Option<Rgba>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) over: Option<Rgba>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) under: Option<Rgba>,
     pub(crate) origin_upper: bool,
     pub(crate) zorder: f64,
     pub(crate) visible: bool,

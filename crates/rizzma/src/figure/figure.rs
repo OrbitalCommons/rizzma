@@ -1324,15 +1324,17 @@ impl Figure {
         }
         // Schema is the compatibility decision — a host selects a runtime
         // from the declaration — so features must not under-declare it.
-        let required = crate::portable::required_schema(
-            spec.meta.is_some(),
-            spec.timeline.is_some(),
-            !spec.controls.is_empty(),
-            crate::portable::spec::uses_axis_styling(&spec.figure),
-            crate::portable::spec::uses_text_sizes(&spec.figure),
-            crate::portable::spec::uses_legend_markers(&spec.figure),
-            crate::portable::spec::uses_figure_text(&spec.figure),
-        );
+        use crate::portable::spec as wire;
+        let required = crate::portable::required_schema(&[
+            (2, spec.meta.is_some()),
+            (3, spec.timeline.is_some()),
+            (4, !spec.controls.is_empty()),
+            (5, wire::uses_axis_styling(&spec.figure)),
+            (6, wire::uses_text_sizes(&spec.figure)),
+            (7, wire::uses_legend_markers(&spec.figure)),
+            (8, wire::uses_figure_text(&spec.figure)),
+            (9, wire::uses_image_norms(&spec.figure)),
+        ]);
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(
                 "declares schema {} but carries features requiring schema {required}",

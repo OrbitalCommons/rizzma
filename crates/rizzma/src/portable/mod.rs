@@ -91,9 +91,10 @@ pub use timeline::{Interp, Target, Timeline, Track};
 /// 4 user-driven [`Control`]s; schema 5 axis minor ticks, minor grids and
 /// title size/pad; schema 6 the figure-title size and the axes text size;
 /// schema 7 scatter marker samples in legends and the artist insertion order;
-/// schema 8 figure text and the figure axis labels.
+/// schema 8 figure text and the figure axis labels; schema 9 image norms and
+/// bad/over/under colors.
 #[cfg(feature = "portable")]
-pub const SCHEMA_VERSION: u32 = 8;
+pub const SCHEMA_VERSION: u32 = 9;
 
 /// Oldest schema version this build can still load.
 #[cfg(feature = "portable")]
@@ -107,33 +108,17 @@ pub const SCHEMA_MIN: u32 = 1;
 /// schema-4 runtime while a host that correctly selected a schema-3 runtime
 /// from the declaration watches it rejected for the unknown field. Both
 /// import and inspection refuse a declaration below what the features demand.
+///
+/// `features` pairs each schema with whether the document uses what it
+/// introduced; the requirement is the newest one in use, else schema 1.
 #[cfg(feature = "portable")]
-pub(crate) fn required_schema(
-    has_meta: bool,
-    has_timeline: bool,
-    has_controls: bool,
-    has_axis_styling: bool,
-    has_text_sizes: bool,
-    has_legend_markers: bool,
-    has_figure_text: bool,
-) -> u32 {
-    if has_figure_text {
-        8
-    } else if has_legend_markers {
-        7
-    } else if has_text_sizes {
-        6
-    } else if has_axis_styling {
-        5
-    } else if has_controls {
-        4
-    } else if has_timeline {
-        3
-    } else if has_meta {
-        2
-    } else {
-        1
-    }
+pub(crate) fn required_schema(features: &[(u32, bool)]) -> u32 {
+    features
+        .iter()
+        .filter(|&&(_, used)| used)
+        .map(|&(schema, _)| schema)
+        .max()
+        .unwrap_or(1)
 }
 
 // Without the `portable` feature the artifact machinery is absent, but the
