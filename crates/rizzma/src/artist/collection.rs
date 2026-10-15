@@ -74,10 +74,109 @@ impl Collection {
         }
     }
 
+    /// Set the unit marker path in place.
+    ///
+    /// ```
+    /// use rizzma::artist::{Collection, MarkerStyle};
+    /// let square = MarkerStyle::from_char('s').unwrap().path().clone();
+    /// let mut c = Collection::scatter(vec![[0.0, 0.0]]);
+    /// c.set_marker(square.clone());
+    /// assert_eq!(c, Collection::scatter(vec![[0.0, 0.0]]).with_marker(square));
+    /// ```
+    pub fn set_marker(&mut self, marker: Path) -> &mut Self {
+        self.marker = marker;
+        self
+    }
+
+    /// Set the per-point marker sizes (in points) in place. The sizes
+    /// broadcast over the offsets.
+    ///
+    /// ```
+    /// use rizzma::artist::Collection;
+    /// let mut c = Collection::scatter(vec![[0.0, 0.0], [1.0, 1.0]]);
+    /// c.set_sizes(vec![4.0, 9.0]);
+    /// assert_eq!(c, Collection::scatter(vec![[0.0, 0.0], [1.0, 1.0]]).with_sizes(vec![4.0, 9.0]));
+    /// ```
+    pub fn set_sizes(&mut self, sizes: Vec<f64>) -> &mut Self {
+        self.sizes = sizes;
+        self
+    }
+
+    /// Set the per-point fill colors in place. The colors broadcast over the
+    /// offsets.
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    /// use rizzma::core::color::Rgba;
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_subplot(1, 1, 1);
+    /// ax.scatter(&[1.0, 2.0], &[3.0, 4.0])
+    ///     .set_facecolors(vec![Rgba::RED])
+    ///     .set_sizes(vec![12.0]);
+    /// ```
+    pub fn set_facecolors(&mut self, facecolors: Vec<Rgba>) -> &mut Self {
+        self.facecolors = facecolors;
+        self
+    }
+
+    /// Set the per-point edge colors in place. An empty vector means no edge
+    /// is drawn; otherwise the colors broadcast over the offsets.
+    ///
+    /// ```
+    /// use rizzma::artist::Collection;
+    /// use rizzma::core::color::Rgba;
+    /// let mut c = Collection::scatter(vec![[0.0, 0.0]]);
+    /// c.set_edgecolors(vec![Rgba::BLACK]);
+    /// assert_eq!(c, Collection::scatter(vec![[0.0, 0.0]]).with_edgecolors(vec![Rgba::BLACK]));
+    /// ```
+    pub fn set_edgecolors(&mut self, edgecolors: Vec<Rgba>) -> &mut Self {
+        self.edgecolors = edgecolors;
+        self
+    }
+
+    /// Set the edge width in points in place.
+    ///
+    /// ```
+    /// use rizzma::artist::Collection;
+    /// let mut c = Collection::scatter(vec![[0.0, 0.0]]);
+    /// c.set_linewidth(0.5);
+    /// assert_eq!(c, Collection::scatter(vec![[0.0, 0.0]]).linewidth(0.5));
+    /// ```
+    pub fn set_linewidth(&mut self, linewidth: f64) -> &mut Self {
+        self.linewidth = linewidth;
+        self
+    }
+
+    /// Set the stacking order in place; higher draws on top.
+    ///
+    /// ```
+    /// use rizzma::artist::Collection;
+    /// let mut c = Collection::scatter(vec![[0.0, 0.0]]);
+    /// c.set_zorder(3.0);
+    /// assert_eq!(c, Collection::scatter(vec![[0.0, 0.0]]).with_zorder(3.0));
+    /// ```
+    pub fn set_zorder(&mut self, zorder: f64) -> &mut Self {
+        self.zorder = zorder;
+        self
+    }
+
+    /// Show or hide the collection in place.
+    ///
+    /// ```
+    /// use rizzma::artist::Collection;
+    /// let mut c = Collection::scatter(vec![[0.0, 0.0]]);
+    /// c.set_visible(false);
+    /// assert_eq!(c, Collection::scatter(vec![[0.0, 0.0]]).with_visible(false));
+    /// ```
+    pub fn set_visible(&mut self, visible: bool) -> &mut Self {
+        self.visible = visible;
+        self
+    }
+
     /// Set the unit marker path, returning `self` for chaining.
     #[must_use]
     pub fn with_marker(mut self, marker: Path) -> Self {
-        self.marker = marker;
+        self.set_marker(marker);
         self
     }
 
@@ -85,7 +184,7 @@ impl Collection {
     /// chaining. The sizes broadcast over the offsets.
     #[must_use]
     pub fn with_sizes(mut self, sizes: Vec<f64>) -> Self {
-        self.sizes = sizes;
+        self.set_sizes(sizes);
         self
     }
 
@@ -93,7 +192,7 @@ impl Collection {
     /// broadcast over the offsets.
     #[must_use]
     pub fn with_facecolors(mut self, facecolors: Vec<Rgba>) -> Self {
-        self.facecolors = facecolors;
+        self.set_facecolors(facecolors);
         self
     }
 
@@ -102,28 +201,28 @@ impl Collection {
     /// offsets.
     #[must_use]
     pub fn with_edgecolors(mut self, edgecolors: Vec<Rgba>) -> Self {
-        self.edgecolors = edgecolors;
+        self.set_edgecolors(edgecolors);
         self
     }
 
     /// Set the edge width in points, returning `self` for chaining.
     #[must_use]
     pub fn linewidth(mut self, linewidth: f64) -> Self {
-        self.linewidth = linewidth;
+        self.set_linewidth(linewidth);
         self
     }
 
     /// Set the stacking order, returning `self` for chaining.
     #[must_use]
     pub fn with_zorder(mut self, zorder: f64) -> Self {
-        self.zorder = zorder;
+        self.set_zorder(zorder);
         self
     }
 
     /// Set whether the collection is drawn, returning `self` for chaining.
     #[must_use]
     pub fn with_visible(mut self, visible: bool) -> Self {
-        self.visible = visible;
+        self.set_visible(visible);
         self
     }
 
@@ -452,5 +551,25 @@ mod tests {
     fn default_zorder_is_one() {
         let coll = Collection::scatter(vec![[0.0, 0.0]]);
         assert_eq!(coll.zorder(), 1.0);
+    }
+
+    #[test]
+    fn setters_restyle_in_place_without_copying_offsets() {
+        let n = 1_000_000;
+        let offsets: Vec<[f64; 2]> = (0..n).map(|i| [i as f64, (i % 7) as f64]).collect();
+        let mut coll = Collection::scatter(offsets);
+        let before = coll.offsets().as_ptr();
+        let square = MarkerStyle::from_char('s').unwrap().path().clone();
+        coll.set_marker(square)
+            .set_sizes(vec![2.0])
+            .set_facecolors(vec![Rgba::RED])
+            .set_edgecolors(vec![Rgba::BLACK])
+            .set_linewidth(0.25)
+            .set_zorder(4.0)
+            .set_visible(false);
+        assert_eq!(coll.offsets().as_ptr(), before);
+        assert_eq!(coll.offsets().len(), n);
+        assert_eq!(coll.zorder(), 4.0);
+        assert!(!coll.visible());
     }
 }
