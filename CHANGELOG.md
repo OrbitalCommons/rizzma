@@ -108,7 +108,12 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   It has a concept map from plotters, naming traps for people arriving from
   matplotlib, side-by-side ports of ten idioms, and a worked port of starfield's
   Hipparcos × Gaia plot. Every rizzma snippet runs as a doc test, and a test holds
-  each one identical to the gallery case that draws the image beside it.
+  each one identical to the gallery case that draws the image beside it. A
+  colormaps section covers the `bgyw` default (not viridis), the CET replacements
+  for jet, hot and hsv, the `misleading:` prefix for exact reproduction, and the
+  silent fallback for unknown names.
+- `misleading:jet` joins viridis and coolwarm in the colormap lookup test against
+  matplotlib, so the quarantined maps' lookup is checked too.
 - **`Axes::pcolormesh_xy(x, y, c, mapping)`** draws a mesh over explicit cell edges
   (`ncols + 1` x edges and `nrows + 1` y edges, unevenly spaced if need be), such as
   a longitude/latitude grid on a sky projection.

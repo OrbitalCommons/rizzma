@@ -2,7 +2,8 @@
 //! every sample of `fixtures/cmap_lookup_mpl.txt` (each entry hit twice, bin
 //! edges included) the color matches matplotlib 3.11 to within one unit per
 //! channel — the gap between matplotlib truncating to 8 bits and rizzma
-//! rounding. A neighbouring entry would be off by up to 5.
+//! rounding. A neighbouring entry would be off by up to 5. The quarantined
+//! vendor maps share the lookup; `misleading:jet` stands in for them.
 
 use rizzma::core::color::colormap;
 
@@ -26,5 +27,5 @@ fn colormap_lookup_matches_matplotlib() {
         }
         checked += 1;
     }
-    assert_eq!(checked, 2 * 513);
+    assert_eq!(checked, 3 * 513);
 }

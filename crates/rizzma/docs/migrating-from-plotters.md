@@ -50,6 +50,43 @@ no color bookkeeping.
 - `twinx` is on the figure and returns the new axes' index:
   `let right = fig.twinx(0); fig.axes_mut()[right].plot(..)`.
 
+## Colormaps: the default, and what replaces jet
+
+Two differences from matplotlib matter when you port colored plots:
+
+- **The default colormap is `bgyw`** (CET-L09, a perceptually uniform
+  blue-green-yellow-white), not matplotlib's viridis. Any call that takes no
+  colormap (`imshow`, `pcolormesh`, `contourf`, …) uses it. Name `"viridis"`
+  where you need matplotlib's look; viridis, magma, inferno, plasma,
+  cividis, gray, RdBu and coolwarm are all here, each with an `_r` reversed
+  variant.
+- **jet, hot, hsv and rainbow are quarantined.** Their lightness profiles
+  invent edges and hide features (Kovesi, *Good Colour Maps*), so the bare
+  names don't resolve. Each has an honest replacement, and the original
+  stays reachable behind a `misleading:` prefix for exact reproduction.
+
+| matplotlib / hand-rolled | honest replacement | exact reproduction |
+|---|---|---|
+| `jet`, `rainbow` | `"cet_r2"` | `"misleading:jet"`, `"misleading:rainbow"` |
+| `hot` | `"cet_l03"` (alias `"fire"`) | `"misleading:hot"` |
+| `hsv` (cyclic data such as phase or angle) | `"cet_c1"`, `"cet_c2"` | `"misleading:hsv"` |
+| a diverging red/blue ramp | `"RdBu"`, `"coolwarm"`, `"cet_d01"` | — |
+
+Watch for one trap when porting: a colormap name that doesn't resolve,
+bare `"jet"` included, falls back to the `bgyw` default rather than failing,
+so a plot never comes out blank. A ported `.cmap("jet")` therefore renders
+bgyw without complaint. `colormap(name).is_some()` checks a name up front.
+
+Projects that hand-roll a jet-like or HSL hue sweep (fivepoints, andam and
+xdl among the plotters users surveyed) should pick from the middle column.
+The hue sweep is what those functions were reaching for, and the CET
+rainbow and cyclic maps keep it without the false contours. Reach for
+`misleading:` only when the output must match an existing figure. The
+quarantined maps use the same lookup as the rest: `misleading:jet` matches
+matplotlib's `jet` to within one unit per channel.
+
+![colormaps](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_colormaps.png)
+
 ## Ten idioms
 
 ### 1. Charts, panels and legends
@@ -145,8 +182,10 @@ fn value_to_color(v: f64, lo: f64, hi: f64) -> RGBColor {
 }
 ```
 
-`scatter_mapped` colors points by value through any of matplotlib's
-colormaps and norms; `colormap(name)` samples one directly:
+`scatter_mapped` colors points by value through a named colormap and a
+norm; `colormap(name)` samples one directly. See
+[the colormaps section](#colormaps-the-default-and-what-replaces-jet) for
+the default and for replacing jet:
 
 ```rust
 # // migrate: colormaps
@@ -493,7 +532,17 @@ root.present()?;
 The rizzma port. The bounds helper, padding, label areas and the hand-made
 color ramp go away: limits autoscale with matplotlib's margins, the B−V
 coloring is a colormap with a colorbar that says what it means, and the fit
-line's label feeds the legend:
+line's label feeds the legend.
+
+`coolwarm` here is a substitution, not a reproduction. The original's
+`HSLColor(0.7 − 0.7·t, 0.65, 0.45)` sweeps hue from blue through green and
+yellow to red at constant lightness: a hand-rolled rainbow, with the flaws
+described [above](#colormaps-the-default-and-what-replaces-jet). `coolwarm`
+keeps its blue-to-red reading, and stars that are bluer or redder in B−V
+read as such, but the pixels differ. A port that must match the old figure
+can compute the HSL colors itself and pass them with
+`ax.scatter(&hp, &g).set_facecolors(colors)`. That loses the colorbar,
+since named colormaps are what a colorbar can describe.
 
 ```rust
 # // migrate: hipparcos
