@@ -153,6 +153,12 @@ impl Figure {
         self
     }
 
+    /// The canvas background color.
+    #[must_use]
+    pub fn facecolor(&self) -> Rgba {
+        self.facecolor
+    }
+
     /// Adopt `rc` as this figure's style defaults, returning `self` for
     /// chaining. Applies the canvas background immediately and seeds every
     /// axes created afterward (and any that already exist). Build a theme with
