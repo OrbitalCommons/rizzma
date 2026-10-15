@@ -32,6 +32,8 @@ use crate::text::FontSource;
 use crate::figure::axes_colorbar::{BarInk, Colorbar, Mappable};
 use crate::figure::legend::ArtistKind;
 use crate::figure::richtext::layout_rich_text;
+use crate::figure::sky::{self, SkyProjection};
+use std::f64::consts::FRAC_PI_2;
 
 /// Default fractional margin added on each side of the autoscaled data limits.
 const DEFAULT_MARGIN: f64 = 0.05;
@@ -219,35 +221,64 @@ impl ScaleSpec {
 }
 
 /// Draw-time mapper from raw data coordinates to scaled data coordinates.
+///
+/// With a sky projection the "scaled" space is the projection's native
+/// plane: `(lon, lat)` radians project through it and the axis scales are
+/// ignored.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct DataToScaled {
     x: ScaleSpec,
     y: ScaleSpec,
+    sky: Option<SkyProjection>,
 }
 
 impl DataToScaled {
     /// Construct a mapper for `x` and `y` axis scales.
     pub(crate) const fn new(x: ScaleSpec, y: ScaleSpec) -> Self {
-        Self { x, y }
+        Self { x, y, sky: None }
+    }
+
+    /// This mapper projecting through `sky` instead of its scales.
+    pub(crate) const fn with_sky(mut self, sky: Option<SkyProjection>) -> Self {
+        self.sky = sky;
+        self
     }
 
     /// Map a raw data-space point into scaled data space.
     pub(crate) fn map_point(&self, x: f64, y: f64) -> [f64; 2] {
-        [self.x.transform(x), self.y.transform(y)]
+        match self.sky {
+            Some(sky) => {
+                let (px, py) = sky::project(sky, x, y.clamp(-FRAC_PI_2, FRAC_PI_2));
+                [px, py]
+            }
+            None => [self.x.transform(x), self.y.transform(y)],
+        }
     }
 
     /// Map a scaled-space point back into raw data space.
     pub(crate) fn inverse_point(&self, x: f64, y: f64) -> [f64; 2] {
-        [self.x.inverse(x), self.y.inverse(y)]
+        match self.sky {
+            Some(sky) => {
+                let (lon, lat) = sky::unproject(sky, x, y);
+                [lon, lat]
+            }
+            None => [self.x.inverse(x), self.y.inverse(y)],
+        }
     }
 
     /// Whether this mapper is exact identity in both dimensions.
     pub(crate) fn is_linear(&self) -> bool {
-        self.x.is_linear() && self.y.is_linear()
+        self.sky.is_none() && self.x.is_linear() && self.y.is_linear()
     }
 
     /// Map every vertex in `path` into scaled data space, preserving path codes.
+    ///
+    /// A sky projection first subdivides straight segments so they follow
+    /// the curved lines of constant longitude or latitude they stand for.
     pub(crate) fn map_path(&self, path: &Path) -> Path {
+        if let Some(sky) = self.sky {
+            return sky::project_path(sky, path);
+        }
         let vertices = path
             .vertices()
             .iter()
@@ -277,12 +308,17 @@ impl DataToScaled {
         }
     }
 
-    /// Map raw x/y limits into scaled x/y limits.
+    /// Map raw x/y limits into scaled x/y limits. A sky projection always
+    /// shows the whole sky: its native extents, whatever the limits.
     pub(crate) fn map_limits(
         &self,
         xlim: (f64, f64),
         ylim: (f64, f64),
     ) -> ((f64, f64), (f64, f64)) {
+        if let Some(sky) = self.sky {
+            let (xmax, ymax) = sky::native_extents(sky);
+            return ((-xmax, xmax), (-ymax, ymax));
+        }
         let [x0, y0] = self.map_point(xlim.0, ylim.0);
         let [x1, y1] = self.map_point(xlim.1, ylim.1);
         ((x0, x1), (y0, y1))
@@ -327,9 +363,9 @@ pub struct Axes {
     /// Sticky y values; see [`sticky_x`](Axes::sticky_x).
     pub(crate) sticky_y: Vec<f64>,
     /// Explicit x data limits `(min, max)`, or `None` to autoscale.
-    xlim: Option<(f64, f64)>,
+    pub(crate) xlim: Option<(f64, f64)>,
     /// Explicit y data limits `(min, max)`, or `None` to autoscale.
-    ylim: Option<(f64, f64)>,
+    pub(crate) ylim: Option<(f64, f64)>,
     /// Whether autoscaled x limits are drawn descending (matplotlib's
     /// `xaxis_inverted`). Explicit `xlim` carries its own direction.
     xinverted: bool,
@@ -343,11 +379,11 @@ pub struct Axes {
     /// Y-axis scale state.
     yscale: ScaleSpec,
     /// Background fill color of the axes region.
-    facecolor: Rgba,
+    pub(crate) facecolor: Rgba,
     /// Stroke color of the axes frame (border rectangle).
-    edgecolor: Rgba,
+    pub(crate) edgecolor: Rgba,
     /// Stroke width of the axes frame, in pixels.
-    linewidth: f64,
+    pub(crate) linewidth: f64,
     /// Ink color of the axes title.
     title_color: Rgba,
     /// Ink for free text and annotations ([`text`](Axes::text) /
@@ -392,9 +428,9 @@ pub struct Axes {
     /// fitted even when no contour line crosses it.
     pub(crate) extra_data_bbox: Option<Bbox>,
     /// The bottom (x) axis.
-    xaxis: Axis,
+    pub(crate) xaxis: Axis,
     /// The left (y) axis.
-    yaxis: Axis,
+    pub(crate) yaxis: Axis,
     /// When `true` the x axis (spine, ticks, labels) is not drawn — set on
     /// twin axes, whose x decoration belongs to the primary.
     xaxis_hidden: bool,
@@ -422,11 +458,14 @@ pub struct Axes {
     /// Text annotations (with optional leader arrows) in data coordinates.
     annotations: Vec<Annotation>,
     /// Whether to stroke the axes frame (border rectangle).
-    frame: bool,
+    pub(crate) frame: bool,
     /// When `true`, the axes pixel rectangle is shrunk so data units span the
     /// same number of pixels in x and y (matplotlib's `set_aspect("equal")`).
     /// See [`Axes::set_aspect_equal`].
     pub(crate) aspect_equal: bool,
+    /// The all-sky projection data draws through, if any. See
+    /// [`Axes::set_sky_projection`].
+    pub(crate) sky: Option<SkyProjection>,
     /// Whether the frame stroke and the x/y axis spines (ticks, tick labels)
     /// are drawn. When `false`, only the background, artists, and title appear.
     /// See [`Axes::set_axis_off`].
@@ -617,6 +656,7 @@ impl Axes {
             annotations: Vec::new(),
             frame: true,
             aspect_equal: false,
+            sky: None,
             axis_visible: true,
             scope: false,
             prop_cycle_index: 0,
@@ -2148,7 +2188,7 @@ impl Axes {
     }
 
     pub(crate) fn data_to_scaled(&self) -> DataToScaled {
-        DataToScaled::new(self.xscale, self.yscale)
+        DataToScaled::new(self.xscale, self.yscale).with_sky(self.sky)
     }
 
     /// Resolve this axes' pixel rectangle and the linear data-to-display
@@ -2225,7 +2265,9 @@ impl Axes {
         xlim_override: Option<(f64, f64)>,
     ) -> (f64, f64, f64, f64) {
         let (mut left, mut right, mut bottom, mut top) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
-        if self.axis_visible {
+        if self.sky.is_some() {
+            (left, right, bottom, top) = self.sky_layout_insets(font, s);
+        } else if self.axis_visible {
             let (xlim, ylim) = self.limits_with_override(xlim_override);
             if !self.xaxis_hidden {
                 // A top x axis is counted with the top decoration below.
@@ -2360,10 +2402,14 @@ impl Axes {
         let (xlim, ylim) = self.limits_with_override(xlim_override);
         let mapper = self.data_to_scaled();
 
-        // 2. Fill the axes background.
-        let rect = rect_path(&axes_px);
-        let fill_gc = GraphicsContext::new();
-        renderer.draw_path(&fill_gc, &rect, &Affine2D::identity(), Some(self.facecolor));
+        // 2. Fill the axes background — on a sky map, its outline.
+        if self.sky.is_some() {
+            self.draw_sky_background(renderer, &axes_px);
+        } else {
+            let rect = rect_path(&axes_px);
+            let fill_gc = GraphicsContext::new();
+            renderer.draw_path(&fill_gc, &rect, &Affine2D::identity(), Some(self.facecolor));
+        }
 
         // 2a. Oscilloscope graticule: a fixed-division grid drawn beneath the
         // data (a real scope's screen etching), so its density never depends
@@ -2392,14 +2438,21 @@ impl Axes {
             }
 
             // 3a'. Draw colormapped quad meshes (pcolormesh) beneath the other
-            // artists, mapping their data-space corners through the data
-            // transform.
-            if mapper.is_linear() {
-                for mesh in &self.meshes {
-                    if mesh.visible() {
-                        mesh.draw(clipped, &td);
-                    }
+            // artists, mapping their data-space corners through the scales
+            // and the data transform.
+            for mesh in self.meshes.iter().filter(|mesh| mesh.visible()) {
+                if mapper.is_linear() {
+                    mesh.draw(clipped, &td);
+                } else {
+                    mesh.mapped(|[x, y]| mapper.map_point(x, y))
+                        .draw(clipped, &td);
                 }
+            }
+
+            // 3a''. A sky map's graticule sits above its fills and below the
+            // other artists (matplotlib's grid zorder of 1.5).
+            if let Some(sky) = self.sky {
+                self.draw_sky_grid(clipped, sky, &td);
             }
 
             // 3b. Draw full-span shaded bands (axhspan/axvspan) beneath the
@@ -2456,8 +2509,14 @@ impl Axes {
             }
         }
 
+        // 5–6. A sky map's outline and degree labels stand in for the frame
+        // and axes.
+        if let Some(sky) = self.sky {
+            self.draw_sky_decorations(renderer, sky, &axes_px, &td, font);
+        }
+
         // 5. Stroke the frame (suppressed when the axis is turned off).
-        if self.frame && self.axis_visible {
+        if self.frame && self.axis_visible && self.sky.is_none() {
             let frame_gc = GraphicsContext::new()
                 .with_stroke(self.edgecolor)
                 .with_line_width(self.linewidth);
@@ -2475,7 +2534,7 @@ impl Axes {
         }
 
         // 6. Draw the axes spines (suppressed when the axis is turned off).
-        if self.axis_visible {
+        if self.axis_visible && self.sky.is_none() {
             if !self.xaxis_hidden {
                 self.xaxis.draw(renderer, &axes_px, xlim, font);
             }
@@ -3025,6 +3084,7 @@ impl Axes {
             contour_label_candidates: self.contour_label_candidates.clone(),
             frame: self.frame,
             aspect_equal: self.aspect_equal,
+            sky: self.sky,
             axis_visible: self.axis_visible,
             scope: self.scope,
             span_lines: self.span_lines.clone(),
@@ -3104,6 +3164,7 @@ impl Axes {
             annotations: spec.annotations.clone(),
             frame: spec.frame,
             aspect_equal: spec.aspect_equal,
+            sky: spec.sky,
             axis_visible: spec.axis_visible,
             scope: spec.scope,
             prop_cycle_index: spec.prop_cycle_index,

@@ -161,6 +161,12 @@ pub(crate) fn uses_path_simplify(figure: &FigureSpec) -> bool {
         || figure.rc.path_simplify_threshold != default.path_simplify_threshold
 }
 
+/// Whether any axes draws through a schema-13 sky projection.
+#[cfg(feature = "portable")]
+pub(crate) fn uses_sky_projection(figure: &FigureSpec) -> bool {
+    figure.axes.iter().any(|axes| axes.sky.is_some())
+}
+
 /// Whether any artist is colored through a schema-11 astronomical
 /// [`ImageNormalize`](crate::core::color::ImageNormalize).
 #[cfg(feature = "portable")]
@@ -259,6 +265,10 @@ pub(crate) struct AxesSpec {
     pub(crate) contour_label_candidates: Vec<ContourLabelCandidate>,
     pub(crate) frame: bool,
     pub(crate) aspect_equal: bool,
+    /// The all-sky projection the axes draws through. Absent before schema
+    /// 13, which introduced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) sky: Option<crate::figure::sky::SkyProjection>,
     pub(crate) axis_visible: bool,
     pub(crate) scope: bool,
     pub(crate) span_lines: Vec<SpanLine>,

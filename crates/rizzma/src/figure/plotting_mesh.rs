@@ -41,9 +41,7 @@ impl Axes {
     /// ([`with_edgecolor`](QuadMesh::with_edgecolor),
     /// [`with_zorder`](QuadMesh::with_zorder), …) for in-place restyling, e.g.
     /// `*ax.pcolormesh(&c, nr, nc) = mesh.with_edgecolor(Some(Rgba::BLACK))`.
-    ///
-    // TODO: a `pcolor`-style variant taking explicit x/y corner coordinates (an
-    // irregular grid) is a follow-up.
+    /// [`pcolormesh_xy`](Axes::pcolormesh_xy) takes explicit cell edges.
     ///
     /// # Panics
     ///
@@ -108,14 +106,64 @@ impl Axes {
             nrows * ncols
         );
 
-        // Regular unit grid corners, row-major: (nrows + 1) * (ncols + 1) points.
-        let mut coordinates = Vec::with_capacity((nrows + 1) * (ncols + 1));
-        for r in 0..=nrows {
-            for col in 0..=ncols {
-                coordinates.push([col as f64, r as f64]);
-            }
-        }
+        let x: Vec<f64> = (0..=ncols).map(|col| col as f64).collect();
+        let y: Vec<f64> = (0..=nrows).map(|r| r as f64).collect();
+        self.pcolormesh_xy(&x, &y, c, mapping)
+    }
 
+    /// Draw row-major scalar `c` as a colormapped quad mesh over explicit
+    /// cell edges (matplotlib's `pcolormesh(x, y, c)` with 1-D `x` and `y`).
+    ///
+    /// `x` holds the `ncols + 1` column edges and `y` the `nrows + 1` row
+    /// edges, so cell `(r, col)` spans `[x[col], x[col + 1]] x [y[r], y[r + 1]]`
+    /// and takes value `c[r * ncols + col]`; the edges need not be evenly
+    /// spaced. On a [sky projection](Axes::set_sky_projection) they are
+    /// longitude and latitude edges in radians. Colors map as in
+    /// [`pcolormesh_mapped`](Axes::pcolormesh_mapped).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x` or `y` is empty, or `c.len()` is not
+    /// `(y.len() - 1) * (x.len() - 1)`.
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    ///
+    /// // Two columns of uneven width over three rows.
+    /// let (x, y) = ([0.0, 1.0, 4.0], [0.0, 1.0, 2.0, 3.0]);
+    /// let c = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_subplot(1, 1, 1);
+    /// ax.pcolormesh_xy(&x, &y, &c, "magma");
+    /// let limits = ax.data_limits().expect("mesh provides data limits");
+    /// assert_eq!((limits.xmax(), limits.ymax()), (4.0, 3.0));
+    /// ```
+    pub fn pcolormesh_xy(
+        &mut self,
+        x: &[f64],
+        y: &[f64],
+        c: &[f64],
+        mapping: impl Into<ColorMapping>,
+    ) -> &mut QuadMesh {
+        assert!(
+            !x.is_empty() && !y.is_empty(),
+            "pcolormesh_xy: x and y need at least one edge each, got {} and {}",
+            x.len(),
+            y.len()
+        );
+        let (nrows, ncols) = (y.len() - 1, x.len() - 1);
+        assert_eq!(
+            c.len(),
+            nrows * ncols,
+            "pcolormesh_xy: c length {} must equal (y.len() - 1) * (x.len() - 1) = {}",
+            c.len(),
+            nrows * ncols
+        );
+        // Grid corners, row-major: (nrows + 1) * (ncols + 1) points.
+        let coordinates = y
+            .iter()
+            .flat_map(|&yv| x.iter().map(move |&xv| [xv, yv]))
+            .collect();
         let scale = mapping.into().resolve(c);
         let mesh =
             QuadMesh::new(nrows, ncols, coordinates, scale.colors(c)).with_color_scale(scale);

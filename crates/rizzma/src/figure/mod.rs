@@ -50,6 +50,7 @@
 
 pub(crate) mod axes;
 pub(crate) mod axes_colorbar;
+mod axes_sky;
 pub(crate) mod colorbar;
 pub mod event;
 #[allow(clippy::module_inception)]

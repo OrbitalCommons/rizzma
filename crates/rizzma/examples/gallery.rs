@@ -1449,6 +1449,7 @@ fn main() {
         );
         ax.colorbar(Mappable::Mesh(0))
             .set_location(ColorbarLocation::Bottom)
+            .set_shrink(0.6)
             .set_label("residual");
         ax.set_title("TwoSlopeNorm, bottom");
 
@@ -1545,6 +1546,42 @@ fn main() {
         ax.set_xlabel("days since discovery");
         ax.set_ylabel("flux (mJy)");
         fig.save_png("target/gallery_errorbar_limits.png").unwrap();
+    }
+
+    // 61. colour-filled sky map — a Mollweide axes holding a pcolormesh of
+    // galactic-plane emission on a 2° grid, with a colorbar, the graticule
+    // and a scatter of sources drawn over it.
+    {
+        use rizzma::figure::{ColorbarLocation, Mappable};
+        let mut fig = gallery_figure(8.0, 4.2);
+        let lon: Vec<f64> = (-90..=90).map(|i| f64::from(2 * i).to_radians()).collect();
+        let lat: Vec<f64> = (-45..=45).map(|i| f64::from(2 * i).to_radians()).collect();
+        let mut c = Vec::with_capacity(90 * 180);
+        for r in 0..90 {
+            for col in 0..180 {
+                let (lo, la) = (0.5 * (lon[col] + lon[col + 1]), 0.5 * (lat[r] + lat[r + 1]));
+                // A plane tilted 60° to the equator, brightest toward the
+                // center, over a faint dipole.
+                let plane = (la - 60f64.to_radians().sin().asin() * lo.sin()).abs();
+                c.push(3.0 * (-plane * plane / 0.04).exp() * (1.0 + lo.cos()) + 0.4 * la.sin());
+            }
+        }
+        let mut noise = rng(61);
+        let (mut slon, mut slat) = (Vec::new(), Vec::new());
+        for _ in 0..60 {
+            slon.push((noise() - 0.5) * TAU);
+            slat.push((noise() - 0.5) * 2.4);
+        }
+        let ax = fig.add_subplot(1, 1, 1);
+        ax.set_sky_projection(SkyProjection::Mollweide).grid(true);
+        ax.pcolormesh_xy(&lon, &lat, &c, "inferno");
+        ax.scatter(&slon, &slat);
+        ax.colorbar(Mappable::Mesh(0))
+            .set_location(ColorbarLocation::Bottom)
+            .set_shrink(0.6)
+            .set_label("emission");
+        ax.set_title("pcolormesh on a mollweide axes");
+        fig.save_png("target/gallery_sky_fill.png").unwrap();
     }
 
     println!("wrote target/gallery_*.png");

@@ -28,13 +28,15 @@
 use std::f64::consts::{FRAC_PI_2, PI, SQRT_2};
 
 use crate::core::color::{DEFAULT_COLOR_CYCLE, Rgba};
-use crate::core::{Affine2D, Path};
+use crate::core::{Affine2D, Path, PathCode};
 use crate::render::{GraphicsContext, Renderer};
 use crate::skia::SkiaRenderer;
 use crate::text::FontSource;
 
-/// Which all-sky projection a [`SkyAxes`] uses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Which all-sky projection a [`SkyAxes`] uses, or an [`Axes`](super::Axes)
+/// draws through ([`Axes::set_sky_projection`](super::Axes::set_sky_projection)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SkyProjection {
     /// The Aitoff projection (matplotlib's `projection="aitoff"`).
     ///
@@ -116,7 +118,7 @@ pub struct SkyAxes {
 ///
 /// Aitoff: `x ∈ [-π, π]`, `y ∈ [-π/2, π/2]`. Mollweide: `x ∈ [-2√2, 2√2]`,
 /// `y ∈ [-√2, √2]`. Both are 2:1.
-fn project(projection: SkyProjection, lon: f64, lat: f64) -> (f64, f64) {
+pub(crate) fn project(projection: SkyProjection, lon: f64, lat: f64) -> (f64, f64) {
     match projection {
         SkyProjection::Aitoff => {
             // α is the angular distance from the center along the great
@@ -155,10 +157,131 @@ fn project(projection: SkyProjection, lon: f64, lat: f64) -> (f64, f64) {
 }
 
 /// The native-plane half-extents `(xmax, ymax)` of `projection`.
-fn native_extents(projection: SkyProjection) -> (f64, f64) {
+pub(crate) fn native_extents(projection: SkyProjection) -> (f64, f64) {
     match projection {
         SkyProjection::Aitoff => (PI, FRAC_PI_2),
         SkyProjection::Mollweide => (2.0 * SQRT_2, SQRT_2),
+    }
+}
+
+/// Longest step, in radians of longitude or latitude, a projected straight
+/// segment takes before it is subdivided.
+const SEGMENT_STEP: f64 = PI / 180.0;
+
+/// Most pieces one segment subdivides into — matplotlib's geo-axes
+/// interpolation resolution, which every segment gets there.
+const SEGMENT_MAX_STEPS: usize = 75;
+
+/// Project `path` (`(lon, lat)` radians) to the native plane, subdividing
+/// each straight segment — closing edges included — into steps of at most
+/// one degree, so a segment follows the curved line it stands for, as
+/// matplotlib's geo axes interpolate. Curve control points project as they
+/// are; latitudes clamp to the poles.
+pub(crate) fn project_path(projection: SkyProjection, path: &Path) -> Path {
+    let vertices = path.vertices();
+    let codes = path.codes();
+    let mut out: Vec<([f64; 2], PathCode)> = Vec::with_capacity(vertices.len());
+    let (mut start, mut prev) = (None, None);
+    for (i, &v) in vertices.iter().enumerate() {
+        let code = match codes {
+            Some(c) => c[i],
+            None if i == 0 => PathCode::MoveTo,
+            None => PathCode::LineTo,
+        };
+        match code {
+            PathCode::MoveTo => start = Some(v),
+            PathCode::LineTo => {
+                if let Some(a) = prev {
+                    out.extend(segment_interior(a, v).map(|p| (p, PathCode::LineTo)));
+                }
+            }
+            PathCode::ClosePoly => {
+                if let (Some(a), Some(s)) = (prev, start) {
+                    out.extend(segment_interior(a, s).map(|p| (p, PathCode::LineTo)));
+                    out.push((s, PathCode::LineTo));
+                }
+            }
+            PathCode::CurveTo3 | PathCode::CurveTo4 => {}
+        }
+        out.push((v, code));
+        prev = if code == PathCode::ClosePoly {
+            start
+        } else {
+            Some(v)
+        };
+    }
+    let projected = out
+        .iter()
+        .map(|&([lon, lat], _)| {
+            let (x, y) = project(projection, lon, lat.clamp(-FRAC_PI_2, FRAC_PI_2));
+            [x, y]
+        })
+        .collect();
+    // A code-less path is all line-tos, and subdividing keeps it so.
+    let out_codes = codes.map(|_| out.iter().map(|&(_, code)| code).collect());
+    Path::new(projected, out_codes)
+}
+
+/// The interior points of the straight segment `a`→`b` that split it into
+/// steps of at most [`SEGMENT_STEP`] in either coordinate (none for a
+/// short or non-finite segment).
+fn segment_interior(a: [f64; 2], b: [f64; 2]) -> impl Iterator<Item = [f64; 2]> {
+    let span = (b[0] - a[0]).abs().max((b[1] - a[1]).abs());
+    let steps = if span.is_finite() {
+        ((span / SEGMENT_STEP).ceil() as usize).clamp(1, SEGMENT_MAX_STEPS)
+    } else {
+        1
+    };
+    (1..steps).map(move |k| {
+        let t = k as f64 / steps as f64;
+        [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]
+    })
+}
+
+/// Invert [`project`]: the `(lon, lat)` (radians) at native point `(x, y)`.
+///
+/// Points outside the projection's outline come back clamped onto it.
+/// Mollweide inverts in closed form; Aitoff, which has none, by Newton
+/// iteration on the forward map from the equirectangular guess.
+pub(crate) fn unproject(projection: SkyProjection, x: f64, y: f64) -> (f64, f64) {
+    match projection {
+        SkyProjection::Mollweide => {
+            let theta = (y / SQRT_2).clamp(-1.0, 1.0).asin();
+            let lat = ((2.0 * theta + (2.0 * theta).sin()) / PI)
+                .clamp(-1.0, 1.0)
+                .asin();
+            let cos = theta.cos();
+            let lon = if cos < 1e-12 {
+                0.0
+            } else {
+                PI * x / (2.0 * SQRT_2 * cos)
+            };
+            (lon.clamp(-PI, PI), lat)
+        }
+        SkyProjection::Aitoff => {
+            let (mut lon, mut lat) = (x.clamp(-PI, PI), y.clamp(-FRAC_PI_2, FRAC_PI_2));
+            for _ in 0..30 {
+                let (fx, fy) = project(projection, lon, lat);
+                let (ex, ey) = (fx - x, fy - y);
+                if ex.hypot(ey) < 1e-12 {
+                    break;
+                }
+                // Forward-difference Jacobian: robust at the center, where
+                // the analytic one needs the sinc limit.
+                let h = 1e-7;
+                let (ax, ay) = project(projection, lon + h, lat);
+                let (bx, by) = project(projection, lon, lat + h);
+                let (j11, j21) = ((ax - fx) / h, (ay - fy) / h);
+                let (j12, j22) = ((bx - fx) / h, (by - fy) / h);
+                let det = j11 * j22 - j12 * j21;
+                if det.abs() < 1e-15 {
+                    break;
+                }
+                lon = (lon - (j22 * ex - j12 * ey) / det).clamp(-PI, PI);
+                lat = (lat - (j11 * ey - j21 * ex) / det).clamp(-FRAC_PI_2, FRAC_PI_2);
+            }
+            (lon, lat)
+        }
     }
 }
 
@@ -459,6 +582,61 @@ mod tests {
 
     fn approx(a: f64, b: f64, tol: f64) {
         assert!((a - b).abs() < tol, "expected {b}, got {a}");
+    }
+
+    #[test]
+    fn unproject_inverts_project() {
+        for projection in [SkyProjection::Aitoff, SkyProjection::Mollweide] {
+            for lon_deg in (-170..=170).step_by(20) {
+                for lat_deg in (-80..=80).step_by(20) {
+                    let (lon, lat) = (
+                        f64::from(lon_deg).to_radians(),
+                        f64::from(lat_deg).to_radians(),
+                    );
+                    let (x, y) = project(projection, lon, lat);
+                    let (lon2, lat2) = unproject(projection, x, y);
+                    approx(lon2, lon, 1e-9);
+                    approx(lat2, lat, 1e-9);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn project_path_subdivides_segments_and_closing_edges() {
+        // A 20°-wide box: each edge splits into 1° steps, including the
+        // closing edge back to the start.
+        let d = PI / 180.0;
+        let path = Path::new(
+            vec![
+                [0.0, 0.0],
+                [20.0 * d, 0.0],
+                [20.0 * d, 20.0 * d],
+                [0.0, 0.0],
+            ],
+            Some(vec![
+                PathCode::MoveTo,
+                PathCode::LineTo,
+                PathCode::LineTo,
+                PathCode::ClosePoly,
+            ]),
+        );
+        let projected = project_path(SkyProjection::Mollweide, &path);
+        let codes = projected.codes().expect("codes are kept");
+        // 1 move + 20 + 20 line-tos, then the 20-step diagonal close (its
+        // interior, the start again, and the close itself).
+        assert_eq!(projected.vertices().len(), 1 + 20 + 20 + 19 + 1 + 1);
+        assert_eq!(codes.last(), Some(&PathCode::ClosePoly));
+        // Every vertex lies on the projection of its subdivided point: the
+        // tenth step along the bottom edge is (10°, 0).
+        let (x, y) = project(SkyProjection::Mollweide, 10.0 * d, 0.0);
+        approx(projected.vertices()[10][0], x, 1e-12);
+        approx(projected.vertices()[10][1], y, 1e-12);
+        // Code-less polylines stay code-less.
+        let line = Path::from_polyline(&[[-PI, 0.5], [PI, 0.5]]);
+        let projected = project_path(SkyProjection::Aitoff, &line);
+        assert!(projected.codes().is_none());
+        assert_eq!(projected.vertices().len(), 1 + SEGMENT_MAX_STEPS);
     }
 
     #[test]

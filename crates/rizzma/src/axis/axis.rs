@@ -269,6 +269,28 @@ impl Axis {
         self
     }
 
+    /// Whether the tick labels draw (see [`Axis::set_tick_labels_visible`]).
+    pub(crate) fn tick_labels_visible(&self) -> bool {
+        self.tick_labels_visible
+    }
+
+    /// The tick-label font size, in pixels at 100 DPI.
+    pub(crate) fn tick_label_size(&self) -> f64 {
+        self.tick_label_size
+    }
+
+    /// The major grid's stroke color (alpha applied) and width, or `None`
+    /// when the grid is off or has no width.
+    pub(crate) fn grid_stroke(&self) -> Option<(Rgba, f64)> {
+        let alpha = self.grid_alpha.clamp(0.0, 1.0);
+        (self.grid && self.grid_linewidth > 0.0).then(|| {
+            (
+                self.grid_color.with_alpha(self.grid_color.a * alpha),
+                self.grid_linewidth,
+            )
+        })
+    }
+
     /// The data→scaled coordinate mapping.
     pub(crate) fn scale(&self) -> &dyn Scale {
         self.scale.as_ref()
