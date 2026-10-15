@@ -51,6 +51,15 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   Meshes and mapped collections now remember their `ColorScale`;
   `Figure::axes_frame`, `colorbar_frame` and `colorbar_ticks` report the result.
   `Figure::colorbar(name, vmin, vmax)` stays as the free-standing convenience.
+- **Astronomical image normalization.** astropy.visualization's intervals
+  (`Interval::MinMax`, `Percentile`, `AsymmetricPercentile`, and IRAF's `ZScale` via
+  `ZScaleInterval`) and stretches (`Stretch::Linear`, `Sqrt`, `Power`, `Log`, `Asinh`,
+  `Sinh`, and histogram equalization via `Stretch::histeq`), combined in
+  `ImageNormalize`, a norm any colormapped artist accepts:
+  `imshow(..).norm(ImageNormalize::new(Interval::zscale(), Stretch::Asinh(0.1)))`. The
+  interval takes its limits from the data the norm is applied to (`Norm::autoscaled`).
+  ZScale limits match astropy 8 to 1e-15 relative, every stretch to 1e-12, and the
+  render matches astropy + matplotlib to within one unit per channel.
 
 ### Changed
 - Portable figures are schema 7. Scatter legend samples, and the insertion order of
@@ -63,13 +72,15 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 - Portable figures are schema 10: axes colorbars, and the color scale a mesh or
   mapped collection was drawn with. `pcolormesh` and `scatter_mapped` figures carry
   their scale, so they now export as schema 10; schema 1–9 artifacts still load.
+- Portable figures are schema 11 when they use an `ImageNormalize`, written as its
+  resolved limits and stretch; schema 1–10 artifacts still load.
 
 ### Output changes
 - `legend_auto` lists rows in the order the artists were added, as matplotlib does,
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":10`.
+- Every `.riz` artifact now declares `"schema":11`.
 - NaN values in `scatter_mapped` and `pcolormesh` take the bad color (transparent
   unless set) rather than the colormap's bottom color, as in matplotlib; images
   already did. Renders without NaN in their color data are unchanged.

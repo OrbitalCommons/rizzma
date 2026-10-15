@@ -7,6 +7,8 @@
 //!
 //! [`Colormap`]: super::Colormap
 
+use super::astro::{ImageNormalize, Stretch};
+
 /// Maps data values into the unit interval `[0, 1]`.
 ///
 /// Implementors map a raw data value to a normalized position in `[0, 1]`
@@ -507,6 +509,8 @@ pub enum Norm {
     Centered(CenteredNorm),
     /// See [`SymLogNorm`].
     SymLog(SymLogNorm),
+    /// See [`ImageNormalize`].
+    ImageNormalize(ImageNormalize),
 }
 
 impl Norm {
@@ -520,6 +524,18 @@ impl Norm {
             Norm::TwoSlope(n) => n,
             Norm::Centered(n) => n,
             Norm::SymLog(n) => n,
+            Norm::ImageNormalize(n) => n,
+        }
+    }
+
+    /// This norm with any limits it takes from the data fixed from `data` —
+    /// matplotlib's `autoscale_None`. Only an [`ImageNormalize`] whose
+    /// interval has not met data yet changes.
+    #[must_use]
+    pub fn autoscaled(&self, data: &[f64]) -> Norm {
+        match self {
+            Norm::ImageNormalize(n) => Norm::ImageNormalize(n.autoscaled(data)),
+            other => other.clone(),
         }
     }
 }
@@ -558,6 +574,7 @@ enum NormKind {
     TwoSlope,
     Centered,
     SymLog,
+    ImageNormalize,
 }
 
 impl From<Norm> for NormWire {
@@ -577,9 +594,70 @@ impl From<Norm> for NormWire {
                 NormKind::SymLog,
                 vec![n.linthresh, n.linscale, n.base, n.vmin, n.vmax],
             ),
+            Norm::ImageNormalize(n) => (NormKind::ImageNormalize, image_normalize_params(&n)),
         };
         NormWire { kind, params }
     }
+}
+
+/// An image-normalize norm's parameters: `vmin, vmax`, the stretch's code
+/// (linear 0, sqrt 1, power 2, log 3, asinh 4, sinh 5, histogram 6), then its
+/// own parameters (a histogram stretch's knot count, knots, then values). An
+/// unscaled norm writes `NaN` limits, which the wire refuses — only norms that
+/// have met their data are exported.
+fn image_normalize_params(n: &ImageNormalize) -> Vec<f64> {
+    let (vmin, vmax) = n.limits().unwrap_or((f64::NAN, f64::NAN));
+    let mut params = vec![vmin, vmax];
+    match n.stretch() {
+        Stretch::Linear { slope, intercept } => params.extend([0.0, *slope, *intercept]),
+        Stretch::Sqrt => params.push(1.0),
+        Stretch::Power(a) => params.extend([2.0, *a]),
+        Stretch::Log(a) => params.extend([3.0, *a]),
+        Stretch::Asinh(a) => params.extend([4.0, *a]),
+        Stretch::Sinh(a) => params.extend([5.0, *a]),
+        Stretch::HistEq { knots, values } => {
+            params.extend([6.0, knots.len() as f64]);
+            params.extend(knots);
+            params.extend(values);
+        }
+    }
+    params
+}
+
+/// The inverse of [`image_normalize_params`].
+fn image_normalize_from(p: &[f64]) -> Result<ImageNormalize, String> {
+    let bad = || {
+        format!(
+            "malformed image normalization parameters ({} values)",
+            p.len()
+        )
+    };
+    let [vmin, vmax, code, rest @ ..] = p else {
+        return Err(bad());
+    };
+    if code.fract() != 0.0 || *code < 0.0 {
+        return Err(bad());
+    }
+    let stretch = match (*code as usize, rest) {
+        (0, [slope, intercept]) => Stretch::Linear {
+            slope: *slope,
+            intercept: *intercept,
+        },
+        (1, []) => Stretch::Sqrt,
+        (2, [a]) => Stretch::Power(*a),
+        (3, [a]) => Stretch::Log(*a),
+        (4, [a]) => Stretch::Asinh(*a),
+        (5, [a]) => Stretch::Sinh(*a),
+        (6, [n, tail @ ..]) if n.fract() == 0.0 && tail.len() == 2 * (*n as usize) => {
+            let (knots, values) = tail.split_at(*n as usize);
+            Stretch::HistEq {
+                knots: knots.to_vec(),
+                values: values.to_vec(),
+            }
+        }
+        _ => return Err(bad()),
+    };
+    Ok(ImageNormalize::with_limits(*vmin, *vmax, stretch))
 }
 
 impl TryFrom<NormWire> for Norm {
@@ -636,6 +714,7 @@ impl TryFrom<NormWire> for Norm {
                     vmax: p[4],
                 })
             }
+            NormKind::ImageNormalize => Norm::ImageNormalize(image_normalize_from(p)?),
         })
     }
 }
@@ -658,6 +737,7 @@ norm_from!(
     TwoSlopeNorm => TwoSlope,
     CenteredNorm => Centered,
     SymLogNorm => SymLog,
+    ImageNormalize => ImageNormalize,
 );
 
 #[cfg(test)]
@@ -801,6 +881,17 @@ mod tests {
                 .with_linscale(2.0)
                 .with_base(2.0)
                 .into(),
+            ImageNormalize::with_limits(80.0, 180.0, Stretch::Asinh(0.1)).into(),
+            ImageNormalize::with_limits(
+                0.0,
+                1.0,
+                Stretch::Linear {
+                    slope: 0.5,
+                    intercept: 0.25,
+                },
+            )
+            .into(),
+            ImageNormalize::with_limits(-1.0, 9.0, Stretch::histeq(&[3.0, -1.0, 9.0, 2.0])).into(),
         ];
         for norm in norms {
             let json = serde_json::to_string(&norm).unwrap();
@@ -817,9 +908,20 @@ mod tests {
             r#"{"kind":"boundary","params":[2.5, 0, 1]}"#,
             r#"{"kind":"warp","params":[1, 2]}"#,
             r#"{"kind":"log","params":[1, 2],"extra":0}"#,
+            r#"{"kind":"image_normalize","params":[0, 1, 9]}"#,
+            r#"{"kind":"image_normalize","params":[0, 1, 2.5, 3]}"#,
+            r#"{"kind":"image_normalize","params":[0, 1, 6, 2, 0, 1, 0]}"#,
         ] {
             assert!(serde_json::from_str::<Norm>(bad).is_err(), "{bad}");
         }
+
+        // A norm that never met its data has no limits to write.
+        let unscaled = Norm::from(ImageNormalize::new(
+            crate::core::color::Interval::zscale(),
+            Stretch::Sqrt,
+        ));
+        let json = serde_json::to_string(&unscaled).unwrap();
+        assert!(serde_json::from_str::<Norm>(&json).is_err(), "{json}");
     }
 
     #[test]

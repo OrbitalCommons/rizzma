@@ -88,7 +88,7 @@ struct ScaledHead {
     #[serde(default)]
     cmap: Option<serde::de::IgnoredAny>,
     #[serde(default)]
-    norm: Option<serde::de::IgnoredAny>,
+    norm: Option<NormHead>,
     #[serde(default)]
     bad: Option<serde::de::IgnoredAny>,
     #[serde(default)]
@@ -111,13 +111,26 @@ impl ScaledHead {
 #[derive(Debug, Deserialize)]
 struct ImageHead {
     #[serde(default)]
-    norm: Option<serde::de::IgnoredAny>,
+    norm: Option<NormHead>,
     #[serde(default)]
     bad: Option<serde::de::IgnoredAny>,
     #[serde(default)]
     over: Option<serde::de::IgnoredAny>,
     #[serde(default)]
     under: Option<serde::de::IgnoredAny>,
+}
+
+/// A norm's kind; its parameters are skipped.
+#[derive(Debug, Deserialize)]
+struct NormHead {
+    kind: String,
+}
+
+impl NormHead {
+    /// Whether this is a schema-11 astronomical image normalization.
+    fn is_image_normalize(norm: &Option<NormHead>) -> bool {
+        norm.as_ref().is_some_and(|n| n.kind == "image_normalize")
+    }
 }
 
 /// Presence of a legend row's scatter marker sample.
@@ -145,6 +158,20 @@ impl FigureHead {
     /// Mirrors [`uses_text_sizes`](super::spec::uses_text_sizes).
     fn uses_text_sizes(&self) -> bool {
         self.suptitle_size.is_some() || self.axes.iter().any(|axes| axes.text_size.is_some())
+    }
+
+    /// Mirrors [`uses_image_normalize`](super::spec::uses_image_normalize).
+    fn uses_image_normalize(&self) -> bool {
+        self.axes.iter().any(|axes| {
+            axes.images
+                .iter()
+                .any(|i| NormHead::is_image_normalize(&i.norm))
+                || axes
+                    .meshes
+                    .iter()
+                    .chain(&axes.collections)
+                    .any(|s| NormHead::is_image_normalize(&s.norm))
+        })
     }
 
     /// Mirrors [`uses_colorbars`](super::spec::uses_colorbars).
@@ -263,6 +290,7 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
         (8, header.figure.uses_figure_text()),
         (9, header.figure.uses_image_norms()),
         (10, header.figure.uses_colorbars()),
+        (11, header.figure.uses_image_normalize()),
     ]);
     if header.schema < required {
         return Err(PortableError::Malformed(format!(

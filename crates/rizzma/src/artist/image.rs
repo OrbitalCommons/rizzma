@@ -185,7 +185,9 @@ impl AxesImage {
     }
 
     /// Normalize through `norm` — matplotlib's `imshow(norm=…)` — in place.
-    /// The norm carries its own limits and supersedes `vmin`/`vmax`.
+    /// The norm carries its own limits and supersedes `vmin`/`vmax`; an
+    /// [`ImageNormalize`](crate::core::color::ImageNormalize) takes its
+    /// interval's limits from the image's data now.
     ///
     /// ![norms](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_norms.png)
     ///
@@ -202,7 +204,7 @@ impl AxesImage {
     /// assert!(!fig.encode_png().unwrap().is_empty());
     /// ```
     pub fn norm(&mut self, norm: impl Into<Norm>) -> &mut Self {
-        self.norm = Some(norm.into());
+        self.norm = Some(norm.into().autoscaled(&self.data));
         self
     }
 
@@ -210,7 +212,7 @@ impl AxesImage {
     /// [`norm`](AxesImage::norm).
     #[must_use]
     pub fn with_norm(mut self, norm: impl Into<Norm>) -> Self {
-        self.norm = Some(norm.into());
+        self.norm = Some(norm.into().autoscaled(&self.data));
         self
     }
 
