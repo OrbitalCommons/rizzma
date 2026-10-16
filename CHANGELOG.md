@@ -172,6 +172,10 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   `.cmap("gray")` are unchanged.
 
 ### Output changes
+- **`scatter` and `hist` take their color from the axes' property cycle**, as `plot`, `bar`
+  and `quiver` already did, so `set_prop_cycle` (and the oscilloscope palette) now
+  colors them too, as in matplotlib. With the default cycle every render is
+  byte-identical; the gallery is unchanged.
 - `legend_auto` lists rows in the order the artists were added, as matplotlib does,
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
