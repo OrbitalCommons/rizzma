@@ -3280,6 +3280,10 @@ impl crate::portable::spec::LocatorSpec {
             L::AutoDateMinor { maxticks } => Box::new(
                 crate::axis::dates::AutoDateMinorLocator::with_maxticks(maxticks),
             ),
+            #[cfg(not(feature = "dates"))]
+            L::AutoDate { .. } | L::AutoDateMinor { .. } => {
+                return Err(PortableError::FeatureDisabled("dates"));
+            }
         })
     }
 }
@@ -3287,9 +3291,14 @@ impl crate::portable::spec::LocatorSpec {
 #[cfg(feature = "portable")]
 impl crate::portable::spec::FormatterSpec {
     /// Reconstruct the boxed [`Formatter`] this wire form describes.
-    pub(crate) fn into_formatter(self) -> Box<dyn Formatter> {
+    ///
+    /// A date formatter in a build without the `dates` feature is
+    /// [`FeatureDisabled`](crate::portable::PortableError::FeatureDisabled).
+    pub(crate) fn into_formatter(
+        self,
+    ) -> Result<Box<dyn Formatter>, crate::portable::PortableError> {
         use crate::portable::spec::FormatterSpec as F;
-        match self {
+        Ok(match self {
             F::Scalar { decimals } => Box::new(match decimals {
                 Some(decimals) => ScalarFormatter::with_decimals(decimals),
                 None => ScalarFormatter::new(),
@@ -3337,7 +3346,11 @@ impl crate::portable::spec::FormatterSpec {
             F::Date { fmt } => Box::new(crate::axis::dates::DateFormatter::new(fmt)),
             #[cfg(feature = "dates")]
             F::ConciseDate => Box::new(crate::axis::dates::ConciseDateFormatter::new()),
-        }
+            #[cfg(not(feature = "dates"))]
+            F::Date { .. } | F::ConciseDate => {
+                return Err(crate::portable::PortableError::FeatureDisabled("dates"));
+            }
+        })
     }
 }
 

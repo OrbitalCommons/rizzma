@@ -713,11 +713,9 @@ pub(crate) enum LocatorSpec {
         offset: f64,
     },
     Null,
-    #[cfg(feature = "dates")]
     AutoDate {
         maxticks: usize,
     },
-    #[cfg(feature = "dates")]
     AutoDateMinor {
         maxticks: usize,
     },
@@ -786,10 +784,8 @@ pub(crate) enum FormatterSpec {
     StrMethod {
         fmt: String,
     },
-    #[cfg(feature = "dates")]
     Date {
         fmt: String,
     },
-    #[cfg(feature = "dates")]
     ConciseDate,
 }

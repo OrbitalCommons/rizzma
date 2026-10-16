@@ -70,6 +70,11 @@ jobs:
       - name: Build without default features
         run: cargo build -p rizzma --no-default-features
 
+      # The library's own tests with only `portable`: what an import reports
+      # when the artifact needs a feature this build leaves out.
+      - name: Test portable without optional features
+        run: cargo test -p rizzma --lib --no-default-features --features portable
+
       - name: Wasm check
         run: |
           rustup target add wasm32-unknown-unknown
