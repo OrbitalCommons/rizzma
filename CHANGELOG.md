@@ -182,7 +182,8 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 ### Changed
 - **Date axes are a `dates` feature** (in `default`), which brings in `chrono`: the
   `axis::dates` module and `Axes::set_xaxis_date` / `set_yaxis_date`. Without it, a
-  portable figure with date ticks fails to load as malformed.
+  portable figure with date ticks fails to load with the new
+  `PortableError::FeatureDisabled("dates")`, which names the missing feature.
 - **`base64` is only a dependency with the `portable` feature.** SVG output encodes
   embedded images itself, byte-for-byte as before.
 - `RichText` keeps each plain span's characters for native text, in private fields,

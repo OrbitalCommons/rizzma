@@ -1048,7 +1048,7 @@ impl Axis {
             side: spec.side,
             scale: spec.scale.into_scale(),
             locator: spec.locator.clone().into_locator()?,
-            formatter: spec.formatter.clone().into_formatter(),
+            formatter: spec.formatter.clone().into_formatter()?,
             label: spec.label.clone(),
             color: spec.color,
             tick_length: spec.tick_length,

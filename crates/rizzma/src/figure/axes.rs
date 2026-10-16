@@ -3723,6 +3723,7 @@ mod tests {
         assert_eq!(yl, vec!["low", "high"]);
     }
 
+    #[cfg(feature = "dates")]
     #[test]
     fn date_axis_setters_keep_linear_scale() {
         let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));

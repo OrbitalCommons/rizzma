@@ -32,6 +32,9 @@ pub enum PortableError {
         /// Newest version this build supports.
         max: u32,
     },
+    /// The artifact uses something this build was compiled without: the named
+    /// cargo feature of rizzma (for example date ticks need `dates`).
+    FeatureDisabled(&'static str),
     /// The JSON spec chunk failed to serialize or deserialize (including
     /// unknown fields and unknown enum variants, which are rejected).
     Json(String),
@@ -51,6 +54,11 @@ impl std::fmt::Display for PortableError {
                 f,
                 "artifact is schema {found}; this build supports {min}..={max} — \
                  rendering it would drop content"
+            ),
+            PortableError::FeatureDisabled(feature) => write!(
+                f,
+                "portable figure needs rizzma's `{feature}` feature, which this build \
+                 was compiled without"
             ),
             PortableError::Json(msg) => write!(f, "portable figure spec error: {msg}"),
             PortableError::Io(err) => write!(f, "portable figure i/o error: {err}"),
