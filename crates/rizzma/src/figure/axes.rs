@@ -887,6 +887,20 @@ impl Axes {
         &mut self.lines
     }
 
+    /// The [`Patch`] artists on this axes (bars, histogram bins, shapes), in
+    /// the order they were added.
+    #[must_use]
+    pub fn patches(&self) -> &[Patch] {
+        &self.patches
+    }
+
+    /// Mutable access to the [`Patch`] artists on this axes, in the order
+    /// they were added, for restyling after the fact, e.g. the bars a
+    /// [`hist_with`](Axes::hist_with) returned the range of.
+    pub fn patches_mut(&mut self) -> &mut [Patch] {
+        &mut self.patches
+    }
+
     /// Show or hide the x axis' tick labels and axis label (tick marks and
     /// the spine always draw), releasing their layout room when hidden —
     /// matplotlib's `label_outer` for the inner axes of a shared-x stack.

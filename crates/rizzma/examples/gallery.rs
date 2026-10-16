@@ -2009,5 +2009,41 @@ fn main() {
         fig.save_png("target/gallery_line_markers.png").unwrap();
     }
 
+    // 76. hist_with — two samples as densities: one as translucent bars, one
+    // as a step outline, each labelled for the legend.
+    {
+        use rizzma::figure::{Bins, HistOptions, HistType};
+        let mut fig = gallery_figure(5.0, 3.5);
+        let ax = fig.add_subplot(1, 1, 1);
+        let mut noise = rng(76);
+        let normal = |noise: &mut dyn FnMut() -> f64, mu: f64, sigma: f64| {
+            (0..12).map(|_| noise()).sum::<f64>() * sigma - 6.0 * sigma + mu
+        };
+        let a: Vec<f64> = (0..3000).map(|_| normal(&mut noise, 0.0, 1.0)).collect();
+        let b: Vec<f64> = (0..3000).map(|_| normal(&mut noise, 1.2, 0.7)).collect();
+        let edges: Vec<f64> = (0..=40).map(|i| -4.0 + 0.2 * f64::from(i)).collect();
+        ax.hist_with(
+            &a,
+            &HistOptions::new()
+                .bins(Bins::Edges(edges.clone()))
+                .density(true)
+                .edgecolor(None)
+                .alpha(0.6)
+                .label("control"),
+        );
+        ax.hist_with(
+            &b,
+            &HistOptions::new()
+                .bins(Bins::Edges(edges))
+                .density(true)
+                .histtype(HistType::Step)
+                .label("treated"),
+        );
+        ax.set_xlabel("effect size").set_ylabel("density");
+        ax.set_title("hist_with: density bars and a step outline");
+        ax.legend_auto();
+        fig.save_png("target/gallery_hist_options.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

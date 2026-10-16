@@ -90,7 +90,7 @@ pub use figure::Figure;
 pub use gridspec::GridSpec;
 pub use interact::{Interactor, Outcome};
 pub use legend::LegendLocation;
-pub use plotting_stats::ErrorbarOptions;
+pub use plotting_stats::{Bins, ErrorbarOptions, HistOptions, HistResult, HistType};
 pub use polar::PolarAxes;
 pub use raster::{BufferSizeError, PixelFormat};
 pub use sky::{SkyAxes, SkyProjection};

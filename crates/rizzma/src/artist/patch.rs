@@ -208,6 +208,31 @@ impl Patch {
         self.facecolor
     }
 
+    /// Set the fill color in place (or `None` for unfilled), as on a patch
+    /// that already lives on an axes (`ax.patches_mut()[i]`).
+    pub fn set_facecolor(&mut self, facecolor: Option<Rgba>) -> &mut Self {
+        self.facecolor = facecolor;
+        self
+    }
+
+    /// Set the edge color in place (or `None` for no edge).
+    pub fn set_edgecolor(&mut self, edgecolor: Option<Rgba>) -> &mut Self {
+        self.edgecolor = edgecolor;
+        self
+    }
+
+    /// Set the edge width in points, in place.
+    pub fn set_linewidth(&mut self, linewidth: f64) -> &mut Self {
+        self.linewidth = linewidth;
+        self
+    }
+
+    /// Show or hide the patch, in place.
+    pub fn set_visible(&mut self, visible: bool) -> &mut Self {
+        self.visible = visible;
+        self
+    }
+
     /// Set the fill color (or `None` for unfilled), returning `self` for
     /// chaining.
     #[must_use]
