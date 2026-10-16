@@ -180,6 +180,20 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   a longitude/latitude grid on a sky projection.
 
 ### Changed
+- **The raster backend is a `raster` feature** (in `default`, and implied by `pyplot`,
+  `show` and `wasm`), which brings in `tiny-skia` and `png`. It covers the `skia`
+  module, `Figure::render` / `render_scaled` / `save_png` / `encode_png` /
+  `to_rgba8` / `to_rgb8` / `render_into*`, `PixelFormat`, and the polar, sky and 3D
+  `render_png` / `save_png`.
+  - With `default-features = false`, SVG and PDF output build from 11 crates instead
+    of 28, without `tiny-skia`, `png`, `chrono` or `base64`. A clean build takes 36%
+    less CPU time; gaker/celestial's tree drops from 86 crates to 74.
+  - SVG still embeds images in that configuration, with a minimal built-in PNG
+    encoder. With `raster` it uses the `png` crate as before, so default output is
+    unchanged.
+  - Exporting a portable figure with its poster (the default) needs `raster`.
+    Without it, the export fails with `PortableError::FeatureDisabled("raster")`;
+    `PortableConfig::with_poster(false)` exports without one.
 - **Date axes are a `dates` feature** (in `default`), which brings in `chrono`: the
   `axis::dates` module and `Axes::set_xaxis_date` / `set_yaxis_date`. Without it, a
   portable figure with date ticks fails to load with the new
