@@ -19,7 +19,6 @@
 use std::fmt::Write as _;
 
 pub use crate::core::{Affine2D, Path, color::Rgba};
-use base64::Engine as _;
 
 use crate::core::{PathSegment, SvgFontType};
 use crate::render::{CapStyle, GraphicsContext, JoinStyle, PlainText, Renderer, TextAnchor};
@@ -337,6 +336,27 @@ fn fmt_f(v: f64) -> String {
     s
 }
 
+/// Encode `bytes` as standard-alphabet, padded base64 (RFC 4648), for a
+/// `data:` URI.
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(char::from(ALPHABET[(n >> (18 - 6 * i) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 /// Encode straight RGBA8 pixels as a PNG byte vector.
 ///
 /// Returns `None` for an invalid buffer shape or an encoder error. The renderer
@@ -568,7 +588,7 @@ impl Renderer for SvgRenderer {
         let Some(png) = encode_rgba_png(rgba, width, height) else {
             return;
         };
-        let encoded = base64::engine::general_purpose::STANDARD.encode(png);
+        let encoded = base64_encode(&png);
         let img_h = height as f64;
         let top = self.height - y - img_h;
         let mut attrs = String::new();
@@ -856,6 +876,35 @@ mod tests {
                 render_svg(&paths.0.finish(), 120, 80),
             );
             assert!(a.data() == b.data(), "stroke {stroke:?}: rasters differ");
+        }
+    }
+
+    #[test]
+    fn base64_matches_rfc_4648() {
+        for (input, encoded) in [
+            ("", ""),
+            ("f", "Zg=="),
+            ("fo", "Zm8="),
+            ("foo", "Zm9v"),
+            ("foob", "Zm9vYg=="),
+            ("fooba", "Zm9vYmE="),
+            ("foobar", "Zm9vYmFy"),
+        ] {
+            assert_eq!(base64_encode(input.as_bytes()), encoded);
+        }
+        assert_eq!(base64_encode(&[0xff, 0xfe, 0xfd]), "//79");
+    }
+
+    #[cfg(feature = "portable")]
+    #[test]
+    fn base64_matches_the_base64_crate() {
+        use base64::Engine as _;
+        let bytes: Vec<u8> = (0..=255).chain((0..=255).rev()).collect();
+        for len in 0..bytes.len() {
+            assert_eq!(
+                base64_encode(&bytes[..len]),
+                base64::engine::general_purpose::STANDARD.encode(&bytes[..len])
+            );
         }
     }
 

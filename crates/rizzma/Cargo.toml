@@ -30,12 +30,12 @@ show = []
 plot3d = []
 # `Figure::to_portable()` / `from_portable()`: the `.riz` self-describing
 # artifact (see `design/10-portable-figure.md`). Pulls in a JSON codec.
-portable = ["dep:serde_json"]
+portable = ["dep:serde_json", "dep:base64"]
 pyplot = []
 wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys"]
 
 [dependencies]
-base64 = "0.22.1"
+base64 = { version = "0.22.1", optional = true }
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 js-sys = { version = "0.3", optional = true }
 miniz_oxide = "0.8"
