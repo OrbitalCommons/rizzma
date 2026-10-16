@@ -180,6 +180,8 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   a longitude/latitude grid on a sky projection.
 
 ### Changed
+- **`base64` is only a dependency with the `portable` feature.** SVG output encodes
+  embedded images itself, byte-for-byte as before.
 - `RichText` keeps each plain span's characters for native text, in private fields,
   so it is built with `layout_rich_text` and no longer with a struct literal.
 - **An unknown colormap name is reported** once per name per process: on stderr
