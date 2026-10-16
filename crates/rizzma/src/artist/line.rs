@@ -200,10 +200,9 @@ fn is_rectilinear(path: &Path) -> bool {
         match segment {
             PathSegment::MoveTo(p) => pen = Some(p),
             PathSegment::LineTo(p) => {
-                if let Some(q) = pen
-                    && (p[0] - q[0]).abs() >= 1e-4
-                    && (p[1] - q[1]).abs() >= 1e-4
-                {
+                let diagonal =
+                    pen.is_some_and(|q| (p[0] - q[0]).abs() >= 1e-4 && (p[1] - q[1]).abs() >= 1e-4);
+                if diagonal {
                     return false;
                 }
                 pen = Some(p);
