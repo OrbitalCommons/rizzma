@@ -9,24 +9,13 @@
 
 use crate::artist::{Collection, Line2D, Patch};
 use crate::core::Path;
-use crate::core::color::{ColorMapping, DEFAULT_COLOR_CYCLE, Rgba};
+use crate::core::color::{ColorMapping, Rgba};
 
 use crate::figure::Axes;
-
-/// Fallback scatter/histogram face color (matplotlib `C0`, a muted blue) used
-/// when the property cycle hex cannot be parsed.
-const FALLBACK_FACE: Rgba = Rgba::new(0.121_568_63, 0.466_666_67, 0.705_882_35, 1.0);
 
 /// Fraction of the x-range used for the horizontal cap half-width drawn at each
 /// end of an [`errorbar`](Axes::errorbar) error line.
 const ERRORBAR_CAP_FRAC: f64 = 0.01;
-
-/// Resolve the cycle color at `index` from [`DEFAULT_COLOR_CYCLE`], falling back
-/// to a fixed blue if the hex cannot be parsed.
-fn cycle_color(index: usize) -> Rgba {
-    let hex = DEFAULT_COLOR_CYCLE[index % DEFAULT_COLOR_CYCLE.len()];
-    Rgba::from_hex(hex).unwrap_or(FALLBACK_FACE)
-}
 
 /// The finite min/max of `data`, or `None` when there is no finite datum.
 fn finite_min_max(data: &[f64]) -> Option<(f64, f64)> {
@@ -54,8 +43,7 @@ impl Axes {
     pub fn scatter(&mut self, x: &[f64], y: &[f64]) -> &mut Collection {
         let n = x.len().min(y.len());
         let offsets: Vec<[f64; 2]> = (0..n).map(|i| [x[i], y[i]]).collect();
-        let face = cycle_color(self.prop_cycle_index);
-        self.prop_cycle_index += 1;
+        let face = self.next_cycle_color();
         let coll = Collection::scatter(offsets).with_facecolors(vec![face]);
         self.push_collection(coll)
     }
@@ -142,8 +130,7 @@ impl Axes {
             counts[idx] += 1.0;
         }
 
-        let face = cycle_color(self.prop_cycle_index);
-        self.prop_cycle_index += 1;
+        let face = self.next_cycle_color();
         for (i, &count) in counts.iter().enumerate() {
             let patch = Patch::rectangle(edges[i], 0.0, width, count)
                 .facecolor(Some(face))
