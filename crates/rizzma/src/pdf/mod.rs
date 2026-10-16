@@ -324,6 +324,9 @@ impl Renderer for PdfRenderer {
                 fmt_f(stroke.b)
             );
             let _ = writeln!(block, "{} w", fmt_f(width));
+            if let Some(limit) = gc.miter_limit {
+                let _ = writeln!(block, "{} M", fmt_f(limit));
+            }
         }
 
         block.push_str(&ops);

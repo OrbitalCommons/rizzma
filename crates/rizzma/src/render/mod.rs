@@ -58,6 +58,9 @@ pub struct GraphicsContext {
     pub cap: CapStyle,
     /// Line join style for connected segments.
     pub join: JoinStyle,
+    /// The longest a miter join may be, as a multiple of the line width,
+    /// before it falls back to a bevel; `None` keeps the backend's default.
+    pub miter_limit: Option<f64>,
     /// Optional global alpha applied on top of per-color alpha.
     pub alpha: Option<f64>,
     /// Whether drawing should be antialiased.
@@ -81,6 +84,7 @@ impl GraphicsContext {
             dashes: None,
             cap: CapStyle::default(),
             join: JoinStyle::default(),
+            miter_limit: None,
             alpha: None,
             antialiased: true,
             clip_rect: None,
