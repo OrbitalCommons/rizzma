@@ -77,6 +77,7 @@ mod plotting_stream;
 mod plotting_tri;
 mod plotting_violin;
 pub mod polar;
+#[cfg(feature = "raster")]
 mod raster;
 pub mod richtext;
 pub mod sky;
@@ -93,6 +94,7 @@ pub use legend::LegendLocation;
 pub use plotting_quiver::{Quiver, QuiverAngles, QuiverOptions, QuiverPivot, QuiverUnits};
 pub use plotting_stats::{Bins, ErrorbarOptions, HistOptions, HistResult, HistType};
 pub use polar::PolarAxes;
+#[cfg(feature = "raster")]
 pub use raster::{BufferSizeError, PixelFormat};
 pub use sky::{SkyAxes, SkyProjection};
 pub use subplotspec::SubplotSpec;
