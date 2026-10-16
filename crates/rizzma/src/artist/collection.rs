@@ -10,7 +10,7 @@
 
 use crate::core::color::{ColorScale, Rgba};
 use crate::core::{Affine2D, Bbox, Path};
-use crate::render::{GraphicsContext, Renderer};
+use crate::render::{GraphicsContext, JoinStyle, Renderer};
 
 use crate::artist::{Artist, MarkerStyle};
 
@@ -45,6 +45,9 @@ pub struct Collection {
     edgecolors: Vec<Rgba>,
     /// Edge width in points.
     linewidth: f64,
+    /// How the edges' corners join: round by default, as matplotlib's
+    /// collections join whatever the marker.
+    join: JoinStyle,
     /// Whether the collection is drawn.
     visible: bool,
     /// Stacking order; higher draws on top.
@@ -62,8 +65,8 @@ impl Collection {
     /// Construct a scatter [`Collection`] from data-space `offsets`.
     ///
     /// Defaults mirror matplotlib's `scatter`: a filled circle (`'o'`) marker,
-    /// size `6.0`, a muted-blue face, no edge, `1.0`-point edge width, visible,
-    /// and zorder `1.0`.
+    /// size `6.0`, a muted-blue face, no edge, `1.0`-point edge width with
+    /// round joins, visible, and zorder `1.0`.
     #[must_use]
     pub fn scatter(offsets: Vec<[f64; 2]>) -> Self {
         let marker = MarkerStyle::from_char('o')
@@ -77,6 +80,7 @@ impl Collection {
             facecolors: vec![DEFAULT_FACECOLOR],
             edgecolors: Vec::new(),
             linewidth: 1.0,
+            join: JoinStyle::Round,
             visible: true,
             zorder: 1.0,
             label: None,
@@ -204,6 +208,13 @@ impl Collection {
         self
     }
 
+    /// Set how the edges' corners join in place: matplotlib's
+    /// `set_joinstyle`. Collections join round by default.
+    pub fn set_joinstyle(&mut self, join: JoinStyle) -> &mut Self {
+        self.join = join;
+        self
+    }
+
     /// Set the stacking order in place; higher draws on top.
     ///
     /// ```
@@ -269,6 +280,13 @@ impl Collection {
         self
     }
 
+    /// Set how the edges' corners join, returning `self` for chaining.
+    #[must_use]
+    pub fn with_joinstyle(mut self, join: JoinStyle) -> Self {
+        self.set_joinstyle(join);
+        self
+    }
+
     /// Set the stacking order, returning `self` for chaining.
     #[must_use]
     pub fn with_zorder(mut self, zorder: f64) -> Self {
@@ -308,6 +326,7 @@ impl Collection {
             facecolors: face.into_iter().collect(),
             edgecolors: edge.into_iter().collect(),
             linewidth: self.linewidth,
+            join: self.join,
             visible: true,
             zorder: self.zorder,
             label: None,
@@ -374,6 +393,7 @@ impl Collection {
             let gc = GraphicsContext {
                 line_width: self.linewidth,
                 stroke: self.edgecolor_at(0),
+                join: self.join,
                 ..GraphicsContext::new()
             };
             let points: Vec<[f64; 2]> = offsets
@@ -407,6 +427,7 @@ impl Collection {
             let gc = GraphicsContext {
                 line_width: self.linewidth,
                 stroke: edge,
+                join: self.join,
                 ..GraphicsContext::new()
             };
             renderer.draw_path(&gc, &self.marker, &point_transform, self.facecolor_at(i));
@@ -477,6 +498,7 @@ impl Collection {
             facecolors: self.facecolors.clone(),
             edgecolors: self.edgecolors.clone(),
             linewidth: self.linewidth,
+            join: self.join,
             visible: self.visible,
             zorder: self.zorder,
             label: self.label.clone(),
@@ -501,6 +523,7 @@ impl Collection {
             facecolors: spec.facecolors.clone(),
             edgecolors: spec.edgecolors.clone(),
             linewidth: spec.linewidth,
+            join: spec.join,
             visible: spec.visible,
             zorder: spec.zorder,
             label: spec.label.clone(),

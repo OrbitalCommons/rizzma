@@ -10,6 +10,8 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 ## [Unreleased]
 
 ### Added
+- `Collection::set_joinstyle` / `with_joinstyle`, matplotlib's `set_joinstyle`: how a
+  collection's edges join, round by default.
 - `GraphicsContext::miter_limit`: the longest a miter join may be, as a multiple of
   the line width, before it bevels. `None`, the default, keeps each backend's own;
   skia, SVG (`stroke-miterlimit`) and PDF (`M`) honor it.
@@ -243,6 +245,9 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   (written only then); schema 1–16 artifacts still load.
 - Portable figures are schema 18 when an axes holds a `quiver_with` field (written
   only then); schema 1–17 artifacts still load.
+- Portable figures are schema 19 when a collection joins its edges other than
+  round, as errorbar limit carets do (written only then); schema 1–18 artifacts still
+  load, their collections joining round.
 - `ColorScale::cmap` is a `CmapSpec` rather than a `String`, and
   `ColorMapping::cmap_name()` is now `ColorMapping::cmap()`, returning the `CmapSpec`.
   A `CmapSpec` converts from a name, so `ColorMapping::new("viridis")` and
@@ -301,7 +306,12 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":18`.
+- Every `.riz` artifact now declares `"schema":19`.
+- **Scatter edges join round**, as matplotlib's collections do whatever the marker,
+  where they mitered. An edged `'*'` is 1.3–2.0 px narrower (now within 0.3 px of
+  matplotlib's span), triangles about 0.7 px, `'D'` 0.3 px. Scatters without an edge,
+  the default, are unchanged; errorbar limit carets keep their miter, as matplotlib
+  draws them as line markers.
 - **A sky map's graticule draws at matplotlib's grid zorder (1.5)**: above
   fills, meshes and scatters, below lines, where it drew beneath every artist.
 - **Mesh cells fill without antialiasing**, as matplotlib's `pcolormesh` does

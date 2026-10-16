@@ -119,6 +119,9 @@ struct ScaledHead {
     over: Option<serde::de::IgnoredAny>,
     #[serde(default)]
     under: Option<serde::de::IgnoredAny>,
+    /// A marker collection's edge join, written when not round (schema 19).
+    #[serde(default)]
+    join: Option<serde::de::IgnoredAny>,
 }
 
 impl ScaledHead {
@@ -381,6 +384,14 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
                 .axes
                 .iter()
                 .any(|axes| !axes.quivers.is_empty()),
+        ),
+        (
+            19,
+            header
+                .figure
+                .axes
+                .iter()
+                .any(|axes| axes.collections.iter().any(|c| c.join.is_some())),
         ),
     ]);
     if header.schema < required {
