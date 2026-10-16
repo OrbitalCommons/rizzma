@@ -226,6 +226,9 @@ impl SvgRenderer {
             }
             let _ = write!(attrs, " stroke-linecap=\"{}\"", cap_keyword(gc.cap));
             let _ = write!(attrs, " stroke-linejoin=\"{}\"", join_keyword(gc.join));
+            if let Some(limit) = gc.miter_limit {
+                let _ = write!(attrs, " stroke-miterlimit=\"{}\"", fmt_f(limit));
+            }
         }
         attrs
     }

@@ -10,6 +10,9 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 ## [Unreleased]
 
 ### Added
+- `GraphicsContext::miter_limit`: the longest a miter join may be, as a multiple of
+  the line width, before it bevels. `None`, the default, keeps each backend's own;
+  skia, SVG (`stroke-miterlimit`) and PDF (`M`) honor it.
 - **Native SVG text.** `RcParams::svg_fonttype`, matplotlib's `svg.fonttype`, chooses
   how SVG output writes text:
   - `SvgFontType::Path` (the default) draws glyph outlines, unchanged.
@@ -246,6 +249,29 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   `.cmap("gray")` are unchanged.
 
 ### Output changes
+- **Markers take matplotlib's shapes, fills and pixel snapping.** Every `MarkerStyle`
+  code now follows matplotlib's `markers.py`:
+  - **Triangles** are filled, and are matplotlib's triangle (apex `0.5` up, base
+    corners at `±0.5`) rather than a regular one.
+  - **`'D'`** is the unit square turned 45°, its corners `0.707` out. **`'d'`** is
+    that narrowed to 0.6 of its width, and filled.
+  - **`'p'`, `'h'` and `'H'`** are filled, and `'H'` is turned 30°.
+  - **`'.'`** is half the circle's size.
+  - **`','`** is one unstroked pixel at any size on a line.
+  - **Scatter** gets the new shapes through `MarkerStyle::from_char(..).path()`.
+
+  Line markers also stroke as Agg does:
+  - Corners join with the marker's join (miter, bevel for `'*'`) at a miter limit
+    of the edge width in pixels, so sharp tips bevel instead of spiking.
+  - Vertices snap to the pixel grid once the marker reaches matplotlib's snap
+    threshold for its code.
+
+  Against matplotlib 3.11 (one 12 pt marker at 100 dpi), every code's ink extents
+  and centroid now match within 0.5 px; before, `'^'` was 3.9 px off, `'D'` 3.4,
+  `'d'` 3.1, `'.'` 2.6, `','` 2.0, `'*'` 1.6 and `'H'` 1.1, and `'p'`, `'h'` and
+  the triangles were unfilled. Line-marker renders using any code but `'o'`
+  change: `'s'`, `'+'` and `'x'` move by up to 0.56 px as they now snap, as Agg
+  snaps them. `'o'` is byte-identical in PNG, SVG and PDF.
 - **SVG output is much smaller.** Elements clipped to the same rectangle share one
   `<clipPath>` def, and each element references it with its own `clip-path` attribute
   instead of being wrapped in a `<g>`. An unstroked marker (a scatter point, a line

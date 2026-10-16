@@ -254,13 +254,16 @@ fn paint_path(
                 let array: Vec<f32> = pattern.iter().map(|d| (d * scale) as f32).collect();
                 StrokeDash::new(array, (offset * scale) as f32)
             });
-            let stroke = Stroke {
+            let mut stroke = Stroke {
                 width: width as f32,
                 line_cap: to_line_cap(gc.cap),
                 line_join: to_line_join(gc.join),
                 dash,
                 ..Stroke::default()
             };
+            if let Some(limit) = gc.miter_limit {
+                stroke.miter_limit = limit as f32;
+            }
             target.stroke_path(sk_path, &paint, &stroke, transform, mask);
         }
     }

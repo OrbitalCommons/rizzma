@@ -6,9 +6,10 @@
 //! `NaN` is a gap in the stroke rather than a joined vertex — and strokes it
 //! through the [`Renderer`].
 
-use crate::core::{Affine2D, Bbox, Path, PathCode, color::Rgba};
+use crate::core::{Affine2D, Bbox, Path, PathCode, PathSegment, color::Rgba};
 use crate::render::{CapStyle, GraphicsContext, JoinStyle, Renderer};
 
+use crate::artist::marker::Snap;
 use crate::artist::{Artist, MarkerStyle};
 
 /// A 2D line: a stroked polyline through paired `x`/`y` data.
@@ -109,41 +110,109 @@ impl LineMarker {
     }
 
     /// Stamp the marker at each of `points` (device pixels, y-up) for a line
-    /// of `color`, placed as matplotlib's Agg `draw_markers` places line
-    /// markers: on the pixel center at `floor(p + 0.5) + 0.5` in its y-down
-    /// pixel grid.
+    /// of `color`, as matplotlib's Agg `draw_markers` stamps line markers.
+    ///
+    /// Each marker's origin is the pixel corner `floor(p + 0.5)` of its
+    /// y-down pixel grid. A marker at least its snap threshold across has its
+    /// vertices snapped to `floor(v + 0.5)` about that origin, plus half a
+    /// pixel when the edge is an odd whole number of pixels wide; any other
+    /// marker is moved half a pixel, onto the pixel center. The pixel marker
+    /// (`','`) is one unstroked pixel at any size.
     pub(crate) fn draw(&self, renderer: &mut dyn Renderer, points: &[[f64; 2]], color: Rgba) {
         let Some(style) = MarkerStyle::from_char(self.code) else {
             return;
         };
+        let pixel = self.code == ',';
+        let size = if pixel {
+            1.0
+        } else {
+            renderer.points_to_pixels(self.size)
+        };
+        let edge_width = if pixel { 0.0 } else { self.edge_width };
+        let marker = style.scaled(size);
+        let snap = match style.snap() {
+            Snap::From(threshold) => size >= threshold,
+            Snap::Auto => is_rectilinear(&marker),
+        };
+        let (marker, offset) = if snap {
+            let edge_px = renderer.points_to_pixels(edge_width);
+            let half = if (edge_px + 0.5).floor() as i64 % 2 == 1 {
+                0.5
+            } else {
+                0.0
+            };
+            // Snapped in Agg's y-down pixels, where y is `-y`.
+            let snapped = marker
+                .vertices()
+                .iter()
+                .map(|&[x, y]| [(x + 0.5).floor() + half, -((0.5 - y).floor() + half)])
+                .collect();
+            (Path::new(snapped, marker.codes().map(<[_]>::to_vec)), 0.0)
+        } else {
+            (marker, 0.5)
+        };
         let (_, height) = renderer.canvas_size();
-        let snapped: Vec<[f64; 2]> = points
+        let origins: Vec<[f64; 2]> = points
             .iter()
             .filter(|[x, y]| x.is_finite() && y.is_finite())
             .map(|&[x, y]| {
-                let down = (height - y + 0.5).floor() + 0.5;
-                [(x + 0.5).floor() + 0.5, height - down]
+                let down = (height - y + 0.5).floor() + offset;
+                [(x + 0.5).floor() + offset, height - down]
             })
             .collect();
-        if snapped.is_empty() {
+        if origins.is_empty() {
             return;
         }
-        let size = renderer.points_to_pixels(self.size);
+        // Agg strokes markers with a miter limit of the edge width in pixels,
+        // so sharp mitered corners fall back to bevels. Curves and lines
+        // have no corners for it to act on.
+        let curved = marker
+            .iter_segments()
+            .any(|s| matches!(s, PathSegment::Quad(..) | PathSegment::Cubic(..)));
+        let corners = style.join() == JoinStyle::Miter && !curved;
         let gc = GraphicsContext {
-            line_width: self.edge_width,
+            line_width: edge_width,
             stroke: Some(self.edge.unwrap_or(color)),
+            join: style.join(),
+            miter_limit: corners.then(|| renderer.points_to_pixels(edge_width)),
             ..GraphicsContext::new()
         };
         let face = style.is_filled().then(|| self.face.unwrap_or(color));
         renderer.draw_markers(
             &gc,
-            style.path(),
-            &Affine2D::from_scale(size, size),
-            &Path::from_polyline(&snapped),
+            &marker,
+            &Affine2D::identity(),
+            &Path::from_polyline(&origins),
             &Affine2D::identity(),
             face,
         );
     }
+}
+
+/// Whether `path` is only horizontal and vertical lines, which Agg snaps to
+/// the pixel grid unasked (`SNAP_AUTO`).
+fn is_rectilinear(path: &Path) -> bool {
+    if path.vertices().len() > 1024 {
+        return false;
+    }
+    let mut pen: Option<[f64; 2]> = None;
+    for segment in path.iter_segments() {
+        match segment {
+            PathSegment::MoveTo(p) => pen = Some(p),
+            PathSegment::LineTo(p) => {
+                if let Some(q) = pen
+                    && (p[0] - q[0]).abs() >= 1e-4
+                    && (p[1] - q[1]).abs() >= 1e-4
+                {
+                    return false;
+                }
+                pen = Some(p);
+            }
+            PathSegment::Quad(..) | PathSegment::Cubic(..) => return false,
+            PathSegment::Close => {}
+        }
+    }
+    true
 }
 
 impl Line2D {

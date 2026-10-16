@@ -14,12 +14,23 @@
 use crate::artist::Path;
 use crate::core::Affine2D;
 use crate::core::path::PathCode;
+use crate::render::JoinStyle;
 
 /// Half the unit-marker span: markers are built to fit within `[-0.5, 0.5]`.
 const HALF: f64 = 0.5;
 
 /// The inner-radius fraction matplotlib uses for the star marker (`'*'`).
 const STAR_INNER: f64 = 0.381_966;
+
+/// When a marker's vertices snap to the pixel grid: matplotlib's
+/// `MarkerStyle.get_snap_threshold`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Snap {
+    /// From this size in pixels up.
+    From(f64),
+    /// When every segment is horizontal or vertical (Agg's `SNAP_AUTO`).
+    Auto,
+}
 
 /// A matplotlib-style point marker.
 ///
@@ -33,41 +44,66 @@ pub struct MarkerStyle {
     path: Path,
     /// Whether the marker is filled (`true`) or stroked only (`false`).
     filled: bool,
+    /// How its outline's corners are joined when stroked.
+    join: JoinStyle,
+    /// When its vertices snap to the pixel grid.
+    snap: Snap,
 }
 
 impl MarkerStyle {
-    /// Build a [`MarkerStyle`] from a matplotlib marker character.
+    /// Build a [`MarkerStyle`] from a matplotlib marker character, with
+    /// matplotlib's geometry, fill and stroke joins (`markers.py`).
     ///
-    /// Returns `None` for unrecognized characters. Supported markers:
+    /// Returns `None` for unrecognized characters. Supported markers, all
+    /// filled except `'+'` and `'x'`:
     ///
-    /// - `'o'` filled circle, `'.'` small filled point, `','` pixel.
-    /// - `'s'` filled square.
+    /// - `'o'` circle, `'.'` point (half the circle's size), `','` pixel.
+    /// - `'s'` square.
     /// - `'^'`/`'v'`/`'<'`/`'>'` triangles (up/down/left/right).
-    /// - `'D'` filled diamond, `'d'` thin diamond.
-    /// - `'p'` pentagon, `'h'`/`'H'` hexagon, `'*'` filled star.
-    /// - `'+'` plus and `'x'` cross, both unfilled and built from two crossed
-    ///   line subpaths.
+    /// - `'D'` diamond (the unit square turned 45°), `'d'` thin diamond.
+    /// - `'p'` pentagon, `'h'`/`'H'` hexagon (flat sides vertical or
+    ///   horizontal), `'*'` star.
+    /// - `'+'` plus and `'x'` cross, each two crossed line subpaths.
     #[must_use]
     pub fn from_char(c: char) -> Option<MarkerStyle> {
-        let style = match c {
-            'o' => MarkerStyle::filled(unit_circle()),
-            '.' => MarkerStyle::filled(point_circle()),
-            ',' => MarkerStyle::filled(pixel()),
-            's' => MarkerStyle::filled(square()),
-            '^' => MarkerStyle::unfilled(triangle(Triangle::Up)),
-            'v' => MarkerStyle::unfilled(triangle(Triangle::Down)),
-            '<' => MarkerStyle::unfilled(triangle(Triangle::Left)),
-            '>' => MarkerStyle::unfilled(triangle(Triangle::Right)),
-            'D' => MarkerStyle::filled(diamond(1.0)),
-            'd' => MarkerStyle::unfilled(diamond(0.6)),
-            'p' => MarkerStyle::unfilled(scaled_polygon(5)),
-            'h' | 'H' => MarkerStyle::unfilled(scaled_polygon(6)),
-            '*' => MarkerStyle::filled(star()),
-            '+' => MarkerStyle::unfilled(plus()),
-            'x' => MarkerStyle::unfilled(cross()),
+        use JoinStyle::{Bevel, Miter, Round};
+        let (path, join, snap) = match c {
+            // matplotlib rounds a circle's joins, but a circle has no
+            // corners to join: miter, the stroke default, draws it the same.
+            'o' => (circle(HALF), Miter, Snap::From(f64::INFINITY)),
+            '.' => (circle(HALF / 2.0), Miter, Snap::From(f64::INFINITY)),
+            ',' => (pixel(), Round, Snap::Auto),
+            's' => (square(), Miter, Snap::From(2.0)),
+            '^' => (triangle(0.0), Miter, Snap::From(5.0)),
+            'v' => (triangle(180.0), Miter, Snap::From(5.0)),
+            '<' => (triangle(90.0), Miter, Snap::From(5.0)),
+            '>' => (triangle(270.0), Miter, Snap::From(5.0)),
+            'D' => (diamond(1.0), Miter, Snap::From(5.0)),
+            'd' => (diamond(0.6), Miter, Snap::From(5.0)),
+            'p' => (polygon(5, 0.0), Miter, Snap::From(5.0)),
+            'h' => (polygon(6, 0.0), Miter, Snap::Auto),
+            'H' => (polygon(6, 30.0), Miter, Snap::Auto),
+            '*' => (star(), Bevel, Snap::From(5.0)),
+            '+' => (plus(), Round, Snap::From(1.0)),
+            'x' => (cross(), Round, Snap::From(3.0)),
             _ => return None,
         };
-        Some(style)
+        Some(MarkerStyle {
+            path,
+            filled: !matches!(c, '+' | 'x'),
+            join,
+            snap,
+        })
+    }
+
+    /// How the marker's outline corners are joined when stroked.
+    pub(crate) fn join(&self) -> JoinStyle {
+        self.join
+    }
+
+    /// When the marker's vertices snap to the pixel grid.
+    pub(crate) fn snap(&self) -> Snap {
+        self.snap
     }
 
     /// The unit marker path, centered on the origin in y-up unit space.
@@ -94,82 +130,40 @@ impl MarkerStyle {
     pub fn scaled(&self, size: f64) -> Path {
         self.path.transformed(&Affine2D::from_scale(size, size))
     }
-
-    /// A filled marker from a unit path.
-    fn filled(path: Path) -> MarkerStyle {
-        MarkerStyle { path, filled: true }
-    }
-
-    /// An unfilled (stroked-only) marker from a unit path.
-    fn unfilled(path: Path) -> MarkerStyle {
-        MarkerStyle {
-            path,
-            filled: false,
-        }
-    }
 }
 
-/// The four cardinal triangle orientations.
-#[derive(Debug, Clone, Copy)]
-enum Triangle {
-    /// Apex pointing up (`'^'`).
-    Up,
-    /// Apex pointing down (`'v'`).
-    Down,
-    /// Apex pointing left (`'<'`).
-    Left,
-    /// Apex pointing right (`'>'`).
-    Right,
+/// A closed polygon through `vertices`, back to the first.
+fn closed(vertices: &[[f64; 2]]) -> Path {
+    let mut points = vertices.to_vec();
+    points.push(vertices[0]);
+    let mut codes = vec![PathCode::LineTo; points.len()];
+    codes[0] = PathCode::MoveTo;
+    codes[points.len() - 1] = PathCode::ClosePoly;
+    Path::new(points, Some(codes))
 }
 
-/// The unit circle scaled to radius `0.5`.
-fn unit_circle() -> Path {
-    Path::unit_circle().transformed(&Affine2D::from_scale(HALF, HALF))
+/// The unit circle scaled to `radius`.
+fn circle(radius: f64) -> Path {
+    Path::unit_circle().transformed(&Affine2D::from_scale(radius, radius))
 }
 
-/// A small filled point: a circle of one-fifth the unit radius.
-fn point_circle() -> Path {
-    Path::unit_circle().transformed(&Affine2D::from_scale(HALF * 0.2, HALF * 0.2))
-}
-
-/// The pixel marker: a tiny square roughly one device unit across.
+/// The pixel marker: matplotlib's unit square shifted just short of
+/// centered, so that Agg snaps it onto exactly one pixel.
 fn pixel() -> Path {
-    let r = HALF * 0.1;
-    Path::new(
-        vec![[-r, -r], [r, -r], [r, r], [-r, r], [-r, -r]],
-        Some(vec![
-            PathCode::MoveTo,
-            PathCode::LineTo,
-            PathCode::LineTo,
-            PathCode::LineTo,
-            PathCode::ClosePoly,
-        ]),
-    )
+    closed(&[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
+        .transformed(&Affine2D::from_translation(-0.49999, -0.49999))
 }
 
 /// A unit square centered on the origin spanning `[-0.5, 0.5]`.
 fn square() -> Path {
-    Path::new(
-        vec![
-            [-HALF, -HALF],
-            [HALF, -HALF],
-            [HALF, HALF],
-            [-HALF, HALF],
-            [-HALF, -HALF],
-        ],
-        Some(vec![
-            PathCode::MoveTo,
-            PathCode::LineTo,
-            PathCode::LineTo,
-            PathCode::LineTo,
-            PathCode::ClosePoly,
-        ]),
-    )
+    closed(&[[-HALF, -HALF], [HALF, -HALF], [HALF, HALF], [-HALF, HALF]])
 }
 
-/// A regular polygon inscribed in the radius-`0.5` circle, pointing up.
-fn scaled_polygon(num_sides: usize) -> Path {
-    Path::unit_regular_polygon(num_sides).transformed(&Affine2D::from_scale(HALF, HALF))
+/// A regular polygon inscribed in the radius-`0.5` circle, a vertex up, then
+/// turned `deg` counter-clockwise.
+fn polygon(num_sides: usize, deg: f64) -> Path {
+    Path::unit_regular_polygon(num_sides)
+        .transformed(&Affine2D::from_scale(HALF, HALF).rotate_deg(deg))
 }
 
 /// A five-pointed star inscribed in the radius-`0.5` circle.
@@ -177,39 +171,21 @@ fn star() -> Path {
     Path::unit_regular_star(5, STAR_INNER).transformed(&Affine2D::from_scale(HALF, HALF))
 }
 
-/// A diamond whose vertical extent is `0.5 * aspect` (a square rotated 45°).
-///
-/// `aspect` of `1.0` gives the full diamond (`'D'`); a smaller value narrows it
-/// into the thin diamond (`'d'`).
+/// The unit square turned 45° about its center, its corners `0.707` out,
+/// then narrowed to `aspect` of its width: `1.0` for `'D'`, `0.6` for `'d'`.
 fn diamond(aspect: f64) -> Path {
-    let half_x = HALF * aspect;
-    Path::new(
-        vec![
-            [0.0, -HALF],
-            [half_x, 0.0],
-            [0.0, HALF],
-            [-half_x, 0.0],
-            [0.0, -HALF],
-        ],
-        Some(vec![
-            PathCode::MoveTo,
-            PathCode::LineTo,
-            PathCode::LineTo,
-            PathCode::LineTo,
-            PathCode::ClosePoly,
-        ]),
+    closed(&[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]).transformed(
+        &Affine2D::from_translation(-HALF, -HALF)
+            .rotate_deg(45.0)
+            .scale(aspect, 1.0),
     )
 }
 
-/// A cardinal triangle inscribed in the radius-`0.5` circle.
-fn triangle(orientation: Triangle) -> Path {
-    let deg = match orientation {
-        Triangle::Up => 0.0,
-        Triangle::Down => 180.0,
-        Triangle::Left => 90.0,
-        Triangle::Right => -90.0,
-    };
-    Path::unit_regular_polygon(3).transformed(&Affine2D::from_rotation_deg(deg).scale(HALF, HALF))
+/// matplotlib's triangle (apex `(0, 0.5)`, base corners `(±0.5, -0.5)`),
+/// turned `deg` counter-clockwise.
+fn triangle(deg: f64) -> Path {
+    closed(&[[0.0, 1.0], [-1.0, -1.0], [1.0, -1.0]])
+        .transformed(&Affine2D::from_scale(HALF, HALF).rotate_deg(deg))
 }
 
 /// The plus marker: two crossed line subpaths, unfilled.
@@ -293,12 +269,33 @@ mod tests {
     }
 
     #[test]
-    fn triangle_up_apex_is_above_origin() {
-        let m = MarkerStyle::from_char('^').unwrap();
-        let e = m.path().get_extents();
-        assert!(e.ymax() > 0.0, "apex should be above origin");
-        // Apex height and base depth are within reason of each other.
-        approx(e.ymax(), -e.ymin() * 2.0, 1e-6);
+    fn triangles_are_filled_and_fill_the_unit_box() {
+        for (code, apex) in [
+            ('^', [0.0, 0.5]),
+            ('v', [0.0, -0.5]),
+            ('<', [-0.5, 0.0]),
+            ('>', [0.5, 0.0]),
+        ] {
+            let m = MarkerStyle::from_char(code).unwrap();
+            assert!(m.is_filled(), "{code:?}");
+            let p = m.path().vertices()[0];
+            approx(p[0], apex[0], 1e-9);
+            approx(p[1], apex[1], 1e-9);
+            let e = m.path().get_extents();
+            approx(e.width(), 1.0, 1e-9);
+            approx(e.height(), 1.0, 1e-9);
+        }
+    }
+
+    #[test]
+    fn diamonds_are_the_unit_square_turned() {
+        let half_diagonal = std::f64::consts::FRAC_1_SQRT_2;
+        let e = MarkerStyle::from_char('D').unwrap().path().get_extents();
+        approx(e.xmax(), half_diagonal, 1e-9);
+        approx(e.ymax(), half_diagonal, 1e-9);
+        let e = MarkerStyle::from_char('d').unwrap().path().get_extents();
+        approx(e.xmax(), 0.6 * half_diagonal, 1e-9);
+        approx(e.ymax(), half_diagonal, 1e-9);
     }
 
     #[test]
