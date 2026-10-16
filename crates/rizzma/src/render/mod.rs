@@ -133,6 +133,37 @@ impl Default for GraphicsContext {
     }
 }
 
+/// Which point of a text run its anchor names, for backends that write text
+/// natively: SVG's `text-anchor`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextAnchor {
+    /// The start of the run.
+    #[default]
+    Start,
+    /// The middle of the run.
+    Middle,
+    /// The end of the run.
+    End,
+}
+
+/// A laid-out run of plain text, as handed to [`Renderer::draw_text_run`].
+#[derive(Debug, Clone, Copy)]
+pub struct PlainText<'a> {
+    /// The run's characters.
+    pub text: &'a str,
+    /// The font size in device pixels.
+    pub font_size_px: f64,
+    /// The run's advance width in device pixels.
+    pub width: f64,
+    /// Which point of the run stays put if a viewer's font sets it wider or
+    /// narrower: the start, middle or end of the run as laid out.
+    pub anchor: TextAnchor,
+    /// The run's baseline frame in device space (y up): its origin is where
+    /// the run starts on the baseline, x runs along the baseline and y up
+    /// from it, in pixels.
+    pub frame: Affine2D,
+}
+
 /// The backend-agnostic drawing contract.
 ///
 /// A [`Renderer`] receives geometry already described in figure coordinates plus
@@ -191,6 +222,23 @@ pub trait Renderer {
         height: usize,
     ) {
         let _ = (gc, x, y, rgba, width, height);
+    }
+
+    /// Draw a run of plain text whose glyph outlines are `outline`, placed by
+    /// `transform`.
+    ///
+    /// The default fills the outline with `color`, as for any path. A
+    /// backend that writes text natively places `run` instead.
+    fn draw_text_run(
+        &mut self,
+        gc: &GraphicsContext,
+        outline: &Path,
+        transform: &Affine2D,
+        color: Rgba,
+        run: &PlainText<'_>,
+    ) {
+        let _ = run;
+        self.draw_path(gc, outline, transform, Some(color));
     }
 
     /// Draw `text` anchored at `(x, y)`, rotated `angle_deg` counter-clockwise.
@@ -331,6 +379,20 @@ impl Renderer for ClippedRenderer<'_> {
     ) {
         if let Some(gc) = self.clipped(gc) {
             self.inner.draw_image(&gc, x, y, rgba, width, height);
+        }
+    }
+
+    fn draw_text_run(
+        &mut self,
+        gc: &GraphicsContext,
+        outline: &Path,
+        transform: &Affine2D,
+        color: Rgba,
+        run: &PlainText<'_>,
+    ) {
+        if let Some(gc) = self.clipped(gc) {
+            self.inner
+                .draw_text_run(&gc, outline, transform, color, run);
         }
     }
 

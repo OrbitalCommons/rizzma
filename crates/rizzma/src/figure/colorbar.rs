@@ -8,7 +8,7 @@
 use crate::axis::ticker::{AutoLocator, Formatter, Locator, ScalarFormatter};
 use crate::core::color::mapping::warn_unknown_colormap;
 use crate::core::{Affine2D, Bbox, Path, color::Colormap, color::Rgba, color::try_colormap};
-use crate::render::{GraphicsContext, Renderer};
+use crate::render::{GraphicsContext, Renderer, TextAnchor};
 use crate::text::FontSource;
 
 use crate::figure::figure::Figure;
@@ -235,8 +235,14 @@ impl FigureColorbar {
                 let width = font.measure(&label, font_size).width;
                 let lx = x - width / 2.0;
                 let ly = ty1 - tick_gap - font_size * 0.8;
-                let text = font.text_to_path(&label, font_size, [lx, ly]);
-                renderer.draw_path(&GraphicsContext::new(), &text, &id, Some(Rgba::BLACK));
+                font.fill_text(
+                    renderer,
+                    &label,
+                    font_size,
+                    [lx, ly],
+                    Rgba::BLACK,
+                    TextAnchor::Middle,
+                );
             } else {
                 let y = bar.ymin() + frac * bar.height();
 
@@ -249,8 +255,14 @@ impl FigureColorbar {
                 // Label, vertically centered on the tick.
                 let lx = tx1 + tick_gap;
                 let ly = y - font_size / 3.0;
-                let text = font.text_to_path(&label, font_size, [lx, ly]);
-                renderer.draw_path(&GraphicsContext::new(), &text, &id, Some(Rgba::BLACK));
+                font.fill_text(
+                    renderer,
+                    &label,
+                    font_size,
+                    [lx, ly],
+                    Rgba::BLACK,
+                    TextAnchor::Start,
+                );
             }
         }
     }

@@ -18,7 +18,7 @@ use crate::core::{Affine2D, Bbox, Path};
 use crate::figure::Axes;
 use crate::figure::richtext::layout_rich_text;
 use crate::figure::sky::{self, SkyProjection};
-use crate::render::{GraphicsContext, Renderer};
+use crate::render::{GraphicsContext, Renderer, TextAnchor};
 use crate::text::FontSource;
 
 /// Longitude tick spacing, matplotlib's geo-axes default.
@@ -222,14 +222,14 @@ impl Axes {
                 let rich = layout_rich_text(font, text, size * s);
                 let (x, y) = place(rich.width, rich.ascent, rich.descent);
                 let shift = Affine2D::from_translation(x, y);
-                for path in &rich.paths {
-                    renderer.draw_path(
-                        &GraphicsContext::new(),
-                        &path.transformed(&shift),
-                        &Affine2D::identity(),
-                        Some(color),
-                    );
-                }
+                rich.draw(
+                    renderer,
+                    &GraphicsContext::new(),
+                    &shift,
+                    true,
+                    color,
+                    TextAnchor::Start,
+                );
             };
         if sky == SkyProjection::Zenithal {
             let pad = CARDINAL_PAD * s;

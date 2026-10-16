@@ -20,7 +20,8 @@
 //! and the raster renderer applies its own Y-flip, so text ends up correctly
 //! oriented on screen.
 
-use crate::core::{Path, PathCode};
+use crate::core::{Affine2D, Path, PathCode, color::Rgba};
+use crate::render::{GraphicsContext, PlainText, Renderer, TextAnchor};
 use ttf_parser::OutlineBuilder;
 
 use crate::text::font::{FontSource, horizontal_kerning};
@@ -93,6 +94,35 @@ impl OutlineBuilder for PathOutlineBuilder {
 }
 
 impl FontSource {
+    /// Fill `text` at `font_size_px` in `color`, its baseline starting at
+    /// `origin` in device pixels (y up): the outline
+    /// [`text_to_path`](Self::text_to_path) gives, drawn as a text run
+    /// anchored at `anchor` so a backend that writes text natively can write
+    /// the characters instead.
+    pub(crate) fn fill_text(
+        &self,
+        renderer: &mut dyn Renderer,
+        text: &str,
+        font_size_px: f64,
+        origin: [f64; 2],
+        color: Rgba,
+        anchor: TextAnchor,
+    ) {
+        renderer.draw_text_run(
+            &GraphicsContext::new(),
+            &self.text_to_path(text, font_size_px, origin),
+            &Affine2D::identity(),
+            color,
+            &PlainText {
+                text,
+                font_size_px,
+                width: self.measure(text, font_size_px).width,
+                anchor,
+                frame: Affine2D::from_translation(origin[0], origin[1]),
+            },
+        );
+    }
+
     /// Lays out `text` at `font_size_px` and returns its glyph outlines as a
     /// single [`Path`], positioned with the baseline at `origin[1]` and the pen
     /// starting at `origin[0]`.

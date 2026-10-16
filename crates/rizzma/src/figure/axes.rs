@@ -26,7 +26,7 @@ use crate::axis::ticker::{
 use crate::core::color::{ColorScale, DEFAULT_COLOR_CYCLE, Rgba};
 use crate::core::rcparams::{AxisBelow, RcParams};
 use crate::core::{Affine2D, Bbox, Path};
-use crate::render::{ClippedRenderer, GraphicsContext, Renderer};
+use crate::render::{ClippedRenderer, GraphicsContext, Renderer, TextAnchor};
 use crate::text::FontSource;
 
 use crate::figure::axes_colorbar::{BarInk, Colorbar, Mappable};
@@ -2720,14 +2720,14 @@ impl Axes {
             };
             let y = axes_px.ymax() + self.title_pad * s + top_clearance;
             let shift = Affine2D::from_translation(x, y);
-            for path in &rich.paths {
-                renderer.draw_path(
-                    &GraphicsContext::new(),
-                    &path.transformed(&shift),
-                    &Affine2D::identity(),
-                    Some(self.title_color),
-                );
-            }
+            rich.draw(
+                renderer,
+                &GraphicsContext::new(),
+                &shift,
+                true,
+                self.title_color,
+                TextAnchor::Middle,
+            );
         }
 
         // 8. Oscilloscope bezel and corner readouts, above everything: the
@@ -2819,17 +2819,17 @@ impl Axes {
         let s = renderer.decoration_scale();
         let size = SCOPE_TEXT_SIZE * s;
         let pad = SCOPE_TEXT_PAD * s;
-        let mut draw = |text: &str, x: f64, baseline_y: f64| {
+        let mut draw = |text: &str, x: f64, baseline_y: f64, anchor: TextAnchor| {
             let rich = layout_rich_text(font, text, size);
             let shift = Affine2D::from_translation(x, baseline_y);
-            for path in &rich.paths {
-                renderer.draw_path(
-                    &GraphicsContext::new(),
-                    &path.transformed(&shift),
-                    &Affine2D::identity(),
-                    Some(SCOPE_TEXT),
-                );
-            }
+            rich.draw(
+                renderer,
+                &GraphicsContext::new(),
+                &shift,
+                true,
+                SCOPE_TEXT,
+                anchor,
+            );
         };
         let right_align = |text: &str| {
             let rich = layout_rich_text(font, text, size);
@@ -2840,9 +2840,24 @@ impl Axes {
         let bottom = format_scope_value(ylim.0);
         let span = format!("\u{394}{}", format_scope_value(xlim.1 - xlim.0));
         let ascent = layout_rich_text(font, &top, size).ascent;
-        draw(&top, right_align(&top), axes_px.ymax() - pad - ascent);
-        draw(&bottom, right_align(&bottom), axes_px.ymin() + pad);
-        draw(&span, axes_px.xmin() + pad, axes_px.ymin() + pad);
+        draw(
+            &top,
+            right_align(&top),
+            axes_px.ymax() - pad - ascent,
+            TextAnchor::End,
+        );
+        draw(
+            &bottom,
+            right_align(&bottom),
+            axes_px.ymin() + pad,
+            TextAnchor::End,
+        );
+        draw(
+            &span,
+            axes_px.xmin() + pad,
+            axes_px.ymin() + pad,
+            TextAnchor::Start,
+        );
     }
 
     /// Draw one [`Annotation`]: the text at its anchor, plus a leader arrow
@@ -2889,14 +2904,14 @@ impl Axes {
             }
         }
         let shift = Affine2D::from_translation(anchor.0, anchor.1);
-        for path in &rich.paths {
-            renderer.draw_path(
-                &GraphicsContext::new(),
-                &path.transformed(&shift),
-                &Affine2D::identity(),
-                Some(ann.color),
-            );
-        }
+        rich.draw(
+            renderer,
+            &GraphicsContext::new(),
+            &shift,
+            true,
+            ann.color,
+            TextAnchor::Start,
+        );
 
         if ann.text_at.is_some() {
             let target = to_display(ann.xy);

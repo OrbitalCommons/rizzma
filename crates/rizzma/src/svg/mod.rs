@@ -21,8 +21,8 @@ use std::fmt::Write as _;
 pub use crate::core::{Affine2D, Path, color::Rgba};
 use base64::Engine as _;
 
-use crate::core::PathSegment;
-use crate::render::{CapStyle, GraphicsContext, JoinStyle, Renderer};
+use crate::core::{PathSegment, SvgFontType};
+use crate::render::{CapStyle, GraphicsContext, JoinStyle, PlainText, Renderer, TextAnchor};
 
 /// A vector [`Renderer`] that serializes paths into an SVG document.
 ///
@@ -48,6 +48,9 @@ pub struct SvgRenderer {
     clips: Vec<String>,
     /// The attributes of each marker `<path>` def; `mN` is entry `N`.
     markers: Vec<String>,
+    /// The font family text runs are written in as native `<text>`, or
+    /// `None` to draw them as glyph outlines.
+    text_family: Option<String>,
 }
 
 impl SvgRenderer {
@@ -66,7 +69,19 @@ impl SvgRenderer {
             dpi,
             clips: Vec::new(),
             markers: Vec::new(),
+            text_family: None,
         }
+    }
+
+    /// Write text as `fonttype` says: glyph outlines (the default), or native
+    /// `<text>` in `font_family`.
+    #[must_use]
+    pub fn with_fonttype(mut self, fonttype: SvgFontType, font_family: &str) -> Self {
+        self.text_family = match fonttype {
+            SvgFontType::Path => None,
+            SvgFontType::None => Some(font_family.to_owned()),
+        };
+        self
     }
 
     /// The DPI this renderer scales points to pixels with.
@@ -251,6 +266,22 @@ impl SvgRenderer {
     }
 }
 
+/// Escape `text` for XML character data and double-quoted attribute values.
+fn xml_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// Format an [`Rgba`]'s color channels as an SVG `rgb(r,g,b)` function string.
 fn rgb_func(rgba: Rgba) -> String {
     let [r, g, b, _] = rgba.to_u8_array();
@@ -344,6 +375,85 @@ impl Renderer for SvgRenderer {
         let attrs = self.paint_attrs(gc, fill);
         let clip = self.clip_attr(gc);
         let _ = write!(self.body, "<path d=\"{d}\"{attrs}{clip}/>");
+    }
+
+    /// Write the run as a native `<text>` element when the renderer writes
+    /// text natively, or fill its outline otherwise.
+    fn draw_text_run(
+        &mut self,
+        gc: &GraphicsContext,
+        outline: &Path,
+        transform: &Affine2D,
+        color: Rgba,
+        run: &PlainText<'_>,
+    ) {
+        let Some(family) = &self.text_family else {
+            self.draw_path(gc, outline, transform, Some(color));
+            return;
+        };
+        if run.text.is_empty() {
+            return;
+        }
+        let mut attrs = String::new();
+        // The run's frame into SVG space; SVG text runs y down from its
+        // baseline, where the frame's y runs up.
+        let frame = Affine2D::from_scale(1.0, -1.0)
+            .then(&run.frame)
+            .then(&self.flip_transform());
+        let x = match run.anchor {
+            TextAnchor::Start => 0.0,
+            TextAnchor::Middle => run.width / 2.0,
+            TextAnchor::End => run.width,
+        };
+        let translated = matches!(frame.matrix(), [1.0, 0.0, 0.0, 1.0, _, _]);
+        match frame.matrix() {
+            [_, _, _, _, e, f] if translated => {
+                let _ = write!(attrs, "x=\"{}\" y=\"{}\"", fmt_f(e + x), fmt_f(f));
+            }
+            [a, b, c, d, e, f] => {
+                if x != 0.0 {
+                    let _ = write!(attrs, "x=\"{}\" ", fmt_f(x));
+                }
+                let _ = write!(
+                    attrs,
+                    "transform=\"matrix({} {} {} {} {} {})\"",
+                    fmt_f(a),
+                    fmt_f(b),
+                    fmt_f(c),
+                    fmt_f(d),
+                    fmt_f(e),
+                    fmt_f(f)
+                );
+            }
+        }
+        let _ = write!(
+            attrs,
+            " font-family=\"{}\" font-size=\"{}\" fill=\"{}\"",
+            xml_escape(family),
+            fmt_f(run.font_size_px),
+            rgb_func(color)
+        );
+        let opacity = effective_opacity(color, gc.alpha);
+        if opacity < 1.0 {
+            let _ = write!(attrs, " fill-opacity=\"{}\"", fmt_f(opacity));
+        }
+        match run.anchor {
+            TextAnchor::Start => {}
+            TextAnchor::Middle => attrs.push_str(" text-anchor=\"middle\""),
+            TextAnchor::End => attrs.push_str(" text-anchor=\"end\""),
+        }
+        if run.text.starts_with(' ') || run.text.ends_with(' ') || run.text.contains("  ") {
+            attrs.push_str(" xml:space=\"preserve\"");
+        }
+        let text = xml_escape(run.text);
+        let clip = self.clip_attr(gc);
+        // A clip on an element with a `transform` is read in the transformed
+        // space, so a transformed run is clipped by a wrapping group.
+        if clip.is_empty() || translated {
+            let _ = write!(self.body, "<text {attrs}{clip}>{text}</text>");
+        } else {
+            let _ = write!(self.body, "<g{clip}><text {attrs}>{text}</text></g>");
+        }
     }
 
     /// Write an unstroked marker once as a `<path>` def and place it at each

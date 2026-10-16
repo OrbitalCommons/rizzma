@@ -31,7 +31,7 @@
 
 use crate::core::color::{DEFAULT_COLOR_CYCLE, Rgba};
 use crate::core::{Affine2D, Path};
-use crate::render::{GraphicsContext, Renderer};
+use crate::render::{GraphicsContext, Renderer, TextAnchor};
 use crate::skia::SkiaRenderer;
 use crate::text::FontSource;
 
@@ -308,12 +308,13 @@ impl PolarAxes {
         // half the cap height so the label is vertically centered too.
         let x = anchor_x - 0.5 * extent.width;
         let y = anchor_y - 0.5 * (extent.ascent - extent.descent);
-        let path = font.text_to_path(text, size, [x, y]);
-        renderer.draw_path(
-            &GraphicsContext::new(),
-            &path,
-            &Affine2D::identity(),
-            Some(Rgba::BLACK),
+        font.fill_text(
+            renderer,
+            text,
+            size,
+            [x, y],
+            Rgba::BLACK,
+            TextAnchor::Middle,
         );
     }
 

@@ -19,7 +19,7 @@
 use crate::core::rcparams::TickDirection;
 use crate::core::{Affine2D, Bbox, Path, color::Rgba};
 use crate::mathtext::{RichText, layout_rich_text};
-use crate::render::{GraphicsContext, Renderer};
+use crate::render::{GraphicsContext, Renderer, TextAnchor};
 use crate::text::FontSource;
 
 use crate::axis::scale::{LinearScale, Scale};
@@ -835,14 +835,12 @@ impl Axis {
             let p = self.data_to_pixel(t, axes_bbox, vmin, vmax);
             let origin = self.tick_label_origin(axes_bbox, p, &rich, s);
             let shift = Affine2D::from_translation(origin[0], origin[1]);
-            for path in &rich.paths {
-                renderer.draw_path(
-                    &gc,
-                    &path.transformed(&shift),
-                    &Affine2D::identity(),
-                    Some(self.color),
-                );
-            }
+            let anchor = match self.side {
+                AxisSide::Bottom | AxisSide::Top => TextAnchor::Middle,
+                AxisSide::Left => TextAnchor::End,
+                AxisSide::Right => TextAnchor::Start,
+            };
+            rich.draw(renderer, &gc, &shift, true, self.color, anchor);
         }
     }
 
@@ -937,14 +935,14 @@ impl Axis {
                 Affine2D::from_rotation_deg(-90.0).then(&Affine2D::from_translation(x, y))
             }
         };
-        for path in &rich.paths {
-            renderer.draw_path(
-                &gc,
-                &path.transformed(&transform),
-                &Affine2D::identity(),
-                Some(self.color),
-            );
-        }
+        rich.draw(
+            renderer,
+            &gc,
+            &transform,
+            true,
+            self.color,
+            TextAnchor::Middle,
+        );
     }
 }
 

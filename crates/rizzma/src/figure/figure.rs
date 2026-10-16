@@ -617,14 +617,14 @@ impl Figure {
                 (w - rich.width) / 2.0,
                 h - SUPTITLE_PAD * s - rich.ascent,
             );
-            for path in &rich.paths {
-                renderer.draw_path(
-                    &crate::render::GraphicsContext::new(),
-                    &path.transformed(&shift),
-                    &crate::core::Affine2D::identity(),
-                    Some(self.suptitle_color),
-                );
-            }
+            rich.draw(
+                renderer,
+                &crate::render::GraphicsContext::new(),
+                &shift,
+                true,
+                self.suptitle_color,
+                crate::render::TextAnchor::Middle,
+            );
         }
 
         // Figure labels, then free text, on top of everything.
@@ -696,7 +696,8 @@ impl Figure {
     #[must_use]
     pub fn to_svg(&self) -> String {
         let (w, h) = self.size_px();
-        let mut renderer = crate::svg::SvgRenderer::new(w, h, self.dpi);
+        let mut renderer = crate::svg::SvgRenderer::new(w, h, self.dpi)
+            .with_fonttype(self.rc.svg_fonttype, &self.rc.font_family);
         self.draw(&mut renderer);
         renderer.finish()
     }
