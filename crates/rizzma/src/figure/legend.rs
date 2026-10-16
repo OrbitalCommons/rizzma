@@ -23,6 +23,9 @@ pub(crate) struct LegendEntry {
     /// For a scatter series, a one-marker template drawn in place of the line
     /// sample (see [`Collection::legend_sample`]).
     pub(crate) marker: Option<Collection>,
+    /// For a line with markers, the marker drawn in the middle of its line
+    /// sample.
+    pub(crate) line_marker: Option<crate::artist::line::LineMarker>,
 }
 
 /// The kind of artist at one position of an axes' insertion order.
@@ -89,6 +92,7 @@ impl LegendEntry {
             color: self.color,
             label: self.label.clone(),
             marker: self.marker.as_ref().map(|m| m.to_portable(bank)),
+            line_marker: self.line_marker.clone(),
         }
     }
 
@@ -104,6 +108,11 @@ impl LegendEntry {
                 .marker
                 .as_ref()
                 .map(|m| Collection::from_portable(m, reader))
+                .transpose()?,
+            line_marker: spec
+                .line_marker
+                .clone()
+                .map(crate::artist::line::LineMarker::validated)
                 .transpose()?,
         })
     }
@@ -160,6 +169,7 @@ impl Axes {
                 color,
                 label,
                 marker: None,
+                line_marker: None,
             })
             .collect();
         self
@@ -206,20 +216,21 @@ impl Axes {
         let mut entries: Vec<LegendEntry> = Vec::new();
         for kind in &self.artist_order {
             let row = match kind {
-                ArtistKind::Line => lines
-                    .next()
-                    .and_then(|line| Some((line.label()?, line.color(), None))),
+                ArtistKind::Line => lines.next().and_then(|line| {
+                    let marker = line.line_marker().cloned();
+                    Some((line.label()?, line.color(), None, marker))
+                }),
                 ArtistKind::Patch => patches.next().and_then(|patch| {
                     let color = patch.face().or_else(|| patch.edge())?;
-                    Some((patch.label()?, color, None))
+                    Some((patch.label()?, color, None, None))
                 }),
                 ArtistKind::Collection => collections.next().and_then(|coll| {
                     let label = coll.label()?;
                     let (color, marker) = coll.legend_sample()?;
-                    Some((label, color, Some(marker)))
+                    Some((label, color, Some(marker), None))
                 }),
             };
-            let Some((label, color, marker)) = row else {
+            let Some((label, color, marker, line_marker)) = row else {
                 continue;
             };
             if label.is_empty() || label.starts_with('_') {
@@ -232,6 +243,7 @@ impl Axes {
                 color,
                 label: label.to_owned(),
                 marker,
+                line_marker,
             });
         }
         self.legend = entries;
@@ -394,6 +406,11 @@ impl Axes {
                     .with_stroke(entry.color)
                     .with_line_width(layout::SAMPLE_WIDTH);
                 renderer.draw_path(&sample_gc, &sample, &id, None);
+                // A marked line shows one marker in the middle of its
+                // sample, as matplotlib's legend does.
+                if let Some(marker) = &entry.line_marker {
+                    marker.draw(renderer, &[[(sx0 + sx1) / 2.0, row_mid]], entry.color);
+                }
             }
 
             // Label text, baseline centered on the row.

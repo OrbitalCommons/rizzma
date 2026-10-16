@@ -9,7 +9,7 @@
 use crate::core::{Affine2D, Bbox, Path, PathCode, color::Rgba};
 use crate::render::{CapStyle, GraphicsContext, JoinStyle, Renderer};
 
-use crate::artist::Artist;
+use crate::artist::{Artist, MarkerStyle};
 
 /// A 2D line: a stroked polyline through paired `x`/`y` data.
 ///
@@ -44,6 +44,106 @@ pub struct Line2D {
     /// [`Axes::legend_auto`](crate::figure::Axes::legend_auto); `None` for an
     /// anonymous line.
     label: Option<String>,
+    /// The markers drawn at the data points, if any (matplotlib's `"o-"`).
+    marker: Option<LineMarker>,
+}
+
+/// The markers a [`Line2D`] draws at its data points: matplotlib's `marker`,
+/// `markersize`, `markerfacecolor`, `markeredgecolor`, `markeredgewidth`
+/// and `markevery`.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LineMarker {
+    /// The matplotlib marker code (`'o'`, `'s'`, `'^'`, `'x'`, …).
+    pub(crate) code: char,
+    /// Marker diameter in points.
+    pub(crate) size: f64,
+    /// Face color; `None` follows the line color.
+    pub(crate) face: Option<Rgba>,
+    /// Edge color; `None` follows the line color.
+    pub(crate) edge: Option<Rgba>,
+    /// Edge width in points.
+    pub(crate) edge_width: f64,
+    /// Mark every `every`-th point, starting with the first.
+    pub(crate) every: usize,
+}
+
+/// matplotlib's `lines.markersize`, in points.
+const DEFAULT_MARKER_SIZE: f64 = 6.0;
+/// matplotlib's `lines.markeredgewidth`, in points.
+const DEFAULT_MARKER_EDGE_WIDTH: f64 = 1.0;
+
+impl LineMarker {
+    /// The marker `code` at matplotlib's default size and edge width, colored
+    /// like its line; `None` for an unknown code.
+    fn new(code: char) -> Option<Self> {
+        MarkerStyle::from_char(code)?;
+        Some(Self {
+            code,
+            size: DEFAULT_MARKER_SIZE,
+            face: None,
+            edge: None,
+            edge_width: DEFAULT_MARKER_EDGE_WIDTH,
+            every: 1,
+        })
+    }
+
+    /// This marker as read from a portable figure, refused when its code is
+    /// unknown or its size, edge width or spacing is not drawable.
+    #[cfg(feature = "portable")]
+    pub(crate) fn validated(self) -> Result<Self, crate::portable::PortableError> {
+        let drawable = MarkerStyle::from_char(self.code).is_some()
+            && self.size.is_finite()
+            && self.size >= 0.0
+            && self.edge_width.is_finite()
+            && self.edge_width >= 0.0
+            && self.every >= 1;
+        if drawable {
+            Ok(self)
+        } else {
+            Err(crate::portable::PortableError::Malformed(format!(
+                "line marker {:?} is not drawable",
+                self.code
+            )))
+        }
+    }
+
+    /// Stamp the marker at each of `points` (device pixels, y-up) for a line
+    /// of `color`, placed as matplotlib's Agg `draw_markers` places line
+    /// markers: on the pixel center at `floor(p + 0.5) + 0.5` in its y-down
+    /// pixel grid.
+    pub(crate) fn draw(&self, renderer: &mut dyn Renderer, points: &[[f64; 2]], color: Rgba) {
+        let Some(style) = MarkerStyle::from_char(self.code) else {
+            return;
+        };
+        let (_, height) = renderer.canvas_size();
+        let snapped: Vec<[f64; 2]> = points
+            .iter()
+            .filter(|[x, y]| x.is_finite() && y.is_finite())
+            .map(|&[x, y]| {
+                let down = (height - y + 0.5).floor() + 0.5;
+                [(x + 0.5).floor() + 0.5, height - down]
+            })
+            .collect();
+        if snapped.is_empty() {
+            return;
+        }
+        let size = renderer.points_to_pixels(self.size);
+        let gc = GraphicsContext {
+            line_width: self.edge_width,
+            stroke: Some(self.edge.unwrap_or(color)),
+            ..GraphicsContext::new()
+        };
+        let face = style.is_filled().then(|| self.face.unwrap_or(color));
+        renderer.draw_markers(
+            &gc,
+            style.path(),
+            &Affine2D::from_scale(size, size),
+            &Path::from_polyline(&snapped),
+            &Affine2D::identity(),
+            face,
+        );
+    }
 }
 
 impl Line2D {
@@ -68,6 +168,7 @@ impl Line2D {
             visible: true,
             zorder: 2.0,
             label: None,
+            marker: None,
         }
     }
 
@@ -202,6 +303,127 @@ impl Line2D {
         self
     }
 
+    /// Draw a marker at every data point: matplotlib's `plot(x, y, "o-")`.
+    /// `code` is a matplotlib marker code (`"o"`, `"s"`, `"^"`, `"D"`,
+    /// `"x"`, `"+"`, `"*"`, …); an unknown code, or `""`, removes the markers.
+    /// They are 6 points across and colored like the line until restyled,
+    /// and a legend sample shows one in the middle of its line.
+    ///
+    /// ![line markers](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_line_markers.png)
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    ///
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_subplot(1, 1, 1);
+    /// ax.plot(&[1.0, 2.0, 3.0, 4.0], &[1.0, 3.0, 2.0, 4.0])
+    ///     .set_marker("o")
+    ///     .set_label("measured");
+    /// ax.legend_auto();
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn set_marker(&mut self, code: &str) -> &mut Self {
+        let mut chars = code.chars();
+        self.marker = match (chars.next(), chars.next()) {
+            (Some(c), None) => LineMarker::new(c).map(|new| match self.marker.take() {
+                Some(old) => LineMarker { code: c, ..old },
+                None => new,
+            }),
+            _ => None,
+        };
+        self
+    }
+
+    /// Draw markers at the data points, returning `self`; see
+    /// [`set_marker`](Line2D::set_marker).
+    #[must_use]
+    pub fn with_marker(mut self, code: &str) -> Self {
+        self.set_marker(code);
+        self
+    }
+
+    /// The marker code, if the line draws markers.
+    #[must_use]
+    pub fn marker(&self) -> Option<char> {
+        self.marker.as_ref().map(|m| m.code)
+    }
+
+    /// Set the marker diameter in points (matplotlib's `markersize`,
+    /// default 6). Takes effect once a marker is set.
+    pub fn set_markersize(&mut self, size: f64) -> &mut Self {
+        if let Some(marker) = &mut self.marker {
+            marker.size = size;
+        }
+        self
+    }
+
+    /// Set the marker fill color (matplotlib's `markerfacecolor`; the line
+    /// color by default). Takes effect once a marker is set.
+    pub fn set_markerfacecolor(&mut self, color: Rgba) -> &mut Self {
+        if let Some(marker) = &mut self.marker {
+            marker.face = Some(color);
+        }
+        self
+    }
+
+    /// Set the marker edge color (matplotlib's `markeredgecolor`; the line
+    /// color by default). Takes effect once a marker is set.
+    pub fn set_markeredgecolor(&mut self, color: Rgba) -> &mut Self {
+        if let Some(marker) = &mut self.marker {
+            marker.edge = Some(color);
+        }
+        self
+    }
+
+    /// Set the marker edge width in points (matplotlib's `markeredgewidth`,
+    /// default 1). Takes effect once a marker is set.
+    pub fn set_markeredgewidth(&mut self, width: f64) -> &mut Self {
+        if let Some(marker) = &mut self.marker {
+            marker.edge_width = width;
+        }
+        self
+    }
+
+    /// Mark only every `n`-th point, starting with the first (matplotlib's
+    /// integer `markevery`; `0` and `1` mark every point). Takes effect once
+    /// a marker is set.
+    pub fn set_markevery(&mut self, n: usize) -> &mut Self {
+        if let Some(marker) = &mut self.marker {
+            marker.every = n.max(1);
+        }
+        self
+    }
+
+    /// The line's marker, for its legend sample and portable form.
+    pub(crate) fn line_marker(&self) -> Option<&LineMarker> {
+        self.marker.as_ref()
+    }
+
+    /// Draw the line's markers, each data point passed through `map` (an
+    /// axes' scales) and then `transform`.
+    pub(crate) fn draw_markers_mapped(
+        &self,
+        renderer: &mut dyn Renderer,
+        transform: &Affine2D,
+        map: &dyn Fn(f64, f64) -> [f64; 2],
+    ) {
+        let Some(marker) = self.marker.as_ref().filter(|_| self.visible) else {
+            return;
+        };
+        let points: Vec<[f64; 2]> = self
+            .xdata
+            .iter()
+            .zip(&self.ydata)
+            .step_by(marker.every)
+            .map(|(&x, &y)| {
+                let [sx, sy] = map(x, y);
+                let (dx, dy) = transform.transform_point((sx, sy));
+                [dx, dy]
+            })
+            .collect();
+        marker.draw(renderer, &points, self.color);
+    }
+
     /// The `(x, y)` data points zipped into a `Vec<[f64; 2]>`.
     #[must_use]
     pub fn points(&self) -> Vec<[f64; 2]> {
@@ -267,6 +489,7 @@ impl Artist for Line2D {
             return;
         }
         self.draw_path(renderer, &self.path(), transform);
+        self.draw_markers_mapped(renderer, transform, &|x, y| [x, y]);
     }
 
     fn zorder(&self) -> f64 {
@@ -319,6 +542,7 @@ impl Line2D {
             visible: self.visible,
             zorder: self.zorder,
             label: self.label.clone(),
+            marker: self.marker.clone(),
         }
     }
 
@@ -338,6 +562,7 @@ impl Line2D {
             visible: spec.visible,
             zorder: spec.zorder,
             label: spec.label.clone(),
+            marker: spec.marker.clone().map(LineMarker::validated).transpose()?,
         })
     }
 }

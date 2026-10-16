@@ -1987,5 +1987,27 @@ fn main() {
             .unwrap();
     }
 
+    // 75. line markers — solver time against grid size on log axes, each
+    // series a line through marked measurements (matplotlib's "o-").
+    {
+        let mut fig = gallery_figure(5.0, 3.5);
+        let ax = fig.add_subplot(1, 1, 1);
+        let n = [16.0, 32.0, 64.0, 128.0, 256.0, 512.0];
+        let direct: Vec<f64> = n.iter().map(|v: &f64| 2e-5 * v.powi(3)).collect();
+        let iterative: Vec<f64> = n.iter().map(|v: &f64| 4e-4 * v.powf(1.6)).collect();
+        ax.plot(&n, &direct)
+            .set_marker("o")
+            .set_label("direct solve");
+        ax.plot(&n, &iterative)
+            .set_marker("s")
+            .set_label("iterative");
+        ax.set_xscale_log(10.0).set_yscale_log(10.0);
+        ax.grid(true);
+        ax.set_xlabel("grid size").set_ylabel("time (s)");
+        ax.set_title("plot(..).set_marker(..): solve time vs grid size");
+        ax.legend_auto();
+        fig.save_png("target/gallery_line_markers.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }
