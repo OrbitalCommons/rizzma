@@ -214,9 +214,10 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   instead of being wrapped in a `<g>`. An unstroked marker (a scatter point, a line
   marker) is written once as a `<path>` def and placed at each point with a `<use>`, as
   matplotlib's SVG backend does; stroked markers are still written out at each point.
-  Every SVG's bytes change. The gaker/celestial GSCAT plot shrinks from 270 KB to
-  85 KB and 2AMLogic/lindhard's `backscatter-eta.svg` from 373 KB to 337 KB, both
-  pixel-identical when rasterised with resvg. A `<use>` translation can round
+  Every SVG's bytes change, so **byte-for-byte SVG goldens diff on upgrade** even where
+  the picture does not: 2AMLogic/lindhard's `backscatter-eta.svg` golden goes from
+  373 KB to 337 KB, pixel-identical when rasterised with resvg, and the gaker/celestial
+  GSCAT plot from 270 KB to 85 KB, also pixel-identical. A `<use>` translation can round
   differently from the absolute coordinate it replaces, so an occasional marker-edge
   pixel moves by one antialiasing step: one pixel across eleven celestial figures,
   about 100 of 1.9 million in a 12 000-point scatter.
