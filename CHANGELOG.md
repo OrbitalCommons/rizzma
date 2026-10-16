@@ -114,6 +114,11 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   silent fallback for unknown names.
 - `misleading:jet` joins viridis and coolwarm in the colormap lookup test against
   matplotlib, so the quarantined maps' lookup is checked too.
+- **Grid placement, `axes.axisbelow`.** `Axes::set_axisbelow(AxisBelow::Below | Line |
+  Above)` and `RcParams::axes_axisbelow` put the grid beneath every artist, above
+  patches and scatters but below lines (the default), or over everything, at
+  matplotlib's grid zorders 0.5, 1.5 and 2.5. The stacking matches matplotlib 3.11 for
+  all three.
 - **Colormaps of your own.** Every API that takes a colormap now takes a `CmapSpec`
   (a registry name, or a colormap value): `AxesImage::cmap`/`with_cmap`, and through
   `ColorMapping`, `scatter_mapped`, `pcolormesh_mapped`/`pcolormesh_xy` and
@@ -166,12 +171,24 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 - Portable figures are schema 15 when an artist uses a colormap of the user's own,
   which is written as its colors (`"lut:"` and hex RGBA), so it renders where the map
   was never defined; schema 1–14 artifacts still load.
+- Portable figures are schema 16 when the grid placement is not the default (an
+  `axes_axisbelow` rc setting or an axes' `axisbelow`, written only then); schema 1–15
+  artifacts still load.
 - `ColorScale::cmap` is a `CmapSpec` rather than a `String`, and
   `ColorMapping::cmap_name()` is now `ColorMapping::cmap()`, returning the `CmapSpec`.
   A `CmapSpec` converts from a name, so `ColorMapping::new("viridis")` and
   `.cmap("gray")` are unchanged.
 
 ### Output changes
+- **The grid draws where matplotlib draws it** (`axes.axisbelow: "line"`): above bars,
+  fills and scatters, below lines, where it used to draw over every artist. Any figure
+  with `grid(true)` (or a minor grid) renders differently. In PNG, grid pixels now
+  sit under lines and line markers. In **SVG and PDF the grid's elements move earlier
+  in the document**, before the line elements, so a byte-for-byte golden of a gridded
+  SVG changes even though the elements themselves are identical. For example,
+  2AMLogic/lindhard's `backscatter-eta.svg` keeps the same 373 309 bytes and element
+  set, reordered. `set_axisbelow(AxisBelow::Above)` puts the grid back over everything.
+  Figures without a grid render byte-identically.
 - **`scatter` and `hist` take their color from the axes' property cycle**, as `plot`, `bar`
   and `quiver` already did, so `set_prop_cycle` (and the oscilloscope palette) now
   colors them too, as in matplotlib. With the default cycle every render is
@@ -180,7 +197,7 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":15`.
+- Every `.riz` artifact now declares `"schema":16`.
 - **A sky map's graticule draws at matplotlib's grid zorder (1.5)**: above
   fills, meshes and scatters, below lines, where it drew beneath every artist.
 - **Mesh cells fill without antialiasing**, as matplotlib's `pcolormesh` does

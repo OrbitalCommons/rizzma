@@ -19,4 +19,4 @@ pub use color::{
     Normalize, PowerNorm, Rgba, colormap, to_rgba, to_rgba_array,
 };
 pub use path::{Path, PathCode, PathSegment};
-pub use rcparams::{RcParams, TickDirection};
+pub use rcparams::{AxisBelow, RcParams, TickDirection};

@@ -95,9 +95,10 @@ pub use timeline::{Interp, Target, Timeline, Track};
 /// bad/over/under colors; schema 10 axes colorbars and the color scales of
 /// meshes and collections; schema 11 the astronomical `ImageNormalize` norm;
 /// schema 12 the `path_simplify` rc settings; schema 13 sky-projection axes;
-/// schema 14 polygon collections; schema 15 embedded user colormaps.
+/// schema 14 polygon collections; schema 15 embedded user colormaps; schema
+/// 16 where the grid draws among the artists (`axisbelow`).
 #[cfg(feature = "portable")]
-pub const SCHEMA_VERSION: u32 = 15;
+pub const SCHEMA_VERSION: u32 = 16;
 
 /// Oldest schema version this build can still load.
 #[cfg(feature = "portable")]

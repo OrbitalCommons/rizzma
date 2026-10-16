@@ -1341,6 +1341,7 @@ impl Figure {
             (13, wire::uses_sky_projection(&spec.figure)),
             (14, wire::uses_poly_collections(&spec.figure)),
             (15, wire::uses_embedded_colormaps(&spec.figure)),
+            (16, wire::uses_axisbelow(&spec.figure)),
         ]);
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(

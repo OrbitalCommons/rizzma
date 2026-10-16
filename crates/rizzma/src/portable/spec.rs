@@ -161,6 +161,23 @@ pub(crate) fn uses_path_simplify(figure: &FigureSpec) -> bool {
         || figure.rc.path_simplify_threshold != default.path_simplify_threshold
 }
 
+#[cfg(feature = "portable")]
+fn is_line_axisbelow(axisbelow: &crate::core::rcparams::AxisBelow) -> bool {
+    *axisbelow == crate::core::rcparams::AxisBelow::Line
+}
+
+/// Whether the figure places a grid other than matplotlib's default way
+/// (schema 16): in its rc or on any axes.
+#[cfg(feature = "portable")]
+pub(crate) fn uses_axisbelow(figure: &FigureSpec) -> bool {
+    use crate::core::rcparams::AxisBelow;
+    figure.rc.axes_axisbelow != AxisBelow::Line
+        || figure
+            .axes
+            .iter()
+            .any(|axes| axes.axisbelow != AxisBelow::Line)
+}
+
 /// Whether any axes draws through a schema-13 sky projection.
 #[cfg(feature = "portable")]
 pub(crate) fn uses_sky_projection(figure: &FigureSpec) -> bool {
@@ -273,6 +290,10 @@ pub(crate) struct AxesSpec {
     /// 13, which introduced it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) sky: Option<crate::figure::sky::SkyProjection>,
+    /// Where the grid draws among the artists, present only when it is not
+    /// the default. Absent before schema 16, which introduced it.
+    #[serde(default, skip_serializing_if = "is_line_axisbelow")]
+    pub(crate) axisbelow: crate::core::rcparams::AxisBelow,
     pub(crate) axis_visible: bool,
     pub(crate) scope: bool,
     pub(crate) span_lines: Vec<SpanLine>,

@@ -267,6 +267,12 @@ impl<'a> ClippedRenderer<'a> {
         Self { inner, rect }
     }
 
+    /// The wrapped backend, for drawing that already lies inside the clip
+    /// rectangle and should not carry a clip (an SVG clip per element).
+    pub(crate) fn unclipped(&mut self) -> &mut dyn Renderer {
+        self.inner
+    }
+
     /// `gc` with its clip rectangle intersected with the wrapper's, or `None`
     /// when the two are disjoint (or touch with zero area) and the draw
     /// should be skipped — a backend given a degenerate clip rectangle could
