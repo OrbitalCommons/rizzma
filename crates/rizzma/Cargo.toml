@@ -68,7 +68,7 @@ web-sys = { version = "0.3.103", optional = true, features = [
 ] }
 
 [dev-dependencies]
-resvg = { version = "0.47.0", default-features = false, features = ["raster-images"] }
+resvg = { version = "0.47.0", default-features = false, features = ["raster-images", "text"] }
 
 # Browser-only integration tests (`wasm-pack test --headless --chrome`); the
 # extra web-sys features here are for synthesizing DOM events in those tests.

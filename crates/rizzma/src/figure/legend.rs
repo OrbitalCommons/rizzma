@@ -8,7 +8,7 @@
 
 use crate::artist::Collection;
 use crate::core::{Affine2D, Bbox, Path, color::Rgba};
-use crate::render::{GraphicsContext, Renderer};
+use crate::render::{GraphicsContext, Renderer, TextAnchor};
 use crate::text::FontSource;
 
 use crate::figure::axes::Axes;
@@ -379,12 +379,13 @@ impl Axes {
             .filter(|title| !title.is_empty())
         {
             let ty = y1 - pad - row_height / 2.0 - font_size / 3.0;
-            let text = font.text_to_path(title, font_size, [x0 + pad, ty]);
-            renderer.draw_path(
-                &GraphicsContext::new(),
-                &text,
-                &id,
-                Some(self.legend_labelcolor),
+            font.fill_text(
+                renderer,
+                title,
+                font_size,
+                [x0 + pad, ty],
+                self.legend_labelcolor,
+                TextAnchor::Start,
             );
         }
 
@@ -416,12 +417,13 @@ impl Axes {
             // Label text, baseline centered on the row.
             let tx = sx1 + sample_gap;
             let ty = row_mid - font_size / 3.0;
-            let text = font.text_to_path(&entry.label, font_size, [tx, ty]);
-            renderer.draw_path(
-                &GraphicsContext::new(),
-                &text,
-                &id,
-                Some(self.legend_labelcolor),
+            font.fill_text(
+                renderer,
+                &entry.label,
+                font_size,
+                [tx, ty],
+                self.legend_labelcolor,
+                TextAnchor::Start,
             );
         }
     }

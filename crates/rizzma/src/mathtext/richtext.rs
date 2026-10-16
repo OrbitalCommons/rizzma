@@ -14,10 +14,23 @@
 //! [`FontSource::measure`](crate::text::FontSource::measure), so non-math text
 //! remains unchanged.
 
-use crate::core::Path;
+use crate::core::{Affine2D, Path, color::Rgba};
+use crate::render::{GraphicsContext, PlainText, Renderer, TextAnchor};
 use crate::text::{FontSource, TextRun, TextSpanKind};
 
 use crate::mathtext::layout_math;
+
+/// A plain span of a [`RichText`], kept so backends that write text natively
+/// can write its characters.
+#[derive(Clone, Debug, PartialEq)]
+struct PlainRun {
+    /// The span's characters.
+    text: String,
+    /// Where the span starts along the baseline, in pixels.
+    x: f64,
+    /// The span's advance width, in pixels.
+    width: f64,
+}
 
 /// A laid-out single line of (possibly math) text in a local baseline frame.
 ///
@@ -34,6 +47,56 @@ pub struct RichText {
     pub ascent: f64,
     /// Distance from the baseline to the bottom of the line, in pixels.
     pub descent: f64,
+    /// The plain span each of [`paths`](RichText::paths) outlines, or `None`
+    /// for mathtext geometry.
+    runs: Vec<Option<PlainRun>>,
+    /// The font size the line was laid out at, in pixels.
+    font_size_px: f64,
+}
+
+impl RichText {
+    /// Fill the line with `color`, its baseline frame mapped into device
+    /// space by `place`: plain spans as text runs anchored at their `anchor`
+    /// point, mathtext as paths.
+    ///
+    /// With `bake`, `place` is applied to the outlines, which are then drawn
+    /// untransformed, rather than handed to the renderer; the two round
+    /// differently, so each caller keeps the form it has always drawn with.
+    pub(crate) fn draw(
+        &self,
+        renderer: &mut dyn Renderer,
+        gc: &GraphicsContext,
+        place: &Affine2D,
+        bake: bool,
+        color: Rgba,
+        anchor: TextAnchor,
+    ) {
+        for (path, run) in self.paths.iter().zip(&self.runs) {
+            let baked;
+            let (outline, transform) = if bake {
+                baked = path.transformed(place);
+                (&baked, Affine2D::identity())
+            } else {
+                (path, *place)
+            };
+            match run {
+                Some(run) => renderer.draw_text_run(
+                    gc,
+                    outline,
+                    &transform,
+                    color,
+                    &PlainText {
+                        text: &run.text,
+                        font_size_px: self.font_size_px,
+                        width: run.width,
+                        anchor,
+                        frame: Affine2D::from_translation(run.x, 0.0).then(place),
+                    },
+                ),
+                None => renderer.draw_path(gc, outline, &transform, Some(color)),
+            }
+        }
+    }
 }
 
 /// Lay out `text` as a single line, rendering `$...$` spans as mathtext.
@@ -65,6 +128,7 @@ pub fn layout_rich_text(font: &FontSource, text: &str, font_size_px: f64) -> Ric
     let run = TextRun::parse(text);
 
     let mut paths = Vec::new();
+    let mut runs = Vec::new();
     let mut x = 0.0;
     let mut ascent: f64 = 0.0;
     let mut descent: f64 = 0.0;
@@ -82,6 +146,7 @@ pub fn layout_rich_text(font: &FontSource, text: &str, font_size_px: f64) -> Ric
                 descent = descent.max(layout.descent);
                 for element in layout.translated(x, 0.0).elements {
                     paths.push(element.path().clone());
+                    runs.push(None);
                 }
                 x += advance;
             }
@@ -91,6 +156,11 @@ pub fn layout_rich_text(font: &FontSource, text: &str, font_size_px: f64) -> Ric
                 let content = span.content();
                 let extent = font.measure(content, font_size_px);
                 paths.push(font.text_to_path(content, font_size_px, [x, 0.0]));
+                runs.push(Some(PlainRun {
+                    text: content.to_owned(),
+                    x,
+                    width: extent.width,
+                }));
                 x += extent.width;
                 ascent = ascent.max(extent.ascent);
                 descent = descent.max(extent.descent);
@@ -103,6 +173,8 @@ pub fn layout_rich_text(font: &FontSource, text: &str, font_size_px: f64) -> Ric
         width: x,
         ascent,
         descent,
+        runs,
+        font_size_px,
     }
 }
 

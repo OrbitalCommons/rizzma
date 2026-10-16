@@ -30,7 +30,7 @@
 
 use crate::core::color::default_colormap;
 use crate::core::{Affine2D, Colormap, LinearNorm, Normalize, Path, color::Rgba};
-use crate::render::{GraphicsContext, Renderer};
+use crate::render::{GraphicsContext, Renderer, TextAnchor};
 use crate::skia::SkiaRenderer;
 
 /// An inclusive min/max span along one data axis.
@@ -877,12 +877,13 @@ impl Axes3D {
                     if let Some(font) = &font {
                         let s = renderer.decoration_scale();
                         let anchor = [anchor[0] + 5.0 * s, anchor[1]];
-                        let path = font.text_to_path(&text, TEXT3D_SIZE * s, anchor);
-                        renderer.draw_path(
-                            &GraphicsContext::new(),
-                            &path,
-                            &Affine2D::identity(),
-                            Some(Rgba::BLACK),
+                        font.fill_text(
+                            renderer,
+                            &text,
+                            TEXT3D_SIZE * s,
+                            anchor,
+                            Rgba::BLACK,
+                            TextAnchor::Start,
                         );
                     }
                 }
@@ -896,12 +897,13 @@ impl Axes3D {
             let extent = font.measure(title, size);
             let x = 0.5 * (width - extent.width);
             let y = height - TITLE_PAD * s - extent.ascent;
-            let path = font.text_to_path(title, size, [x, y]);
-            renderer.draw_path(
-                &GraphicsContext::new(),
-                &path,
-                &Affine2D::identity(),
-                Some(Rgba::BLACK),
+            font.fill_text(
+                renderer,
+                title,
+                size,
+                [x, y],
+                Rgba::BLACK,
+                TextAnchor::Middle,
             );
         }
     }

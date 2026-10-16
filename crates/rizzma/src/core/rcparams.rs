@@ -54,6 +54,19 @@ impl AxisBelow {
     }
 }
 
+/// How SVG output writes text: matplotlib's `svg.fonttype`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SvgFontType {
+    /// Glyph outlines, drawn as paths: the text looks the same everywhere but
+    /// cannot be searched or selected (matplotlib's default `"path"`).
+    #[default]
+    Path,
+    /// Native `<text>` elements naming the font family: smaller files whose
+    /// text can be searched and selected, drawn in whatever font the viewer
+    /// resolves (matplotlib's `"none"`). Mathtext still draws as paths.
+    None,
+}
+
 /// Build the default ten-color property cycle (matplotlib's `tab10`).
 ///
 /// Resolves the hex strings in [`DEFAULT_COLOR_CYCLE`] into [`Rgba`] values.
@@ -180,6 +193,12 @@ pub struct RcParams {
         skip_serializing_if = "is_default_path_simplify_threshold"
     )]
     pub path_simplify_threshold: f64,
+
+    // --- svg ---
+    /// How SVG output writes text (`svg.fonttype`). An output setting, so
+    /// portable figures do not carry it.
+    #[serde(skip)]
+    pub svg_fonttype: SvgFontType,
 }
 
 fn is_default_axisbelow(axisbelow: &AxisBelow) -> bool {
@@ -251,6 +270,8 @@ impl Default for RcParams {
 
             path_simplify: default_path_simplify(),
             path_simplify_threshold: default_path_simplify_threshold(),
+
+            svg_fonttype: SvgFontType::Path,
         }
     }
 }
@@ -345,6 +366,7 @@ impl RcParams {
         merge_field!(legend_edgecolor);
         merge_field!(legend_labelcolor);
         merge_field!(text_color);
+        merge_field!(svg_fonttype);
         out
     }
 }

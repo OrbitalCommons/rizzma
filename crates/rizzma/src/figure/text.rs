@@ -11,8 +11,8 @@
 
 use crate::core::{Affine2D, Bbox, color::Rgba};
 use crate::figure::axes::{TextBoxStyle, rounded_rect_path};
-use crate::figure::richtext::layout_rich_text;
-use crate::render::{GraphicsContext, Renderer};
+use crate::figure::richtext::{RichText, layout_rich_text};
+use crate::render::{GraphicsContext, Renderer, TextAnchor};
 use crate::text::FontSource;
 
 /// Font size of [`Figure::text`](crate::figure::Figure::text), in px at 100
@@ -157,8 +157,8 @@ impl Text {
     }
 
     /// The layout box `(left, bottom, right, top)` in the unrotated baseline
-    /// frame at `size_px`, plus the laid-out glyph paths.
-    fn layout(&self, font: &FontSource, size_px: f64) -> (Bbox, Vec<crate::core::Path>) {
+    /// frame at `size_px`, plus the laid-out line.
+    fn layout(&self, font: &FontSource, size_px: f64) -> (Bbox, RichText) {
         let rich = layout_rich_text(font, &self.text, size_px);
         let ink = rich
             .paths
@@ -172,7 +172,7 @@ impl Text {
         };
         let (ascent, descent) = font.line_box(size_px);
         let layout = Bbox::from_extents(0.0, ymin.min(-descent), right, ymax.max(ascent));
-        (layout, rich.paths)
+        (layout, rich)
     }
 
     /// The transform from the baseline frame to device pixels, placing the
@@ -224,7 +224,7 @@ impl Text {
             return;
         }
         let s = renderer.decoration_scale();
-        let (layout, paths) = self.layout(font, self.size * s);
+        let (layout, rich) = self.layout(font, self.size * s);
         let place = self.placement(&layout, anchor);
         if let Some(style) = self.bbox {
             let background =
@@ -242,8 +242,21 @@ impl Text {
                 renderer.draw_path(&gc, &background, &place, None);
             }
         }
-        for path in &paths {
-            renderer.draw_path(&GraphicsContext::new(), path, &place, Some(self.color));
-        }
+        // Rotated, the alignment names a side of the rotated box rather than
+        // a point along the run.
+        let anchor = match self.ha {
+            _ if self.rotation != 0.0 => TextAnchor::Start,
+            HorizontalAlignment::Left => TextAnchor::Start,
+            HorizontalAlignment::Center => TextAnchor::Middle,
+            HorizontalAlignment::Right => TextAnchor::End,
+        };
+        rich.draw(
+            renderer,
+            &GraphicsContext::new(),
+            &place,
+            false,
+            self.color,
+            anchor,
+        );
     }
 }

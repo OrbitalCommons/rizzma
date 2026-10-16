@@ -10,6 +10,21 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 ## [Unreleased]
 
 ### Added
+- **Native SVG text.** `RcParams::svg_fonttype`, matplotlib's `svg.fonttype`, chooses
+  how SVG output writes text:
+  - `SvgFontType::Path` (the default) draws glyph outlines, unchanged.
+  - `SvgFontType::None` writes `<text>` elements in the rc `font_family`. Text can
+    then be searched and selected, and files shrink: the gaker/celestial GSCAT plot
+    goes from 85 KB to 33 KB.
+  - Every label, title, legend entry and free text becomes `<text>`, carrying its
+    size, color, rotation, and a `text-anchor` that keeps it aligned if a viewer's
+    font differs. Characters are XML-escaped. Mathtext still draws as paths.
+  - Rasterised in DejaVu Sans, each run lands within a pixel of its outline.
+
+  The setting is an output option, so portable figures do not carry it. Backends see
+  text through the new defaulted `Renderer::draw_text_run` (a `PlainText` run with a
+  `TextAnchor`), which fills the outline as before unless overridden. Raster, PDF and
+  default SVG output are byte-identical.
 - **Quivers with options.** `Axes::quiver_with(x, y, u, v, &QuiverOptions)` ports
   matplotlib's `Quiver`: `scale` (auto when unset), `scale_units`, `angles` (`Uv`,
   `Xy`), `units` (`Width`, `Height`, `Dots`, `Inches`, `X`, `Y`, `Xy`), `width`,
@@ -165,6 +180,8 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   a longitude/latitude grid on a sky projection.
 
 ### Changed
+- `RichText` keeps each plain span's characters for native text, in private fields,
+  so it is built with `layout_rich_text` and no longer with a struct literal.
 - **An unknown colormap name is reported** once per name per process: on stderr
   natively, `console.warn` in the browser, with the suggestions `try_colormap` gives.
   It still draws with the `bgyw` default, so renders are unchanged; the standalone
