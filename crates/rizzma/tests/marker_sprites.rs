@@ -1,7 +1,7 @@
 //! Uniform scatter markers through `draw_markers`: the raster backend stamps
 //! cached sprites, so large scatters must ink the same pixels as drawing each
-//! marker as a path, small ones must stay exact, and vector output must not
-//! change at all.
+//! marker as a path, small ones must stay exact, PDF output must not change
+//! at all, and SVG output places one marker def with `<use>`s.
 //!
 //! The per-point reference is the same scatter with its one face color given
 //! twice: a non-uniform style list, which draws marker by marker.
@@ -81,6 +81,10 @@ fn small_scatters_draw_exactly() {
 fn vector_output_is_unchanged() {
     let (x, y) = random(12_000);
     let (uniform, per_point) = (figure(&x, &y, false), figure(&x, &y, true));
-    assert_eq!(uniform.to_svg(), per_point.to_svg());
     assert_eq!(uniform.to_pdf(), per_point.to_pdf());
+    // SVG writes the uniform marker once and places it with a `<use>` per
+    // point, as matplotlib does.
+    let (svg, reference) = (uniform.to_svg(), per_point.to_svg());
+    assert_eq!(svg.matches("<use ").count(), x.len());
+    assert!(svg.len() < reference.len() / 5);
 }

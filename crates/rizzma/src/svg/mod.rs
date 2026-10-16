@@ -34,8 +34,8 @@ pub struct SvgRenderer {
     /// The accumulated SVG body markup (between the opening `<svg>` and the
     /// closing `</svg>`).
     body: String,
-    /// Deferred `<clipPath>` definitions, emitted inside a `<defs>` block by
-    /// [`SvgRenderer::finish`].
+    /// Deferred `<clipPath>` and marker definitions, emitted inside a
+    /// `<defs>` block by [`SvgRenderer::finish`].
     defs: String,
     /// Canvas width in device pixels.
     width: f64,
@@ -43,8 +43,11 @@ pub struct SvgRenderer {
     height: f64,
     /// Dots per inch, used to convert points to pixels.
     dpi: f64,
-    /// Monotonic counter handing out unique `clipPath` element ids.
-    clip_counter: usize,
+    /// The rectangle of each `clipPath` def, as written; `clipN` is entry `N`,
+    /// so artists sharing a clip rectangle share one def.
+    clips: Vec<String>,
+    /// The attributes of each marker `<path>` def; `mN` is entry `N`.
+    markers: Vec<String>,
 }
 
 impl SvgRenderer {
@@ -61,7 +64,8 @@ impl SvgRenderer {
             width: width_px,
             height: height_px,
             dpi,
-            clip_counter: 0,
+            clips: Vec::new(),
+            markers: Vec::new(),
         }
     }
 
@@ -135,35 +139,87 @@ impl SvgRenderer {
         if any { Some(d) } else { None }
     }
 
-    /// Register a `<clipPath>` def for `gc.clip_rect` (in matplotlib device
-    /// coordinates), Y-flipped into SVG user space, returning its id.
+    /// The `clip-path` attribute, with a leading space, clipping an element
+    /// to `gc.clip_rect` (in matplotlib device coordinates, Y-flipped into SVG
+    /// user space); empty when there is no clip rectangle.
     ///
-    /// Returns `None` when there is no clip rectangle.
-    fn push_clip_def(&mut self, gc: &GraphicsContext) -> Option<String> {
+    /// A rectangle already seen reuses its `<clipPath>` def. Each element
+    /// carries its own reference rather than sharing a clipped `<g>`, so it
+    /// is composited exactly as a lone clipped element is.
+    fn clip_attr(&mut self, gc: &GraphicsContext) -> String {
         // TODO: clip_path — honor gc.clip_path for arbitrary-path clipping.
-        let bbox = gc.clip_rect?;
-        let left = bbox.xmin();
-        let width = bbox.width();
+        let Some(bbox) = gc.clip_rect else {
+            return String::new();
+        };
         // Y-flip the rectangle: its top edge in SVG space is height - ymax.
-        let top = self.height - bbox.ymax();
-        let height = bbox.height();
-        let id = format!("clip{}", self.clip_counter);
-        self.clip_counter += 1;
-        let _ = write!(
-            self.defs,
-            "<clipPath id=\"{id}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/></clipPath>",
-            fmt_f(left),
-            fmt_f(top),
-            fmt_f(width),
-            fmt_f(height)
+        let rect = format!(
+            "x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"",
+            fmt_f(bbox.xmin()),
+            fmt_f(self.height - bbox.ymax()),
+            fmt_f(bbox.width()),
+            fmt_f(bbox.height())
         );
-        Some(id)
+        let id = self
+            .clips
+            .iter()
+            .position(|r| *r == rect)
+            .unwrap_or_else(|| {
+                let id = self.clips.len();
+                let _ = write!(
+                    self.defs,
+                    "<clipPath id=\"clip{id}\"><rect {rect}/></clipPath>"
+                );
+                self.clips.push(rect);
+                id
+            });
+        format!(" clip-path=\"url(#clip{id})\"")
+    }
+
+    /// The `fill` and `stroke` attributes painting a path with `gc` and the
+    /// face color `fill`, each with a leading space.
+    fn paint_attrs(&self, gc: &GraphicsContext, fill: Option<Rgba>) -> String {
+        let mut attrs = String::new();
+        match fill {
+            Some(face) => {
+                let _ = write!(attrs, " fill=\"{}\"", rgb_func(face));
+                let opacity = effective_opacity(face, gc.alpha);
+                if opacity < 1.0 {
+                    let _ = write!(attrs, " fill-opacity=\"{}\"", fmt_f(opacity));
+                }
+            }
+            None => attrs.push_str(" fill=\"none\""),
+        }
+
+        let width = self.points_to_pixels(gc.line_width);
+        if let Some(stroke) = gc.stroke.filter(|_| width > 0.0) {
+            let _ = write!(attrs, " stroke=\"{}\"", rgb_func(stroke));
+            let opacity = effective_opacity(stroke, gc.alpha);
+            if opacity < 1.0 {
+                let _ = write!(attrs, " stroke-opacity=\"{}\"", fmt_f(opacity));
+            }
+            let _ = write!(attrs, " stroke-width=\"{}\"", fmt_f(width));
+            if let Some((offset, pattern)) = gc
+                .dashes
+                .as_ref()
+                .filter(|(_, pattern)| !pattern.is_empty())
+            {
+                let scale = self.dpi / 72.0;
+                let array: Vec<String> = pattern.iter().map(|d| fmt_f(d * scale)).collect();
+                let _ = write!(attrs, " stroke-dasharray=\"{}\"", array.join(","));
+                if *offset != 0.0 {
+                    let _ = write!(attrs, " stroke-dashoffset=\"{}\"", fmt_f(offset * scale));
+                }
+            }
+            let _ = write!(attrs, " stroke-linecap=\"{}\"", cap_keyword(gc.cap));
+            let _ = write!(attrs, " stroke-linejoin=\"{}\"", join_keyword(gc.join));
+        }
+        attrs
     }
 
     /// Close the SVG document and return the full markup as a string.
     ///
-    /// Any deferred `<clipPath>` definitions are emitted in a `<defs>` block
-    /// before the body, and the root `</svg>` tag is appended.
+    /// Any deferred `<clipPath>` and marker definitions are emitted in a
+    /// `<defs>` block before the body, and the root `</svg>` tag is appended.
     #[must_use]
     pub fn finish(self) -> String {
         let mut out = String::new();
@@ -285,54 +341,92 @@ impl Renderer for SvgRenderer {
             return;
         };
 
-        let mut attrs = String::new();
-        let _ = write!(attrs, "d=\"{d}\"");
+        let attrs = self.paint_attrs(gc, fill);
+        let clip = self.clip_attr(gc);
+        let _ = write!(self.body, "<path d=\"{d}\"{attrs}{clip}/>");
+    }
 
-        // Fill.
-        match fill {
-            Some(face) => {
-                let _ = write!(attrs, " fill=\"{}\"", rgb_func(face));
-                let opacity = effective_opacity(face, gc.alpha);
-                if opacity < 1.0 {
-                    let _ = write!(attrs, " fill-opacity=\"{}\"", fmt_f(opacity));
-                }
+    /// Write an unstroked marker once as a `<path>` def and place it at each
+    /// vertex with a `<use>`, as matplotlib's SVG backend does. A stroked
+    /// marker is written out at each vertex: renderers stroke a translated
+    /// `<use>` differently from the same outline at its final position, so
+    /// sharing it would change the rasterized image.
+    fn draw_markers(
+        &mut self,
+        gc: &GraphicsContext,
+        marker_path: &Path,
+        marker_transform: &Affine2D,
+        path: &Path,
+        transform: &Affine2D,
+        fill: Option<Rgba>,
+    ) {
+        if gc.stroke.is_some() && gc.line_width > 0.0 {
+            for &[vx, vy] in path.vertices() {
+                let (dx, dy) = transform.transform_point((vx, vy));
+                let placed = marker_transform.then(&Affine2D::from_translation(dx, dy));
+                self.draw_path(gc, marker_path, &placed, fill);
             }
-            None => attrs.push_str(" fill=\"none\""),
+            return;
         }
-
-        // Stroke.
-        let width = self.points_to_pixels(gc.line_width);
-        if let Some(stroke) = gc.stroke.filter(|_| width > 0.0) {
-            let _ = write!(attrs, " stroke=\"{}\"", rgb_func(stroke));
-            let opacity = effective_opacity(stroke, gc.alpha);
-            if opacity < 1.0 {
-                let _ = write!(attrs, " stroke-opacity=\"{}\"", fmt_f(opacity));
-            }
-            let _ = write!(attrs, " stroke-width=\"{}\"", fmt_f(width));
-            if let Some((offset, pattern)) = gc
-                .dashes
-                .as_ref()
-                .filter(|(_, pattern)| !pattern.is_empty())
-            {
-                let scale = self.dpi / 72.0;
-                let array: Vec<String> = pattern.iter().map(|d| fmt_f(d * scale)).collect();
-                let _ = write!(attrs, " stroke-dasharray=\"{}\"", array.join(","));
-                if *offset != 0.0 {
-                    let _ = write!(attrs, " stroke-dashoffset=\"{}\"", fmt_f(offset * scale));
+        // The marker in SVG space about its own origin: y flips, and each
+        // `<use>` translates it to its flipped vertex.
+        let local = marker_transform.then(&Affine2D::from_scale(1.0, -1.0));
+        let Some(d) = Self::build_path_data(marker_path, &local) else {
+            return;
+        };
+        let def = format!("d=\"{d}\"{}", self.paint_attrs(gc, fill));
+        let id = self
+            .markers
+            .iter()
+            .position(|m| *m == def)
+            .unwrap_or_else(|| {
+                let id = self.markers.len();
+                let _ = write!(self.defs, "<path id=\"m{id}\" {def}/>");
+                self.markers.push(def);
+                id
+            });
+        // A `<use>` translates its own clip along with the marker, so clipped
+        // markers sit in clipped `<g>`s. A group is composited as one layer,
+        // which matches compositing its markers one by one only where no two
+        // of them share a pixel: a marker whose ink could touch another's in
+        // the open group starts a new group. Groups are capped so the check
+        // stays linear.
+        const GROUP_CAP: usize = 64;
+        let reach = marker_path
+            .transformed(marker_transform)
+            .get_extents()
+            .padded(1.0);
+        let clip = self.clip_attr(gc);
+        let mut group: Vec<[f64; 4]> = Vec::new();
+        for &[vx, vy] in path.vertices() {
+            let (x, y) = transform.transform_point((vx, vy));
+            if !clip.is_empty() {
+                let ink = [
+                    x + reach.xmin(),
+                    y + reach.ymin(),
+                    x + reach.xmax(),
+                    y + reach.ymax(),
+                ];
+                let touches =
+                    |b: &[f64; 4]| b[0] < ink[2] && ink[0] < b[2] && b[1] < ink[3] && ink[1] < b[3];
+                if group.len() == GROUP_CAP || group.iter().any(touches) {
+                    self.body.push_str("</g>");
+                    group.clear();
                 }
+                if group.is_empty() {
+                    let _ = write!(self.body, "<g{clip}>");
+                }
+                group.push(ink);
             }
-            let _ = write!(attrs, " stroke-linecap=\"{}\"", cap_keyword(gc.cap));
-            let _ = write!(attrs, " stroke-linejoin=\"{}\"", join_keyword(gc.join));
-        }
-
-        // Wrap in a clip group when a clip rectangle is set.
-        if let Some(clip_id) = self.push_clip_def(gc) {
             let _ = write!(
                 self.body,
-                "<g clip-path=\"url(#{clip_id})\"><path {attrs}/></g>"
+                "<use href=\"#m{id}\" x=\"{}\" y=\"{}\"/>",
+                fmt_f(x),
+                fmt_f(self.height - y)
             );
-        } else {
-            let _ = write!(self.body, "<path {attrs}/>");
+        }
+        if !group.is_empty() {
+            self.body.push_str("</g>");
         }
     }
 
@@ -383,14 +477,8 @@ impl Renderer for SvgRenderer {
             }
         }
 
-        if let Some(clip_id) = self.push_clip_def(gc) {
-            let _ = write!(
-                self.body,
-                "<g clip-path=\"url(#{clip_id})\"><image {attrs}/></g>"
-            );
-        } else {
-            let _ = write!(self.body, "<image {attrs}/>");
-        }
+        let clip = self.clip_attr(gc);
+        let _ = write!(self.body, "<image {attrs}{clip}/>");
     }
 
     // draw_text uses the trait default for now: higher layers draw text as
@@ -529,7 +617,7 @@ mod tests {
     }
 
     #[test]
-    fn clip_rect_wraps_in_group_with_def() {
+    fn clip_rect_references_a_def() {
         let mut r = SvgRenderer::new(100.0, 100.0, 72.0);
         let gc = GraphicsContext {
             clip_rect: Some(Bbox::from_extents(40.0, 40.0, 60.0, 60.0)),
@@ -548,12 +636,117 @@ mod tests {
         );
         assert!(
             svg.contains("clip-path=\"url(#clip0)\""),
-            "missing clip group: {svg}"
+            "missing clip reference: {svg}"
         );
         assert!(
             svg.contains("<defs>"),
             "clip def must live in <defs>: {svg}"
         );
+    }
+
+    #[test]
+    fn identical_clip_rects_share_one_def() {
+        let mut r = SvgRenderer::new(100.0, 100.0, 72.0);
+        let clip = |x0: f64| GraphicsContext {
+            clip_rect: Some(Bbox::from_extents(x0, 10.0, 90.0, 90.0)),
+            ..GraphicsContext::new()
+        };
+        for gc in [clip(10.0), clip(10.0), clip(20.0), clip(10.0)] {
+            r.draw_path(
+                &gc,
+                &Path::unit_rectangle(),
+                &Affine2D::from_scale(50.0, 50.0),
+                Some(Rgba::RED),
+            );
+        }
+        let svg = r.finish();
+        assert_eq!(svg.matches("<clipPath ").count(), 2, "{svg}");
+        assert_eq!(svg.matches("url(#clip0)").count(), 3, "{svg}");
+        assert_eq!(svg.matches("url(#clip1)").count(), 1, "{svg}");
+    }
+
+    /// Translucent scattered markers, some overlapping and some crossing the
+    /// clip edge, edged with `stroke` if given.
+    fn draw_scatter(r: &mut dyn Renderer, stroke: Option<Rgba>) {
+        let gc = GraphicsContext {
+            clip_rect: Some(Bbox::from_extents(10.5, 12.25, 110.0, 70.0)),
+            line_width: 1.5,
+            stroke,
+            ..GraphicsContext::new()
+        };
+        let points: Vec<[f64; 2]> = (0..40)
+            .map(|i| {
+                let t = f64::from(i);
+                [
+                    8.0 + t * 2.7 + (t * 1.3).sin() * 9.0,
+                    40.0 + (t * 0.7).cos() * 33.0,
+                ]
+            })
+            .collect();
+        r.draw_markers(
+            &gc,
+            &Path::unit_circle(),
+            &Affine2D::from_scale(4.5, 4.5),
+            &Path::from_polyline(&points),
+            &Affine2D::identity(),
+            Some(Rgba::new(0.1, 0.4, 0.9, 0.6)),
+        );
+    }
+
+    /// Draws as [`SvgRenderer`] did before markers became `<use>`s: the
+    /// trait's per-point `draw_path` fallback.
+    struct PerPoint(SvgRenderer);
+
+    impl Renderer for PerPoint {
+        fn draw_path(
+            &mut self,
+            gc: &GraphicsContext,
+            path: &Path,
+            transform: &Affine2D,
+            fill: Option<Rgba>,
+        ) {
+            self.0.draw_path(gc, path, transform, fill);
+        }
+
+        fn canvas_size(&self) -> (f64, f64) {
+            self.0.canvas_size()
+        }
+    }
+
+    #[test]
+    fn unstroked_markers_are_one_def_placed_by_use() {
+        let mut r = SvgRenderer::new(120.0, 80.0, 72.0);
+        draw_scatter(&mut r, None);
+        draw_scatter(&mut r, None);
+        let svg = r.finish();
+        assert_eq!(svg.matches("<path id=\"m0\"").count(), 1, "{svg}");
+        assert!(!svg.contains("id=\"m1\""), "same marker, same def: {svg}");
+        assert_eq!(svg.matches("<use href=\"#m0\"").count(), 80, "{svg}");
+        assert_eq!(svg.matches("<clipPath ").count(), 1, "{svg}");
+    }
+
+    #[test]
+    fn stroked_markers_are_written_per_point() {
+        let mut r = SvgRenderer::new(120.0, 80.0, 72.0);
+        draw_scatter(&mut r, Some(Rgba::BLACK));
+        let svg = r.finish();
+        assert!(!svg.contains("<use "), "{svg}");
+        assert_eq!(svg.matches("<path ").count(), 40, "{svg}");
+    }
+
+    #[test]
+    fn markers_rasterize_exactly_as_per_point_paths() {
+        for stroke in [None, Some(Rgba::new(0.0, 0.0, 0.0, 0.7))] {
+            let mut ours = SvgRenderer::new(120.0, 80.0, 72.0);
+            draw_scatter(&mut ours, stroke);
+            let mut paths = PerPoint(SvgRenderer::new(120.0, 80.0, 72.0));
+            draw_scatter(&mut paths, stroke);
+            let (a, b) = (
+                render_svg(&ours.finish(), 120, 80),
+                render_svg(&paths.0.finish(), 120, 80),
+            );
+            assert!(a.data() == b.data(), "stroke {stroke:?}: rasters differ");
+        }
     }
 
     #[test]
@@ -611,7 +804,7 @@ mod tests {
             "missing clipPath: {svg}"
         );
         assert!(
-            svg.contains("<g clip-path=\"url(#clip0)\"><image "),
+            svg.contains("<image ") && svg.contains("clip-path=\"url(#clip0)\"/>"),
             "image should be clipped: {svg}"
         );
     }

@@ -209,6 +209,18 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   `.cmap("gray")` are unchanged.
 
 ### Output changes
+- **SVG output is much smaller.** Elements clipped to the same rectangle share one
+  `<clipPath>` def, and each element references it with its own `clip-path` attribute
+  instead of being wrapped in a `<g>`. An unstroked marker (a scatter point, a line
+  marker) is written once as a `<path>` def and placed at each point with a `<use>`, as
+  matplotlib's SVG backend does; stroked markers are still written out at each point.
+  Every SVG's bytes change, so **byte-for-byte SVG goldens diff on upgrade** even where
+  the picture does not: 2AMLogic/lindhard's `backscatter-eta.svg` golden goes from
+  373 KB to 337 KB, pixel-identical when rasterised with resvg, and the gaker/celestial
+  GSCAT plot from 270 KB to 85 KB, also pixel-identical. A `<use>` translation can round
+  differently from the absolute coordinate it replaces, so an occasional marker-edge
+  pixel moves by one antialiasing step: one pixel across eleven celestial figures,
+  about 100 of 1.9 million in a 12 000-point scatter.
 - **The grid draws where matplotlib draws it** (`axes.axisbelow: "line"`): above bars,
   fills and scatters, below lines, where it used to draw over every artist. Any figure
   with `grid(true)` (or a minor grid) renders differently. In PNG, grid pixels now
