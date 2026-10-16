@@ -508,6 +508,43 @@ impl Axis {
         data_lim: (f64, f64),
         font: &FontSource,
     ) {
+        self.draw_grid_lines(renderer, axes_bbox, data_lim);
+        self.draw_decorations(renderer, axes_bbox, data_lim, font);
+    }
+
+    /// The minor and major grid lines, when enabled: the part of
+    /// [`draw`](Axis::draw) an axes interleaves with its artists by zorder.
+    pub(crate) fn draw_grid_lines(
+        &self,
+        renderer: &mut dyn Renderer,
+        axes_bbox: &Bbox,
+        data_lim: (f64, f64),
+    ) {
+        if self.minor_grid {
+            let style = (
+                self.minor_grid_color,
+                self.minor_grid_linewidth,
+                self.minor_grid_alpha,
+            );
+            let minor_ticks = self.visible_minor_ticks(data_lim);
+            self.draw_grid(renderer, axes_bbox, &minor_ticks, data_lim, style);
+        }
+        if self.grid {
+            let style = (self.grid_color, self.grid_linewidth, self.grid_alpha);
+            let (ticks, _) = self.visible_ticks(data_lim);
+            self.draw_grid(renderer, axes_bbox, &ticks, data_lim, style);
+        }
+    }
+
+    /// Everything of [`draw`](Axis::draw) but the grid: spine, ticks, tick
+    /// labels and the axis label.
+    pub(crate) fn draw_decorations(
+        &self,
+        renderer: &mut dyn Renderer,
+        axes_bbox: &Bbox,
+        data_lim: (f64, f64),
+        font: &FontSource,
+    ) {
         let (vmin, vmax) = data_lim;
         let (ticks, labels) = self.visible_ticks(data_lim);
         let minor_ticks = self.visible_minor_ticks(data_lim);
@@ -520,19 +557,6 @@ impl Axis {
         let minor_gc = GraphicsContext::new()
             .with_stroke(self.color)
             .with_line_width(self.minor_tick_width);
-
-        if self.minor_grid {
-            let style = (
-                self.minor_grid_color,
-                self.minor_grid_linewidth,
-                self.minor_grid_alpha,
-            );
-            self.draw_grid(renderer, axes_bbox, &minor_ticks, (vmin, vmax), style);
-        }
-        if self.grid {
-            let style = (self.grid_color, self.grid_linewidth, self.grid_alpha);
-            self.draw_grid(renderer, axes_bbox, &ticks, (vmin, vmax), style);
-        }
 
         // Decoration geometry (ticks, label sizes, pads) is authored in px at
         // the default 100 DPI and scales with the renderer's DPI.

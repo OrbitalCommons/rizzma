@@ -27,6 +27,33 @@ pub enum TickDirection {
     InOut,
 }
 
+/// Where an axes' grid draws among its artists: matplotlib's
+/// `axes.axisbelow`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AxisBelow {
+    /// Beneath every artist (matplotlib's `True`, grid zorder 0.5).
+    Below,
+    /// Above patches, fills and scatters, below lines and their markers
+    /// (matplotlib's default `"line"`, grid zorder 1.5).
+    #[default]
+    Line,
+    /// Above every artist (matplotlib's `False`, grid zorder 2.5).
+    Above,
+}
+
+impl AxisBelow {
+    /// The grid's zorder: matplotlib's 0.5, 1.5 or 2.5.
+    #[must_use]
+    pub fn zorder(self) -> f64 {
+        match self {
+            AxisBelow::Below => 0.5,
+            AxisBelow::Line => 1.5,
+            AxisBelow::Above => 2.5,
+        }
+    }
+}
+
 /// Build the default ten-color property cycle (matplotlib's `tab10`).
 ///
 /// Resolves the hex strings in [`DEFAULT_COLOR_CYCLE`] into [`Rgba`] values.
@@ -66,6 +93,10 @@ pub struct RcParams {
     pub axes_linewidth: f64,
     /// Whether to show the grid by default (`axes.grid`).
     pub axes_grid: bool,
+    /// Where the grid draws among the artists (`axes.axisbelow`): by default
+    /// above fills and scatters, below lines and markers.
+    #[serde(default, skip_serializing_if = "is_default_axisbelow")]
+    pub axes_axisbelow: AxisBelow,
     /// Font size of the axes title in points (`axes.titlesize`).
     pub axes_titlesize: f64,
     /// Padding above the axes title in points (`axes.titlepad`).
@@ -151,6 +182,10 @@ pub struct RcParams {
     pub path_simplify_threshold: f64,
 }
 
+fn is_default_axisbelow(axisbelow: &AxisBelow) -> bool {
+    *axisbelow == AxisBelow::default()
+}
+
 fn default_path_simplify() -> bool {
     true
 }
@@ -180,6 +215,7 @@ impl Default for RcParams {
             axes_edgecolor: Rgba::BLACK,
             axes_linewidth: 0.8,
             axes_grid: false,
+            axes_axisbelow: AxisBelow::Line,
             axes_titlesize: 12.0,
             axes_titlepad: 6.0,
             axes_labelsize: 10.0,
@@ -284,6 +320,7 @@ impl RcParams {
         merge_field!(axes_edgecolor);
         merge_field!(axes_linewidth);
         merge_field!(axes_grid);
+        merge_field!(axes_axisbelow);
         merge_field!(axes_titlesize);
         merge_field!(axes_titlepad);
         merge_field!(axes_labelsize);

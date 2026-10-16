@@ -24,7 +24,7 @@ use crate::axis::ticker::{
     SymlogFormatterMathtext, SymlogLocator,
 };
 use crate::core::color::{ColorScale, DEFAULT_COLOR_CYCLE, Rgba};
-use crate::core::rcparams::RcParams;
+use crate::core::rcparams::{AxisBelow, RcParams};
 use crate::core::{Affine2D, Bbox, Path};
 use crate::render::{ClippedRenderer, GraphicsContext, Renderer};
 use crate::text::FontSource;
@@ -469,6 +469,8 @@ pub struct Axes {
     /// The all-sky projection data draws through, if any. See
     /// [`Axes::set_sky_projection`].
     pub(crate) sky: Option<SkyProjection>,
+    /// Where the grid draws among the artists (see [`Axes::set_axisbelow`]).
+    pub(crate) axisbelow: AxisBelow,
     /// Whether the frame stroke and the x/y axis spines (ticks, tick labels)
     /// are drawn. When `false`, only the background, artists, and title appear.
     /// See [`Axes::set_axis_off`].
@@ -546,10 +548,6 @@ enum DrawableArtist<'a> {
 /// simplifies from 128; rizzma waits until simplification pays for itself,
 /// so ordinary lines render as they always have.
 const SIMPLIFY_MIN_VERTICES: usize = 1000;
-
-/// Where a sky map's graticule draws among the artists: matplotlib's grid
-/// zorder (`axes.axisbelow: "line"`).
-const SKY_GRID_ZORDER: f64 = 1.5;
 
 /// The simplification threshold `rc` asks for: its `path_simplify_threshold`
 /// when `path_simplify` is on and the threshold is positive.
@@ -671,6 +669,7 @@ impl Axes {
             frame: true,
             aspect_equal: false,
             sky: None,
+            axisbelow: AxisBelow::Line,
             axis_visible: true,
             scope: false,
             prop_cycle_index: 0,
@@ -1386,9 +1385,35 @@ impl Axes {
     }
 
     /// Enable or disable grid lines on both axes (matplotlib's `ax.grid(...)`).
+    ///
+    /// The grid draws at matplotlib's place among the artists, set with
+    /// [`set_axisbelow`](Axes::set_axisbelow): by default above bars, fills
+    /// and scatters, below lines and their markers.
     pub fn grid(&mut self, on: bool) -> &mut Self {
         self.xaxis.set_grid(on);
         self.yaxis.set_grid(on);
+        self
+    }
+
+    /// Where the grid draws among the artists: matplotlib's
+    /// `ax.set_axisbelow`, seeded from
+    /// [`RcParams::axes_axisbelow`](crate::core::RcParams::axes_axisbelow).
+    /// [`AxisBelow::Below`] puts it beneath everything, the default
+    /// [`AxisBelow::Line`] above patches and scatters but below lines, and
+    /// [`AxisBelow::Above`] over every artist.
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    /// use rizzma::core::AxisBelow;
+    ///
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_subplot(1, 1, 1);
+    /// ax.bar(&[1.0, 2.0, 3.0], &[3.0, 1.0, 2.0]);
+    /// ax.grid(true).set_axisbelow(AxisBelow::Below);
+    /// assert!(!fig.encode_png().unwrap().is_empty());
+    /// ```
+    pub fn set_axisbelow(&mut self, axisbelow: AxisBelow) -> &mut Self {
+        self.axisbelow = axisbelow;
         self
     }
 
@@ -1485,6 +1510,7 @@ impl Axes {
     /// [`Figure`]: crate::figure::Figure
     pub(crate) fn apply_rcparams(&mut self, rc: &RcParams) {
         self.path_simplify = simplify_threshold(rc);
+        self.axisbelow = rc.axes_axisbelow;
         self.facecolor = rc.axes_facecolor;
         self.edgecolor = rc.axes_edgecolor;
         self.linewidth = rc.axes_linewidth;
@@ -2457,6 +2483,16 @@ impl Axes {
                 }
             }
 
+            // The grid takes matplotlib's place among the artists
+            // (`axes.axisbelow`): zorder 0.5 just above images, 1.5 among
+            // the artists below lines, 2.5 over them all.
+            let grid_zorder = self.axisbelow.zorder();
+            let mut grid_pending = true;
+            if grid_zorder < 1.0 {
+                self.draw_grid_lines(clipped, &axes_px, &td, xlim, ylim);
+                grid_pending = false;
+            }
+
             // 3a'. Draw colormapped quad meshes (pcolormesh) beneath the other
             // artists, mapping their data-space corners through the scales
             // and the data transform.
@@ -2505,20 +2541,17 @@ impl Axes {
                     .partial_cmp(&artists[b].zorder())
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
-            // A sky map's graticule takes its place among them at
-            // matplotlib's grid zorder of 1.5: above fills and scatters,
-            // below lines.
-            let mut grid = self.sky;
             for i in order {
-                if artists[i].zorder() >= SKY_GRID_ZORDER {
-                    if let Some(sky) = grid.take() {
-                        self.draw_sky_grid(clipped, sky, &td);
-                    }
+                if grid_pending && artists[i].zorder() >= grid_zorder {
+                    self.draw_grid_lines(clipped, &axes_px, &td, xlim, ylim);
+                    grid_pending = false;
                 }
                 artists[i].draw_scaled(clipped, &td, &mapper, self.path_simplify);
             }
-            if let Some(sky) = grid {
-                self.draw_sky_grid(clipped, sky, &td);
+            // Reference lines sit at zorder 2: a grid below that goes first.
+            if grid_pending && grid_zorder < 2.0 {
+                self.draw_grid_lines(clipped, &axes_px, &td, xlim, ylim);
+                grid_pending = false;
             }
 
             // 4a. Draw full-span reference lines (axhline/axvline) above the
@@ -2533,6 +2566,9 @@ impl Axes {
                     .with_stroke(span.color)
                     .with_line_width(span.linewidth);
                 clipped.draw_path(&gc, &mapper.map_path(&path), &td, None);
+            }
+            if grid_pending {
+                self.draw_grid_lines(clipped, &axes_px, &td, xlim, ylim);
             }
         }
 
@@ -2563,9 +2599,9 @@ impl Axes {
         // 6. Draw the axes spines (suppressed when the axis is turned off).
         if self.axis_visible && self.sky.is_none() {
             if !self.xaxis_hidden {
-                self.xaxis.draw(renderer, &axes_px, xlim, font);
+                self.xaxis.draw_decorations(renderer, &axes_px, xlim, font);
             }
-            self.yaxis.draw(renderer, &axes_px, ylim, font);
+            self.yaxis.draw_decorations(renderer, &axes_px, ylim, font);
             // 6'. The secondary (top) x axis: the same pixel span labeled in
             // converted units.
             if let Some(sec) = &self.secondary_x {
@@ -2646,6 +2682,33 @@ impl Axes {
 }
 
 impl Axes {
+    /// The grid, wherever [`draw_with`](Axes::draw_with) places it among the
+    /// artists: a sky map's graticule (clipped to the axes), or the x and y
+    /// axes' grid lines (none when the axis is off; the x grid is hidden with
+    /// its axis). Those lie inside the axes already, so they draw unclipped
+    /// and an SVG carries no clip per line.
+    fn draw_grid_lines(
+        &self,
+        clipped: &mut ClippedRenderer<'_>,
+        axes_px: &Bbox,
+        td: &Affine2D,
+        xlim: (f64, f64),
+        ylim: (f64, f64),
+    ) {
+        if let Some(sky) = self.sky {
+            self.draw_sky_grid(clipped, sky, td);
+            return;
+        }
+        if !self.axis_visible {
+            return;
+        }
+        let renderer = clipped.unclipped();
+        if !self.xaxis_hidden {
+            self.xaxis.draw_grid_lines(renderer, axes_px, xlim);
+        }
+        self.yaxis.draw_grid_lines(renderer, axes_px, ylim);
+    }
+
     /// Stroke the fixed-division oscilloscope graticule inside `axes_px`,
     /// with the two center lines brighter (the scope's crosshair).
     fn draw_scope_graticule(&self, renderer: &mut dyn Renderer, axes_px: &Bbox) {
@@ -3121,6 +3184,7 @@ impl Axes {
             frame: self.frame,
             aspect_equal: self.aspect_equal,
             sky: self.sky,
+            axisbelow: self.axisbelow,
             axis_visible: self.axis_visible,
             scope: self.scope,
             span_lines: self.span_lines.clone(),
@@ -3206,6 +3270,7 @@ impl Axes {
             frame: spec.frame,
             aspect_equal: spec.aspect_equal,
             sky: spec.sky,
+            axisbelow: spec.axisbelow,
             axis_visible: spec.axis_visible,
             scope: spec.scope,
             prop_cycle_index: spec.prop_cycle_index,

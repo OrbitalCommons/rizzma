@@ -68,6 +68,8 @@ struct RcHead {
     path_simplify: Option<serde::de::IgnoredAny>,
     #[serde(default)]
     path_simplify_threshold: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    axes_axisbelow: Option<serde::de::IgnoredAny>,
 }
 
 /// Presence of an axes' title style, text size, minor-tick settings, artist
@@ -92,6 +94,8 @@ struct AxesHead {
     collections: Vec<ScaledHead>,
     #[serde(default)]
     sky: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    axisbelow: Option<serde::de::IgnoredAny>,
     #[serde(default)]
     poly_collections: Vec<ScaledHead>,
     xaxis: AxisHead,
@@ -341,6 +345,15 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
                 .any(|axes| !axes.poly_collections.is_empty()),
         ),
         (15, header.figure.uses_embedded_colormaps()),
+        (
+            16,
+            header.figure.rc.axes_axisbelow.is_some()
+                || header
+                    .figure
+                    .axes
+                    .iter()
+                    .any(|axes| axes.axisbelow.is_some()),
+        ),
     ]);
     if header.schema < required {
         return Err(PortableError::Malformed(format!(
