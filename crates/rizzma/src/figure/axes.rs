@@ -602,6 +602,8 @@ impl DrawableArtist<'_> {
                     }
                     None => line.draw_path(renderer, path.as_ref(), transform),
                 }
+                // Markers sit at every data point, never simplified away.
+                line.draw_markers_mapped(renderer, transform, &|x, y| mapper.map_point(x, y));
             }
             DrawableArtist::Patch(patch) => {
                 let path = mapper.map_path_cow(patch.path());

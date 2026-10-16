@@ -85,6 +85,8 @@ struct AxesHead {
     #[serde(default)]
     legend: Vec<LegendHead>,
     #[serde(default)]
+    lines: Vec<LineHead>,
+    #[serde(default)]
     images: Vec<ImageHead>,
     #[serde(default)]
     colorbar: Option<serde::de::IgnoredAny>,
@@ -155,11 +157,20 @@ impl NormHead {
     }
 }
 
+/// Presence of a line's schema-17 markers.
+#[derive(Debug, Deserialize)]
+struct LineHead {
+    #[serde(default)]
+    marker: Option<serde::de::IgnoredAny>,
+}
+
 /// Presence of a legend row's scatter marker sample.
 #[derive(Debug, Deserialize)]
 struct LegendHead {
     #[serde(default)]
     marker: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    line_marker: Option<serde::de::IgnoredAny>,
 }
 
 /// Presence of an axis' minor-tick settings.
@@ -353,6 +364,13 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
                     .axes
                     .iter()
                     .any(|axes| axes.axisbelow.is_some()),
+        ),
+        (
+            17,
+            header.figure.axes.iter().any(|axes| {
+                axes.lines.iter().any(|l| l.marker.is_some())
+                    || axes.legend.iter().any(|e| e.line_marker.is_some())
+            }),
         ),
     ]);
     if header.schema < required {

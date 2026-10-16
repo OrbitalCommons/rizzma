@@ -161,6 +161,15 @@ pub(crate) fn uses_path_simplify(figure: &FigureSpec) -> bool {
         || figure.rc.path_simplify_threshold != default.path_simplify_threshold
 }
 
+/// Whether any line, or legend sample, draws schema-17 markers.
+#[cfg(feature = "portable")]
+pub(crate) fn uses_line_markers(figure: &FigureSpec) -> bool {
+    figure.axes.iter().any(|axes| {
+        axes.lines.iter().any(|l| l.marker.is_some())
+            || axes.legend.iter().any(|e| e.line_marker.is_some())
+    })
+}
+
 #[cfg(feature = "portable")]
 fn is_line_axisbelow(axisbelow: &crate::core::rcparams::AxisBelow) -> bool {
     *axisbelow == crate::core::rcparams::AxisBelow::Line
@@ -317,6 +326,10 @@ pub(crate) struct LegendEntrySpec {
     /// introduced it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) marker: Option<CollectionSpec>,
+    /// The marker shown in the middle of a marked line's sample. Absent
+    /// before schema 17, which introduced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) line_marker: Option<crate::artist::line::LineMarker>,
 }
 
 /// Wire mirror of [`Axis`](crate::axis::axis::Axis), with the three trait
@@ -379,6 +392,10 @@ pub(crate) struct LineSpec {
     pub(crate) zorder: f64,
     /// Per-artist legend label, collected by `Axes::legend_auto`.
     pub(crate) label: Option<String>,
+    /// The markers at the data points, present only when the line has them.
+    /// Absent before schema 17, which introduced them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) marker: Option<crate::artist::line::LineMarker>,
 }
 
 /// Wire mirror of [`Patch`](crate::artist::Patch).

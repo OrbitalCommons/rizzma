@@ -10,6 +10,14 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 ## [Unreleased]
 
 ### Added
+- **Markers on lines.** `Line2D::set_marker(code)` / `with_marker` draws a marker at
+  each data point, matplotlib's `plot(x, y, "o-")`, with `set_markersize` (diameter in
+  points, default 6), `set_markerfacecolor` / `set_markeredgecolor` (the line color by
+  default), `set_markeredgewidth` and `set_markevery`. Markers are placed as
+  matplotlib's Agg `draw_markers` places line markers, so each lands where
+  matplotlib's does (ink centroids within 0.02 px, identical extents for `o`, `s`,
+  `x`). They draw through `draw_markers`, so long series use the sprite path, and a
+  legend sample shows one marker on its line.
 - **`Collection` `&mut` setters.** `set_marker`, `set_sizes`, `set_facecolors`,
   `set_edgecolors`, `set_linewidth`, `set_zorder` and `set_visible` restyle the
   collection `Axes::scatter` returns in place, without cloning its offsets. The
@@ -174,6 +182,8 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 - Portable figures are schema 16 when the grid placement is not the default (an
   `axes_axisbelow` rc setting or an axes' `axisbelow`, written only then); schema 1–15
   artifacts still load.
+- Portable figures are schema 17 when a line, or its legend sample, has markers
+  (written only then); schema 1–16 artifacts still load.
 - `ColorScale::cmap` is a `CmapSpec` rather than a `String`, and
   `ColorMapping::cmap_name()` is now `ColorMapping::cmap()`, returning the `CmapSpec`.
   A `CmapSpec` converts from a name, so `ColorMapping::new("viridis")` and
@@ -197,7 +207,7 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":16`.
+- Every `.riz` artifact now declares `"schema":17`.
 - **A sky map's graticule draws at matplotlib's grid zorder (1.5)**: above
   fills, meshes and scatters, below lines, where it drew beneath every artist.
 - **Mesh cells fill without antialiasing**, as matplotlib's `pcolormesh` does

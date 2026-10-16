@@ -17,7 +17,7 @@
 
 mod collection;
 mod image;
-mod line;
+pub(crate) mod line;
 mod marker;
 mod patch;
 mod polycollection;
