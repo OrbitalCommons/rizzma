@@ -423,6 +423,8 @@ pub struct Axes {
     /// Colormapped polygon collections, drawn in zorder with the lines,
     /// patches and collections.
     pub(crate) poly_collections: Vec<PolyCollection>,
+    /// Vector fields from [`quiver_with`](Axes::quiver_with), laid out when drawn.
+    pub(crate) quivers: Vec<crate::figure::Quiver>,
     /// Label candidates for the most recently generated line contour set.
     pub(crate) contour_label_candidates:
         Vec<crate::figure::plotting_contour::ContourLabelCandidate>,
@@ -542,6 +544,10 @@ enum DrawableArtist<'a> {
     Patch(&'a Patch),
     Collection(&'a Collection),
     Polys(&'a PolyCollection),
+    Quiver(
+        &'a crate::figure::Quiver,
+        &'a crate::figure::plotting_quiver::QuiverFrame<'a>,
+    ),
 }
 
 /// Lines with fewer vertices are drawn exactly as given. matplotlib
@@ -562,6 +568,7 @@ impl DrawableArtist<'_> {
             DrawableArtist::Patch(patch) => patch.zorder(),
             DrawableArtist::Collection(collection) => collection.zorder(),
             DrawableArtist::Polys(polys) => polys.zorder(),
+            DrawableArtist::Quiver(quiver, _) => quiver.zorder,
         }
     }
 
@@ -571,6 +578,7 @@ impl DrawableArtist<'_> {
             DrawableArtist::Patch(patch) => patch.visible(),
             DrawableArtist::Collection(collection) => collection.visible(),
             DrawableArtist::Polys(polys) => polys.visible(),
+            DrawableArtist::Quiver(quiver, _) => quiver.visible,
         }
     }
 
@@ -616,6 +624,7 @@ impl DrawableArtist<'_> {
             DrawableArtist::Polys(polys) => {
                 polys.draw_mapped(renderer, transform, |path| mapper.map_path_cow(path));
             }
+            DrawableArtist::Quiver(quiver, frame) => quiver.draw(renderer, frame),
         }
     }
 }
@@ -655,6 +664,7 @@ impl Axes {
             images: Vec::new(),
             meshes: Vec::new(),
             poly_collections: Vec::new(),
+            quivers: Vec::new(),
             contour_label_candidates: Vec::new(),
             extra_data_bbox: None,
             xaxis: Axis::new(AxisSide::Bottom),
@@ -2101,6 +2111,10 @@ impl Axes {
         let collection_extents = self.collections.iter().filter_map(Artist::data_extents);
         let image_extents = self.images.iter().filter_map(Artist::data_extents);
         let mesh_extents = self.meshes.iter().filter_map(Artist::data_extents);
+        let quiver_extents = self
+            .quivers
+            .iter()
+            .filter_map(crate::figure::Quiver::data_extents);
         let poly_extents = self
             .poly_collections
             .iter()
@@ -2111,6 +2125,7 @@ impl Axes {
             .chain(image_extents)
             .chain(mesh_extents)
             .chain(poly_extents)
+            .chain(quiver_extents)
             .chain(self.extra_data_bbox)
         {
             acc = Some(match acc {
@@ -2541,6 +2556,28 @@ impl Axes {
                 );
             }
 
+            // What a quiver lays its arrows out against: matplotlib's axes
+            // bbox, viewLim, dataLim, DPI and data transform.
+            let to_display = |x: f64, y: f64| {
+                let [sx, sy] = mapper.map_point(x, y);
+                let (px, py) = td.transform_point((sx, sy));
+                [px, py]
+            };
+            let quiver_frame = crate::figure::plotting_quiver::QuiverFrame {
+                axes_px,
+                xlim,
+                ylim,
+                data_extent: self.data_limits().map_or(0.0, |b| {
+                    b.xmin()
+                        .abs()
+                        .max(b.xmax().abs())
+                        .max(b.ymin().abs())
+                        .max(b.ymax().abs())
+                }),
+                dpi: clipped.points_to_pixels(72.0),
+                to_display: &to_display,
+            };
+
             // 4. Draw artists in ascending zorder.
             let mut artists: Vec<DrawableArtist<'_>> =
                 Vec::with_capacity(self.lines.len() + self.patches.len() + self.collections.len());
@@ -2548,6 +2585,11 @@ impl Axes {
             artists.extend(self.patches.iter().map(DrawableArtist::Patch));
             artists.extend(self.collections.iter().map(DrawableArtist::Collection));
             artists.extend(self.poly_collections.iter().map(DrawableArtist::Polys));
+            artists.extend(
+                self.quivers
+                    .iter()
+                    .map(|q| DrawableArtist::Quiver(q, &quiver_frame)),
+            );
             let mut order: Vec<usize> = (0..artists.len())
                 .filter(|&i| artists[i].visible())
                 .collect();
@@ -3181,6 +3223,7 @@ impl Axes {
                 .iter()
                 .map(|p| p.to_portable(bank))
                 .collect(),
+            quivers: self.quivers.iter().map(|q| q.to_portable(bank)).collect(),
             extra_data_bbox: self.extra_data_bbox,
             xaxis: self.xaxis.to_portable()?,
             yaxis: self.yaxis.to_portable()?,
@@ -3266,6 +3309,11 @@ impl Axes {
                 .poly_collections
                 .iter()
                 .map(|p| PolyCollection::from_portable(p, reader))
+                .collect::<Result<_, _>>()?,
+            quivers: spec
+                .quivers
+                .iter()
+                .map(|q| crate::figure::Quiver::from_portable(q, reader))
                 .collect::<Result<_, _>>()?,
             contour_label_candidates: spec.contour_label_candidates.clone(),
             extra_data_bbox: spec.extra_data_bbox,

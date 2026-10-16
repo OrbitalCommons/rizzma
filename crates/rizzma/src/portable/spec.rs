@@ -272,6 +272,9 @@ pub(crate) struct AxesSpec {
     /// introduced them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) poly_collections: Vec<PolyCollectionSpec>,
+    /// The axes' vector fields. Absent before schema 18, which introduced them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) quivers: Vec<QuiverSpec>,
     pub(crate) extra_data_bbox: Option<Bbox>,
     pub(crate) xaxis: AxisSpec,
     pub(crate) yaxis: AxisSpec,
@@ -558,6 +561,20 @@ pub(crate) struct QuadMeshSpec {
     pub(crate) over: Option<Rgba>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) under: Option<Rgba>,
+}
+
+/// Wire mirror of [`Quiver`](crate::figure::Quiver).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg(feature = "portable")]
+pub(crate) struct QuiverSpec {
+    pub(crate) x: ArrF64,
+    pub(crate) y: ArrF64,
+    pub(crate) u: ArrF64,
+    pub(crate) v: ArrF64,
+    pub(crate) options: crate::figure::QuiverOptions,
+    pub(crate) zorder: f64,
+    pub(crate) visible: bool,
 }
 
 /// Wire mirror of [`PolyCollection`](crate::artist::PolyCollection).

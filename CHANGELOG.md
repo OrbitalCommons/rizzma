@@ -10,6 +10,15 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 ## [Unreleased]
 
 ### Added
+- **Quivers with options.** `Axes::quiver_with(x, y, u, v, &QuiverOptions)` ports
+  matplotlib's `Quiver`: `scale` (auto when unset), `scale_units`, `angles` (`Uv`,
+  `Xy`), `units` (`Width`, `Height`, `Dots`, `Inches`, `X`, `Y`, `Xy`), `width`,
+  `headwidth`, `headlength`, `headaxislength`, `minshaft`, `minlength`, `pivot`
+  (`Tail`, `Middle`, `Tip`) and `color`. Arrows are laid out in display space at draw
+  time, so heads keep their shape on unequal axes, and with `scale_units(Xy)`,
+  `angles(Xy)` and `scale(1.0)` an arrow `(u, v)` spans exactly `(u, v)` in data
+  units. Arrow outlines match matplotlib 3.11 to 1e-6 px. It returns a `Quiver` with
+  `set_zorder` / `set_visible`. `quiver` is unchanged and renders as before.
 - **Histograms with options.** `Axes::hist_with(data, &HistOptions)` takes matplotlib's
   `bins` (a count or explicit edges), `range`, `weights`, `density`, `cumulative`,
   `histtype` (`Bar`, `Step`, `StepFilled`), `color`, `edgecolor`, `alpha` and `label`, and
@@ -192,6 +201,8 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   artifacts still load.
 - Portable figures are schema 17 when a line, or its legend sample, has markers
   (written only then); schema 1–16 artifacts still load.
+- Portable figures are schema 18 when an axes holds a `quiver_with` field (written
+  only then); schema 1–17 artifacts still load.
 - `ColorScale::cmap` is a `CmapSpec` rather than a `String`, and
   `ColorMapping::cmap_name()` is now `ColorMapping::cmap()`, returning the `CmapSpec`.
   A `CmapSpec` converts from a name, so `ColorMapping::new("viridis")` and
@@ -215,7 +226,7 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":17`.
+- Every `.riz` artifact now declares `"schema":18`.
 - **A sky map's graticule draws at matplotlib's grid zorder (1.5)**: above
   fills, meshes and scatters, below lines, where it drew beneath every artist.
 - **Mesh cells fill without antialiasing**, as matplotlib's `pcolormesh` does

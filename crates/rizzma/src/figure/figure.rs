@@ -1343,6 +1343,10 @@ impl Figure {
             (15, wire::uses_embedded_colormaps(&spec.figure)),
             (16, wire::uses_axisbelow(&spec.figure)),
             (17, wire::uses_line_markers(&spec.figure)),
+            (
+                18,
+                spec.figure.axes.iter().any(|axes| !axes.quivers.is_empty()),
+            ),
         ]);
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(
