@@ -1365,6 +1365,7 @@ impl Figure {
                 18,
                 spec.figure.axes.iter().any(|axes| !axes.quivers.is_empty()),
             ),
+            (19, wire::uses_collection_joins(&spec.figure)),
         ]);
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(

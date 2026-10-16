@@ -171,6 +171,26 @@ pub(crate) fn uses_line_markers(figure: &FigureSpec) -> bool {
 }
 
 #[cfg(feature = "portable")]
+fn round_join() -> crate::render::JoinStyle {
+    crate::render::JoinStyle::Round
+}
+
+#[cfg(feature = "portable")]
+fn is_round_join(join: &crate::render::JoinStyle) -> bool {
+    *join == crate::render::JoinStyle::Round
+}
+
+/// Whether any collection joins its edges other than round (schema 19).
+#[cfg(feature = "portable")]
+pub(crate) fn uses_collection_joins(figure: &FigureSpec) -> bool {
+    figure.axes.iter().any(|axes| {
+        axes.collections
+            .iter()
+            .any(|c| c.join != crate::render::JoinStyle::Round)
+    })
+}
+
+#[cfg(feature = "portable")]
 fn is_line_axisbelow(axisbelow: &crate::core::rcparams::AxisBelow) -> bool {
     *axisbelow == crate::core::rcparams::AxisBelow::Line
 }
@@ -431,6 +451,10 @@ pub(crate) struct CollectionSpec {
     pub(crate) facecolors: Vec<Rgba>,
     pub(crate) edgecolors: Vec<Rgba>,
     pub(crate) linewidth: f64,
+    /// How the edges' corners join: written only when not round, the
+    /// default. Absent before schema 19; those collections load round.
+    #[serde(default = "round_join", skip_serializing_if = "is_round_join")]
+    pub(crate) join: crate::render::JoinStyle,
     pub(crate) visible: bool,
     pub(crate) zorder: f64,
     /// Per-artist legend label, collected by `Axes::legend_auto`.

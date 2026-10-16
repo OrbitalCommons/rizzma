@@ -12,6 +12,7 @@ use crate::core::Path;
 use crate::core::color::{ColorMapping, Rgba};
 
 use crate::figure::Axes;
+use crate::render::JoinStyle;
 
 /// Fraction of the x-range used for the horizontal cap half-width drawn at each
 /// end of an [`errorbar`](Axes::errorbar) error line.
@@ -704,6 +705,8 @@ impl Carets {
                     .with_facecolors(Vec::new())
                     .with_edgecolors(vec![Rgba::BLACK])
                     .linewidth(CARET_WIDTH)
+                    // matplotlib draws carets as line markers, which miter.
+                    .with_joinstyle(JoinStyle::Miter)
                     .with_zorder(2.0),
             );
         }
