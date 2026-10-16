@@ -2045,5 +2045,59 @@ fn main() {
         fig.save_png("target/gallery_hist_options.png").unwrap();
     }
 
+    // 77. quiver_with — left, an auto-scaled vortex field; right,
+    // displacements drawn in data units on unequal axes, each arrow landing
+    // on its marked target.
+    {
+        use rizzma::figure::{QuiverAngles, QuiverOptions, QuiverPivot, QuiverUnits};
+        let mut fig = gallery_figure(8.0, 3.5);
+        let (mut x, mut y, mut u, mut v) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for i in 0..9 {
+            for j in 0..9 {
+                let (px, py) = (f64::from(i) - 4.0, f64::from(j) - 4.0);
+                let r2 = px * px + py * py + 1.0;
+                x.push(px);
+                y.push(py);
+                u.push(-py / r2);
+                v.push(px / r2);
+            }
+        }
+        let ax = fig.add_subplot(1, 2, 1);
+        ax.quiver_with(
+            &x,
+            &y,
+            &u,
+            &v,
+            &QuiverOptions::new()
+                .pivot(QuiverPivot::Middle)
+                .color(Rgba::from_hex("#1f77b4").unwrap()),
+        );
+        ax.set_aspect_equal()
+            .set_title("quiver_with: auto scale, middle pivot");
+
+        let ax = fig.add_subplot(1, 2, 2);
+        let x0 = [0.0, 1.0, 2.0, 3.0, 4.0];
+        let y0 = [0.0, 30.0, 5.0, 32.0, 8.0];
+        let dx = [0.7, 0.6, 0.5, 0.6, -0.6];
+        let dy = [18.0, -15.0, 20.0, -20.0, 22.0];
+        ax.quiver_with(
+            &x0,
+            &y0,
+            &dx,
+            &dy,
+            &QuiverOptions::new()
+                .scale_units(QuiverUnits::Xy)
+                .angles(QuiverAngles::Xy)
+                .scale(1.0)
+                .color(Rgba::from_hex("#d62728").unwrap()),
+        );
+        let tx: Vec<f64> = x0.iter().zip(&dx).map(|(a, b)| a + b).collect();
+        let ty: Vec<f64> = y0.iter().zip(&dy).map(|(a, b)| a + b).collect();
+        ax.scatter(&tx, &ty);
+        ax.set_xlim(-1.0, 5.0).set_ylim(-10.0, 40.0);
+        ax.set_title("scale_units=xy, angles=xy, scale=1");
+        fig.save_png("target/gallery_quiver_options.png").unwrap();
+    }
+
     println!("wrote target/gallery_*.png");
 }

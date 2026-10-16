@@ -87,6 +87,8 @@ struct AxesHead {
     #[serde(default)]
     lines: Vec<LineHead>,
     #[serde(default)]
+    quivers: Vec<serde::de::IgnoredAny>,
+    #[serde(default)]
     images: Vec<ImageHead>,
     #[serde(default)]
     colorbar: Option<serde::de::IgnoredAny>,
@@ -371,6 +373,14 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
                 axes.lines.iter().any(|l| l.marker.is_some())
                     || axes.legend.iter().any(|e| e.line_marker.is_some())
             }),
+        ),
+        (
+            18,
+            header
+                .figure
+                .axes
+                .iter()
+                .any(|axes| !axes.quivers.is_empty()),
         ),
     ]);
     if header.schema < required {

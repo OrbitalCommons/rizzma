@@ -97,9 +97,9 @@ pub use timeline::{Interp, Target, Timeline, Track};
 /// schema 12 the `path_simplify` rc settings; schema 13 sky-projection axes;
 /// schema 14 polygon collections; schema 15 embedded user colormaps; schema
 /// 16 where the grid draws among the artists (`axisbelow`); schema 17 line
-/// markers.
+/// markers; schema 18 matplotlib-style quivers.
 #[cfg(feature = "portable")]
-pub const SCHEMA_VERSION: u32 = 17;
+pub const SCHEMA_VERSION: u32 = 18;
 
 /// Oldest schema version this build can still load.
 #[cfg(feature = "portable")]
