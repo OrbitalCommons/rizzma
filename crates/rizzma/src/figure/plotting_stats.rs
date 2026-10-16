@@ -99,46 +99,129 @@ impl Axes {
     /// a black edge and the next property-cycle face color. Returns
     /// `(counts, edges)` where `counts` has length `bins` and `edges` has length
     /// `bins + 1`. Empty data (or `bins == 0`) yields empty vectors and draws
-    /// nothing.
-    ///
-    /// Counts only; density normalization is a later refinement.
+    /// nothing. [`hist_with`](Axes::hist_with) takes explicit edges, a range,
+    /// weights, density, cumulative counts, step outlines, colors and a label.
     pub fn hist(&mut self, data: &[f64], bins: usize) -> (Vec<f64>, Vec<f64>) {
+        let result = self.hist_with(data, &HistOptions::new().bins(Bins::Count(bins)));
+        (result.counts, result.edges)
+    }
+
+    /// Draw a histogram of `data` as matplotlib's `Axes.hist` does, with
+    /// `options` for its bins, range, weights, density, cumulative counts,
+    /// histogram type, colors and legend label.
+    ///
+    /// Counts follow `numpy.histogram`: each bin is half-open, `[e_i,
+    /// e_{i+1})`, except the last, which includes its right edge, and values
+    /// outside the range are dropped, as are non-finite ones. Density divides
+    /// each count by the total and its bin width, so the bars integrate to
+    /// one; cumulative counts accumulate after that, as matplotlib's do.
+    ///
+    /// Returns the counts and edges, and the range of the drawn bars among
+    /// [`patches`](Axes::patches), so they can be restyled in place through
+    /// [`patches_mut`](Axes::patches_mut). A [`HistType::Bar`] histogram
+    /// draws one rectangle per bin; a step histogram draws one outline.
+    ///
+    /// ![histograms](https://raw.githubusercontent.com/OrbitalCommons/rizzma/gh-pages/gallery_hist_options.png)
+    ///
+    /// ```
+    /// use rizzma::Figure;
+    /// use rizzma::core::color::Rgba;
+    /// use rizzma::figure::{Bins, HistOptions, HistType};
+    ///
+    /// let data = [1.0, 2.0, 2.0, 3.0, 3.0, 3.0, 4.5];
+    /// let mut fig = Figure::new(4.0, 3.0);
+    /// let ax = fig.add_subplot(1, 1, 1);
+    /// let hist = ax.hist_with(
+    ///     &data,
+    ///     &HistOptions::new()
+    ///         .bins(Bins::Edges(vec![0.0, 1.5, 2.5, 3.5, 5.0]))
+    ///         .density(true)
+    ///         .histtype(HistType::Step)
+    ///         .color(Rgba::BLUE)
+    ///         .label("sample"),
+    /// );
+    /// assert_eq!(hist.counts.len(), 4);
+    /// ax.legend_auto();
+    /// ```
+    pub fn hist_with(&mut self, data: &[f64], options: &HistOptions) -> HistResult {
         // Count bars rise from zero: pin the baseline.
         self.sticky_y.push(0.0);
-        if bins == 0 {
-            return (Vec::new(), Vec::new());
-        }
-        let Some((min, max)) = finite_min_max(data) else {
-            return (Vec::new(), Vec::new());
+        let first_patch = self.patches.len();
+        let empty = |first| HistResult {
+            counts: Vec::new(),
+            edges: Vec::new(),
+            patches: first..first,
         };
-        // Guard a zero-width data range so bins have positive width.
-        let (min, max) = if (max - min).abs() > f64::EPSILON {
-            (min, max)
-        } else {
-            (min - 0.5, max + 0.5)
+        let Some(edges) = options.edges(data) else {
+            return empty(first_patch);
         };
-        let width = (max - min) / bins as f64;
+        let counts = options.counts(data, &edges);
 
-        let edges: Vec<f64> = (0..=bins).map(|i| min + i as f64 * width).collect();
-        let mut counts = vec![0.0f64; bins];
-        for &v in data {
-            if !v.is_finite() || v < min || v > max {
-                continue;
+        let color = match options.color {
+            Some(color) => color,
+            None => self.next_cycle_color(),
+        };
+        let alpha = |c: Rgba| match options.alpha {
+            Some(a) => c.with_alpha(c.a * a.clamp(0.0, 1.0)),
+            None => c,
+        };
+        let label = options.label.clone();
+        match options.histtype {
+            HistType::Bar => {
+                let edge = options.edgecolor.unwrap_or(Some(Rgba::BLACK)).map(alpha);
+                for (i, &count) in counts.iter().enumerate() {
+                    let width = options.bar_width(&edges, i);
+                    let mut patch = Patch::rectangle(edges[i], 0.0, width, count)
+                        .facecolor(Some(alpha(color)))
+                        .edgecolor(edge);
+                    if i == 0 {
+                        if let Some(label) = &label {
+                            patch.set_label(label.clone());
+                        }
+                    }
+                    self.add_patch(patch);
+                }
             }
-            // Place v into its bin; the max value lands in the last bin.
-            let idx = (((v - min) / width) as usize).min(bins - 1);
-            counts[idx] += 1.0;
+            HistType::Step | HistType::StepFilled => {
+                let filled = options.histtype == HistType::StepFilled;
+                let mut outline = Vec::with_capacity(4 * edges.len());
+                outline.push([edges[0], 0.0]);
+                for (i, &count) in counts.iter().enumerate() {
+                    outline.push([edges[i], count]);
+                    outline.push([edges[i + 1], count]);
+                }
+                outline.push([edges[edges.len() - 1], 0.0]);
+                if filled {
+                    // Back along the baseline, every edge twice, as
+                    // matplotlib builds the filled outline.
+                    for &e in edges[..edges.len() - 1].iter().rev() {
+                        outline.push([e, 0.0]);
+                        outline.push([e, 0.0]);
+                    }
+                    outline.pop();
+                }
+                let (face, edge) = if filled {
+                    (Some(alpha(color)), options.edgecolor.flatten().map(alpha))
+                } else {
+                    (
+                        None,
+                        Some(alpha(options.edgecolor.flatten().unwrap_or(color))),
+                    )
+                };
+                let mut patch = Patch::new(Path::from_polyline(&outline))
+                    .facecolor(face)
+                    .edgecolor(edge);
+                if let Some(label) = label {
+                    patch.set_label(label);
+                }
+                self.add_patch(patch);
+            }
         }
-
-        let face = self.next_cycle_color();
-        for (i, &count) in counts.iter().enumerate() {
-            let patch = Patch::rectangle(edges[i], 0.0, width, count)
-                .facecolor(Some(face))
-                .edgecolor(Some(Rgba::BLACK));
-            self.add_patch(patch);
+        HistResult {
+            counts,
+            edges,
+            patches: first_patch..self.patches.len(),
         }
-
-        (counts, edges)
     }
 
     /// Plot `y` against `x` with symmetric vertical error bars `yerr`.
@@ -247,6 +330,283 @@ impl Axes {
         }
         carets.add_to(self);
     }
+}
+
+/// How a histogram's bins are chosen: matplotlib's `bins` argument.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Bins {
+    /// This many equal-width bins over the range (the data's, by default).
+    Count(usize),
+    /// Explicit, increasing bin edges: `n + 1` edges make `n` bins.
+    Edges(Vec<f64>),
+}
+
+/// How a histogram is drawn: matplotlib's `histtype`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HistType {
+    /// One filled rectangle per bin (`"bar"`).
+    #[default]
+    Bar,
+    /// One unfilled outline along the bin tops (`"step"`).
+    Step,
+    /// The outline filled (`"stepfilled"`).
+    StepFilled,
+}
+
+/// Options for [`Axes::hist_with`]: matplotlib's `bins`, `range`,
+/// `weights`, `density`, `cumulative`, `histtype`, `color`, `edgecolor`,
+/// `alpha` and `label`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HistOptions {
+    bins: Bins,
+    range: Option<(f64, f64)>,
+    weights: Option<Vec<f64>>,
+    density: bool,
+    cumulative: bool,
+    histtype: HistType,
+    color: Option<Rgba>,
+    /// `None` keeps the histogram type's default edge; `Some(None)` none.
+    edgecolor: Option<Option<Rgba>>,
+    alpha: Option<f64>,
+    label: Option<String>,
+}
+
+impl Default for HistOptions {
+    fn default() -> Self {
+        Self {
+            bins: Bins::Count(10),
+            range: None,
+            weights: None,
+            density: false,
+            cumulative: false,
+            histtype: HistType::Bar,
+            color: None,
+            edgecolor: None,
+            alpha: None,
+            label: None,
+        }
+    }
+}
+
+impl HistOptions {
+    /// Ten equal-width bar bins over the data, in the next cycle color —
+    /// matplotlib's defaults, except that bars keep the black edge
+    /// [`Axes::hist`] has always drawn.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The bins: a count, or explicit edges.
+    #[must_use]
+    pub fn bins(mut self, bins: Bins) -> Self {
+        self.bins = bins;
+        self
+    }
+
+    /// The `(lower, upper)` range counted bins span; values outside it are
+    /// dropped. Ignored with explicit edges.
+    #[must_use]
+    pub fn range(mut self, lower: f64, upper: f64) -> Self {
+        self.range = Some((lower, upper));
+        self
+    }
+
+    /// Weight each datum (by index; a shorter list leaves the rest weighing 1).
+    #[must_use]
+    pub fn weights(mut self, weights: &[f64]) -> Self {
+        self.weights = Some(weights.to_vec());
+        self
+    }
+
+    /// Normalize so the bars integrate to one.
+    #[must_use]
+    pub fn density(mut self, density: bool) -> Self {
+        self.density = density;
+        self
+    }
+
+    /// Accumulate the counts from the first bin.
+    #[must_use]
+    pub fn cumulative(mut self, cumulative: bool) -> Self {
+        self.cumulative = cumulative;
+        self
+    }
+
+    /// Bars, a step outline, or a filled step outline.
+    #[must_use]
+    pub fn histtype(mut self, histtype: HistType) -> Self {
+        self.histtype = histtype;
+        self
+    }
+
+    /// The fill color (the outline's for [`HistType::Step`]); the next
+    /// cycle color by default.
+    #[must_use]
+    pub fn color(mut self, color: Rgba) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    /// The edge color, or `None` for no edge. By default bars have a black
+    /// edge, a step outline is drawn in its color, and a filled step has none.
+    #[must_use]
+    pub fn edgecolor(mut self, edgecolor: Option<Rgba>) -> Self {
+        self.edgecolor = Some(edgecolor);
+        self
+    }
+
+    /// Scale every color's opacity by `alpha` (`0..=1`).
+    #[must_use]
+    pub fn alpha(mut self, alpha: f64) -> Self {
+        self.alpha = Some(alpha);
+        self
+    }
+
+    /// The label [`Axes::legend_auto`] shows for the histogram.
+    #[must_use]
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// The bin edges for `data`, or `None` when there is nothing to bin.
+    /// Counted bins are `numpy.linspace` over the range (the finite data's
+    /// by default, widened by ±0.5 when it is a single value).
+    fn edges(&self, data: &[f64]) -> Option<Vec<f64>> {
+        match &self.bins {
+            Bins::Edges(edges) => (edges.len() >= 2
+                && edges.iter().all(|e| e.is_finite())
+                && edges.windows(2).all(|w| w[0] < w[1]))
+            .then(|| edges.clone()),
+            &Bins::Count(n) => {
+                let (lo, hi) = self.range.or_else(|| finite_min_max(data))?;
+                if n == 0 || !(lo.is_finite() && hi.is_finite()) || hi < lo {
+                    return None;
+                }
+                let (lo, hi) = if lo == hi {
+                    (lo - 0.5, hi + 0.5)
+                } else {
+                    (lo, hi)
+                };
+                let step = (hi - lo) / n as f64;
+                let mut edges: Vec<f64> = (0..=n).map(|i| lo + i as f64 * step).collect();
+                edges[n] = hi;
+                Some(edges)
+            }
+        }
+    }
+
+    /// The width of bar `i`: the uniform step for counted bins (so equal
+    /// bins are drawn equal), the edge difference otherwise.
+    fn bar_width(&self, edges: &[f64], i: usize) -> f64 {
+        match self.bins {
+            Bins::Count(n) => (edges[n] - edges[0]) / n as f64,
+            Bins::Edges(_) => edges[i + 1] - edges[i],
+        }
+    }
+
+    /// The bar heights over `edges`: `numpy.histogram`'s weighted counts,
+    /// then density and cumulative as matplotlib applies them.
+    fn counts(&self, data: &[f64], edges: &[f64]) -> Vec<f64> {
+        let n = edges.len() - 1;
+        let (first, last) = (edges[0], edges[n]);
+        let weight = |k: usize| {
+            self.weights
+                .as_ref()
+                .and_then(|w| w.get(k))
+                .copied()
+                .unwrap_or(1.0)
+        };
+        let mut counts = vec![0.0; n];
+        if let (Bins::Edges(_), Some(_)) = (&self.bins, &self.weights) {
+            // numpy sums weights over explicit edges by sorting, taking a
+            // running total and differencing it at the edges; doing the
+            // same keeps the floats identical.
+            let mut sorted: Vec<(f64, f64)> = data
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| v.is_finite())
+                .map(|(k, &v)| (v, weight(k)))
+                .collect();
+            sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let mut running = Vec::with_capacity(sorted.len() + 1);
+            running.push(0.0);
+            for &(_, w) in &sorted {
+                running.push(running[running.len() - 1] + w);
+            }
+            let at = |i: usize| {
+                if i < n {
+                    sorted.partition_point(|&(v, _)| v < edges[i])
+                } else {
+                    sorted.partition_point(|&(v, _)| v <= edges[i])
+                }
+            };
+            for (i, c) in counts.iter_mut().enumerate() {
+                *c = running[at(i + 1)] - running[at(i)];
+            }
+        } else {
+            // Unweighted counts are whole numbers either way; weights over
+            // counted bins accumulate in data order, as numpy's bincount does.
+            for (k, &v) in data.iter().enumerate() {
+                if !v.is_finite() || v < first || v > last {
+                    continue;
+                }
+                let i = match &self.bins {
+                    Bins::Count(_) => {
+                        // numpy's uniform-bin index, corrected against the
+                        // edges for values rounding put in a neighbour.
+                        let mut i = ((v - first) * (n as f64 / (last - first))) as usize;
+                        i = i.min(n - 1);
+                        if i > 0 && v < edges[i] {
+                            i -= 1;
+                        } else if i + 1 < n && v >= edges[i + 1] {
+                            i += 1;
+                        }
+                        i
+                    }
+                    Bins::Edges(_) => edges
+                        .partition_point(|&e| e <= v)
+                        .saturating_sub(1)
+                        .min(n - 1),
+                };
+                counts[i] += weight(k);
+            }
+        }
+        if self.density {
+            let total: f64 = counts.iter().sum();
+            if total > 0.0 {
+                for (i, c) in counts.iter_mut().enumerate() {
+                    // numpy's order, `n / db / n.sum()`, for identical floats.
+                    *c = *c / (edges[i + 1] - edges[i]) / total;
+                }
+            }
+        }
+        if self.cumulative {
+            let mut running = 0.0;
+            for (i, c) in counts.iter_mut().enumerate() {
+                running += if self.density {
+                    *c * (edges[i + 1] - edges[i])
+                } else {
+                    *c
+                };
+                *c = running;
+            }
+        }
+        counts
+    }
+}
+
+/// What [`Axes::hist_with`] returns: matplotlib's `(n, bins, patches)`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HistResult {
+    /// The bar heights (counts, densities or running totals).
+    pub counts: Vec<f64>,
+    /// The bin edges, one more than the counts.
+    pub edges: Vec<f64>,
+    /// The drawn bars' indices among [`Axes::patches`]: one per bin for
+    /// [`HistType::Bar`], one outline otherwise; empty when nothing drew.
+    pub patches: std::ops::Range<usize>,
 }
 
 /// Upper and lower limits and horizontal errors for

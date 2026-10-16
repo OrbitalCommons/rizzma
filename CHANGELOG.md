@@ -10,6 +10,14 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 ## [Unreleased]
 
 ### Added
+- **Histograms with options.** `Axes::hist_with(data, &HistOptions)` takes matplotlib's
+  `bins` (a count or explicit edges), `range`, `weights`, `density`, `cumulative`,
+  `histtype` (`Bar`, `Step`, `StepFilled`), `color`, `edgecolor`, `alpha` and `label`, and
+  returns `HistResult { counts, edges, patches }`; the bars restyle in place through the
+  new `Axes::patches_mut` and `Patch::set_facecolor` / `set_edgecolor` /
+  `set_linewidth` / `set_visible`. Counts, edges and step outlines match numpy and
+  matplotlib 3.11 exactly, and a labelled histogram joins `legend_auto`. `hist(data,
+  bins)` is unchanged and renders as before.
 - **Markers on lines.** `Line2D::set_marker(code)` / `with_marker` draws a marker at
   each data point, matplotlib's `plot(x, y, "o-")`, with `set_markersize` (diameter in
   points, default 6), `set_markerfacecolor` / `set_markeredgecolor` (the line color by
