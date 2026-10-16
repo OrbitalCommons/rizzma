@@ -180,6 +180,9 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   a longitude/latitude grid on a sky projection.
 
 ### Changed
+- **Date axes are a `dates` feature** (in `default`), which brings in `chrono`: the
+  `axis::dates` module and `Axes::set_xaxis_date` / `set_yaxis_date`. Without it, a
+  portable figure with date ticks fails to load as malformed.
 - **`base64` is only a dependency with the `portable` feature.** SVG output encodes
   embedded images itself, byte-for-byte as before.
 - `RichText` keeps each plain span's characters for native text, in private fields,

@@ -16,6 +16,7 @@ use crate::artist::{Artist, AxesImage, Collection, Line2D, Patch, PolyCollection
 use std::borrow::Cow;
 
 use crate::axis::axis::{Axis, AxisSide};
+#[cfg(feature = "dates")]
 use crate::axis::dates::{AutoDateLocator, ConciseDateFormatter};
 use crate::axis::scale::{AsinhScale, LinearScale, LogScale, LogitScale, Scale, SymlogScale};
 use crate::axis::ticker::{
@@ -1644,6 +1645,7 @@ impl Axes {
     /// Data values remain numeric days since the Unix epoch, as produced by
     /// [`crate::axis::dates::date2num`]. The axis scale stays linear; only the
     /// locator and formatter are replaced.
+    #[cfg(feature = "dates")]
     pub fn set_xaxis_date(&mut self) -> &mut Self {
         self.xscale = ScaleSpec::Linear;
         self.xaxis
@@ -1658,6 +1660,7 @@ impl Axes {
     /// Data values remain numeric days since the Unix epoch, as produced by
     /// [`crate::axis::dates::date2num`]. The axis scale stays linear; only the
     /// locator and formatter are replaced.
+    #[cfg(feature = "dates")]
     pub fn set_yaxis_date(&mut self) -> &mut Self {
         self.yscale = ScaleSpec::Linear;
         self.yaxis
