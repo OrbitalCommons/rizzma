@@ -110,14 +110,10 @@ impl LineMarker {
     }
 
     /// Stamp the marker at each of `points` (device pixels, y-up) for a line
-    /// of `color`, as matplotlib's Agg `draw_markers` stamps line markers.
-    ///
-    /// Each marker's origin is the pixel corner `floor(p + 0.5)` of its
-    /// y-down pixel grid. A marker at least its snap threshold across has its
-    /// vertices snapped to `floor(v + 0.5)` about that origin, plus half a
-    /// pixel when the edge is an odd whole number of pixels wide; any other
-    /// marker is moved half a pixel, onto the pixel center. The pixel marker
-    /// (`','`) is one unstroked pixel at any size.
+    /// of `color`, with the marker's join and, for the raster backend, its
+    /// snap threshold, as matplotlib's `Line2D` hands them to
+    /// `draw_markers`. The pixel marker (`','`) is one unstroked pixel at any
+    /// size.
     pub(crate) fn draw(&self, renderer: &mut dyn Renderer, points: &[[f64; 2]], color: Rgba) {
         let Some(style) = MarkerStyle::from_char(self.code) else {
             return;
@@ -130,37 +126,12 @@ impl LineMarker {
         };
         let edge_width = if pixel { 0.0 } else { self.edge_width };
         let marker = style.scaled(size);
-        let snap = match style.snap() {
-            Snap::From(threshold) => size >= threshold,
-            Snap::Auto => is_rectilinear(&marker),
-        };
-        let (marker, offset) = if snap {
-            let edge_px = renderer.points_to_pixels(edge_width);
-            let half = if (edge_px + 0.5).floor() as i64 % 2 == 1 {
-                0.5
-            } else {
-                0.0
-            };
-            // Snapped in Agg's y-down pixels, where y is `-y`.
-            let snapped = marker
-                .vertices()
-                .iter()
-                .map(|&[x, y]| [(x + 0.5).floor() + half, -((0.5 - y).floor() + half)])
-                .collect();
-            (Path::new(snapped, marker.codes().map(<[_]>::to_vec)), 0.0)
-        } else {
-            (marker, 0.5)
-        };
-        let (_, height) = renderer.canvas_size();
-        let origins: Vec<[f64; 2]> = points
+        let points: Vec<[f64; 2]> = points
             .iter()
+            .copied()
             .filter(|[x, y]| x.is_finite() && y.is_finite())
-            .map(|&[x, y]| {
-                let down = (height - y + 0.5).floor() + offset;
-                [(x + 0.5).floor() + offset, height - down]
-            })
             .collect();
-        if origins.is_empty() {
+        if points.is_empty() {
             return;
         }
         // Agg strokes markers with a miter limit of the edge width in pixels,
@@ -175,6 +146,10 @@ impl LineMarker {
             stroke: Some(self.edge.unwrap_or(color)),
             join: style.join(),
             miter_limit: corners.then(|| renderer.points_to_pixels(edge_width)),
+            snap: match style.snap() {
+                Snap::From(threshold) => Some(size >= threshold),
+                Snap::Auto => None,
+            },
             ..GraphicsContext::new()
         };
         let face = style.is_filled().then(|| self.face.unwrap_or(color));
@@ -182,36 +157,11 @@ impl LineMarker {
             &gc,
             &marker,
             &Affine2D::identity(),
-            &Path::from_polyline(&origins),
+            &Path::from_polyline(&points),
             &Affine2D::identity(),
             face,
         );
     }
-}
-
-/// Whether `path` is only horizontal and vertical lines, which Agg snaps to
-/// the pixel grid unasked (`SNAP_AUTO`).
-fn is_rectilinear(path: &Path) -> bool {
-    if path.vertices().len() > 1024 {
-        return false;
-    }
-    let mut pen: Option<[f64; 2]> = None;
-    for segment in path.iter_segments() {
-        match segment {
-            PathSegment::MoveTo(p) => pen = Some(p),
-            PathSegment::LineTo(p) => {
-                let diagonal =
-                    pen.is_some_and(|q| (p[0] - q[0]).abs() >= 1e-4 && (p[1] - q[1]).abs() >= 1e-4);
-                if diagonal {
-                    return false;
-                }
-                pen = Some(p);
-            }
-            PathSegment::Quad(..) | PathSegment::Cubic(..) => return false,
-            PathSegment::Close => {}
-        }
-    }
-    true
 }
 
 impl Line2D {

@@ -19,6 +19,9 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 - `GraphicsContext::miter_limit`: the longest a miter join may be, as a multiple of
   the line width, before it bevels. `None`, the default, keeps each backend's own;
   skia, SVG (`stroke-miterlimit`) and PDF (`M`) honor it.
+- `GraphicsContext::snap`, matplotlib's `gc.set_snap`: whether the raster backend
+  snaps marker vertices to its pixel grid (`None`, the default, snaps only markers
+  made of horizontal and vertical lines).
 - **Native SVG text.** `RcParams::svg_fonttype`, matplotlib's `svg.fonttype`, chooses
   how SVG output writes text:
   - `SvgFontType::Path` (the default) draws glyph outlines, unchanged.
@@ -282,15 +285,23 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   Line markers also stroke as Agg does:
   - Corners join with the marker's join (miter, bevel for `'*'`) at a miter limit
     of the edge width in pixels, so sharp tips bevel instead of spiking.
-  - Vertices snap to the pixel grid once the marker reaches matplotlib's snap
-    threshold for its code.
+  - In raster output, vertices snap to the pixel grid once the marker reaches
+    matplotlib's snap threshold for its code. SVG and PDF place markers exactly,
+    as matplotlib's vector backends do.
 
   Against matplotlib 3.11 (one 12 pt marker at 100 dpi), every code's ink extents
   and centroid now match within 0.5 px; before, `'^'` was 3.9 px off, `'D'` 3.4,
   `'d'` 3.1, `'.'` 2.6, `','` 2.0, `'*'` 1.6 and `'H'` 1.1, and `'p'`, `'h'` and
-  the triangles were unfilled. Line-marker renders using any code but `'o'`
-  change: `'s'`, `'+'` and `'x'` move by up to 0.56 px as they now snap, as Agg
-  snaps them. `'o'` is byte-identical in PNG, SVG and PDF.
+  the triangles were unfilled. (Markers on lines are new in this release.)
+- **Scatters sit where matplotlib's raster backend puts them.** A uniform scatter
+  (one marker, size, face and edge, the usual case) goes through `draw_markers`,
+  and the raster backend now places markers as Agg's does: each on a pixel center,
+  a square-sided marker such as `'s'` snapped to whole pixels. Every PNG with such
+  a scatter moves its markers by up to half a pixel; edged markers' ink extents and
+  centroids now match matplotlib 3.11 within 0.5 px for `o s D ^ v < > d p h *`.
+  One marker sprite now serves every point, where large scatters kept a sprite
+  per sub-pixel phase. SVG and PDF scatters are unchanged (exact, as
+  matplotlib's), as are scatters with per-point sizes or colors.
 - **SVG output is much smaller.** Elements clipped to the same rectangle share one
   `<clipPath>` def, and each element references it with its own `clip-path` attribute
   instead of being wrapped in a `<g>`. An unstroked marker (a scatter point, a line
