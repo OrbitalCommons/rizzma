@@ -61,6 +61,11 @@ pub struct GraphicsContext {
     /// The longest a miter join may be, as a multiple of the line width,
     /// before it falls back to a bevel; `None` keeps the backend's default.
     pub miter_limit: Option<f64>,
+    /// Whether a raster backend snaps marker vertices to its pixel grid
+    /// (matplotlib's `gc.set_snap`); `None` snaps only markers drawn
+    /// entirely of horizontal and vertical lines. Vector backends place
+    /// markers exactly, as matplotlib's do.
+    pub snap: Option<bool>,
     /// Optional global alpha applied on top of per-color alpha.
     pub alpha: Option<f64>,
     /// Whether drawing should be antialiased.
@@ -85,6 +90,7 @@ impl GraphicsContext {
             cap: CapStyle::default(),
             join: JoinStyle::default(),
             miter_limit: None,
+            snap: None,
             alpha: None,
             antialiased: true,
             clip_rect: None,

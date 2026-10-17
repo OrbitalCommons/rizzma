@@ -1,10 +1,8 @@
-//! Uniform scatter markers through `draw_markers`: the raster backend stamps
-//! cached sprites, so large scatters must ink the same pixels as drawing each
-//! marker as a path, small ones must stay exact, PDF output must not change
-//! at all, and SVG output places one marker def with `<use>`s.
-//!
-//! The per-point reference is the same scatter with its one face color given
-//! twice: a non-uniform style list, which draws marker by marker.
+//! Uniform scatter markers through `draw_markers`: the raster backend places
+//! every marker as Agg does, on a pixel center, and stamps one cached sprite,
+//! so a large scatter inks the pixels that drawing each marker as a path at
+//! the same places does. PDF output is the per-point draw's exactly, and SVG
+//! places one marker def with `<use>`s.
 
 use rizzma::Figure;
 use rizzma::core::color::Rgba;
@@ -12,11 +10,24 @@ use rizzma::core::color::Rgba;
 /// matplotlib's `C0`, the first scatter's face color.
 const C0: Rgba = Rgba::new(0.121_568_63, 0.466_666_67, 0.705_882_35, 1.0);
 
+/// The points as one uniform scatter, or with its one face color given twice:
+/// a non-uniform style list, which draws marker by marker at the exact points.
 fn figure(x: &[f64], y: &[f64], per_point: bool) -> Figure {
     let mut fig = Figure::new(16.0, 12.0);
     let markers = fig.add_subplot(1, 1, 1).scatter(x, y);
     if per_point {
         markers.set_facecolors(vec![C0, C0]);
+    }
+    fig
+}
+
+/// The points as uniform scatters of under 10 000 markers each, which draw
+/// one path per marker, placed as the sprite path places them.
+fn chunked(x: &[f64], y: &[f64]) -> Figure {
+    let mut fig = Figure::new(16.0, 12.0);
+    let ax = fig.add_subplot(1, 1, 1);
+    for (xs, ys) in x.chunks(9_000).zip(y.chunks(9_000)) {
+        ax.scatter(xs, ys).set_facecolors(vec![C0]);
     }
     fig
 }
@@ -58,7 +69,7 @@ fn large_scatters_ink_the_same_pixels() {
     let cases = [("sine", (x, y)), ("random", random(n))];
     for (name, (x, y)) in cases {
         let sprites = figure(&x, &y, false).to_rgb8().0;
-        let exact = figure(&x, &y, true).to_rgb8().0;
+        let exact = chunked(&x, &y).to_rgb8().0;
         let share = inked_agreement(&sprites, &exact);
         assert!(
             share >= 0.99,
@@ -66,15 +77,6 @@ fn large_scatters_ink_the_same_pixels() {
             share * 100.0
         );
     }
-}
-
-#[test]
-fn small_scatters_draw_exactly() {
-    let (x, y) = random(5_000);
-    assert_eq!(
-        figure(&x, &y, false).to_rgb8().0,
-        figure(&x, &y, true).to_rgb8().0
-    );
 }
 
 #[test]

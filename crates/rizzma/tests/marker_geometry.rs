@@ -94,16 +94,13 @@ fn line_markers_match_matplotlib() {
     assert!(mismatches.is_empty(), "\n{}", mismatches.join("\n"));
 }
 
-/// Scatter edges join round, as a matplotlib collection's do whatever the
-/// marker: each edged marker's ink spans what Agg's does. (Where a scatter's
-/// markers sit, and the square's snapping, are compared separately.)
+/// A uniform scatter sits where Agg's `draw_markers` puts it, its square
+/// snapped, and its edges join round as a matplotlib collection's do
+/// whatever the marker.
 #[test]
-fn edged_scatter_markers_span_what_matplotlib_spans() {
+fn edged_scatter_markers_match_matplotlib() {
     let mut mismatches = Vec::new();
     for (code, values) in rows(include_str!("fixtures/scatter_markers_mpl.txt"), 0) {
-        if code == 's' {
-            continue;
-        }
         let marker = MarkerStyle::from_char(code).expect("known code");
         let mut fig = canvas();
         fig.axes_mut()[0]
@@ -113,12 +110,10 @@ fn edged_scatter_markers_span_what_matplotlib_spans() {
             .set_facecolors(vec![Rgba::BLACK])
             .set_edgecolors(vec![Rgba::BLACK])
             .set_linewidth(1.0);
-        let (extents, _) = ink(&fig);
-        let spans = [extents[2] - extents[0], extents[3] - extents[1]];
-        let theirs = [values[2] - values[0], values[3] - values[1]];
-        if off(&spans, &theirs) {
+        let (extents, center) = ink(&fig);
+        if off(&extents, &values[..4]) || off(&center, &values[4..]) {
             mismatches.push(format!(
-                "{code:?}: spans {spans:.2?}; matplotlib {theirs:.2?}"
+                "{code:?}: extents {extents:.2?} centroid {center:.2?}; matplotlib {values:?}"
             ));
         }
     }

@@ -269,55 +269,34 @@ fn paint_path(
     }
 }
 
-/// How finely [`SkiaRenderer::draw_markers`] places markers within a pixel:
-/// each point snaps to the nearest 1/`SUBPIXEL_PHASES` of a pixel, and each
-/// phase in use gets its own sprite (at most 4096 of them).
-const SUBPIXEL_PHASES: u32 = 64;
+/// Whether `path` is only horizontal and vertical lines, which Agg snaps to
+/// the pixel grid unasked (`SNAP_AUTO`).
+fn is_rectilinear(path: &Path) -> bool {
+    if path.vertices().len() > 1024 {
+        return false;
+    }
+    let mut pen: Option<[f64; 2]> = None;
+    for segment in path.iter_segments() {
+        match segment {
+            PathSegment::MoveTo(p) => pen = Some(p),
+            PathSegment::LineTo(p) => {
+                let diagonal =
+                    pen.is_some_and(|q| (p[0] - q[0]).abs() >= 1e-4 && (p[1] - q[1]).abs() >= 1e-4);
+                if diagonal {
+                    return false;
+                }
+                pen = Some(p);
+            }
+            PathSegment::Quad(..) | PathSegment::Cubic(..) => return false,
+            PathSegment::Close => {}
+        }
+    }
+    true
+}
 
 /// Below this many markers [`SkiaRenderer::draw_markers`] draws each one
-/// exactly: the sprites would cost about as much as the markers they save.
+/// exactly: the sprite would cost about as much as the markers it saves.
 const SPRITE_MIN_POINTS: usize = 10_000;
-
-/// The sprites of one marker style, rasterized as each sub-pixel phase is
-/// first needed.
-struct MarkerAtlas<'a> {
-    marker: tiny_skia::Path,
-    gc: &'a GraphicsContext,
-    fill: Option<Rgba>,
-    dpi: f64,
-    sprites: Vec<Option<Option<MarkerSprite>>>,
-}
-
-impl<'a> MarkerAtlas<'a> {
-    fn new(marker: tiny_skia::Path, gc: &'a GraphicsContext, fill: Option<Rgba>, dpi: f64) -> Self {
-        let phases = (SUBPIXEL_PHASES * SUBPIXEL_PHASES) as usize;
-        Self {
-            marker,
-            gc,
-            fill,
-            dpi,
-            sprites: (0..phases).map(|_| None).collect(),
-        }
-    }
-
-    /// The sprite with the marker origin `(kx, ky) / SUBPIXEL_PHASES` past a
-    /// pixel corner; `None` if the marker draws nothing.
-    fn sprite(&mut self, kx: u32, ky: u32) -> Option<&MarkerSprite> {
-        let slot = &mut self.sprites[(ky * SUBPIXEL_PHASES + kx) as usize];
-        if slot.is_none() {
-            let q = f64::from(SUBPIXEL_PHASES);
-            let phase = (f64::from(kx) / q, f64::from(ky) / q);
-            *slot = Some(MarkerSprite::new(
-                &self.marker,
-                self.gc,
-                self.fill,
-                self.dpi,
-                phase,
-            ));
-        }
-        slot.as_ref().and_then(Option::as_ref)
-    }
-}
 
 /// A clip mask, with the rectangle of pixels it covers fully.
 struct Clip<'a> {
@@ -373,14 +352,13 @@ impl SpriteLayer {
 
 impl MarkerSprite {
     /// Rasterize `marker` (already in pixmap orientation, origin at its
-    /// anchor) filled with `fill` and stroked per `gc`, its origin `phase`
-    /// past a pixel corner. `None` when it draws nothing.
+    /// anchor) filled with `fill` and stroked per `gc`, its origin on a
+    /// pixel corner. `None` when it draws nothing.
     fn new(
         marker: &tiny_skia::Path,
         gc: &GraphicsContext,
         fill: Option<Rgba>,
         dpi: f64,
-        phase: (f64, f64),
     ) -> Option<Self> {
         let bounds = marker.bounds();
         // Room for the stroke, including miter joins, plus antialiasing.
@@ -395,10 +373,9 @@ impl MarkerSprite {
         let right = (f64::from(bounds.right()) + margin).ceil();
         let bottom = (f64::from(bounds.bottom()) + margin).ceil();
         let (width, height) = ((right - left) as u32 + 2, (bottom - top) as u32 + 2);
-        // The marker's origin lands `phase` past the corner of sprite pixel
-        // (cx, cy).
+        // The marker's origin lands on the corner of sprite pixel (cx, cy).
         let (cx, cy) = (-left, -top);
-        let shift = Transform::from_translate((cx + phase.0) as f32, (cy + phase.1) as f32);
+        let shift = Transform::from_translate(cx as f32, cy as f32);
         let face_only = GraphicsContext {
             stroke: None,
             ..gc.clone()
@@ -563,12 +540,18 @@ impl Renderer for SkiaRenderer {
         );
     }
 
-    /// Stamp one marker at many points: the marker is rasterized into a
-    /// sprite once per sub-pixel phase in use, and each point composites the
-    /// sprite for its phase at its pixel — matplotlib Agg's `draw_markers`
-    /// caches the marker's scanlines the same way, though it snaps every
-    /// point to a pixel center. Here a point lands within 1/128 px of where a
-    /// per-point draw puts it, and fewer than 10 000 markers draw exactly.
+    /// Stamp one marker at many points, placed as matplotlib Agg's
+    /// `draw_markers` places them.
+    ///
+    /// Each point's origin is the pixel corner `floor(p + 0.5)` of the y-down
+    /// pixel grid. A snapping marker (`gc.snap`, or when unset one drawn only
+    /// of horizontal and vertical lines) has its vertices snapped to
+    /// `floor(v + 0.5)` about that origin, plus half a pixel when the edge is
+    /// an odd whole number of pixels wide; any other marker moves half a
+    /// pixel, onto the pixel center. Every marker then sits at the same
+    /// sub-pixel phase, so many markers share one sprite, rasterized once, as
+    /// Agg shares the marker's scanlines; fewer than 10 000 draw one path
+    /// each.
     fn draw_markers(
         &mut self,
         gc: &GraphicsContext,
@@ -578,46 +561,58 @@ impl Renderer for SkiaRenderer {
         transform: &Affine2D,
         fill: Option<Rgba>,
     ) {
+        // The marker in y-down pixels about its origin.
+        let marker =
+            marker_path.transformed(&marker_transform.then(&Affine2D::from_scale(1.0, -1.0)));
+        let snap = gc.snap.unwrap_or_else(|| is_rectilinear(&marker));
+        let (marker, offset) = if snap {
+            let edge = self.points_to_pixels(gc.line_width);
+            let half = if (edge + 0.5).floor() as i64 % 2 == 1 {
+                0.5
+            } else {
+                0.0
+            };
+            let snapped = marker
+                .vertices()
+                .iter()
+                .map(|&[x, y]| [(x + 0.5).floor() + half, (y + 0.5).floor() + half])
+                .collect();
+            (Path::new(snapped, marker.codes().map(<[_]>::to_vec)), 0.0)
+        } else {
+            (marker, 0.5)
+        };
+        let marker = marker.transformed(&Affine2D::from_translation(offset, offset));
+        let device = transform.then(&self.flip_transform());
+        let origins: Vec<(f64, f64)> = path
+            .vertices()
+            .iter()
+            .map(|&[vx, vy]| device.transform_point((vx, vy)))
+            .filter(|(x, y)| x.abs() < 1e9 && y.abs() < 1e9)
+            .map(|(x, y)| ((x + 0.5).floor(), (y + 0.5).floor()))
+            .collect();
         // Few markers draw exactly, one path each, which costs about what
-        // building the sprites would.
-        if path.vertices().len() < SPRITE_MIN_POINTS {
-            for &[vx, vy] in path.vertices() {
-                let (dx, dy) = transform.transform_point((vx, vy));
-                self.draw_path(gc, marker_path, &marker_transform.translate(dx, dy), fill);
+        // building the sprite would.
+        if origins.len() < SPRITE_MIN_POINTS {
+            let height = f64::from(self.pixmap.height());
+            for (x, y) in origins {
+                let place = Affine2D::new(1.0, 0.0, 0.0, -1.0, x, height - y);
+                self.draw_path(gc, &marker, &place, fill);
             }
             return;
         }
-        let local = marker_transform.then(&Affine2D::from_scale(1.0, -1.0));
-        let Some(marker) = Self::build_device_path(marker_path, &local) else {
+        let Some(sk_marker) = Self::build_device_path(&marker, &Affine2D::identity()) else {
             return;
         };
-        let mut atlas = MarkerAtlas::new(marker, gc, fill, self.dpi);
+        let Some(sprite) = MarkerSprite::new(&sk_marker, gc, fill, self.dpi) else {
+            return;
+        };
         self.ensure_clip_mask(gc);
-        let device = transform.then(&self.flip_transform());
         let clip = self.clip_cache.as_ref().map(|(bbox, mask)| Clip {
             mask,
             interior: self.covered_interior(bbox),
         });
-        let q = f64::from(SUBPIXEL_PHASES);
-        for &[vx, vy] in path.vertices() {
-            let (x, y) = device.transform_point((vx, vy));
-            if !(x.abs() < 1e9 && y.abs() < 1e9) {
-                continue;
-            }
-            // Split each coordinate into a pixel and the nearest phase.
-            let split = |v: f64| {
-                let base = v.floor();
-                let phase = ((v - base) * q).round() as u32;
-                if phase == SUBPIXEL_PHASES {
-                    (base + 1.0, 0)
-                } else {
-                    (base, phase)
-                }
-            };
-            let ((px, kx), (py, ky)) = (split(x), split(y));
-            if let Some(sprite) = atlas.sprite(kx, ky) {
-                sprite.stamp(&mut self.pixmap, px as i64, py as i64, clip.as_ref());
-            }
+        for (x, y) in origins {
+            sprite.stamp(&mut self.pixmap, x as i64, y as i64, clip.as_ref());
         }
     }
 
