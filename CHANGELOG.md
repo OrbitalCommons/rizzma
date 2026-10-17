@@ -10,6 +10,10 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 ## [Unreleased]
 
 ### Added
+- `RcParams::axes_formatter_min_exponent`, matplotlib's `axes.formatter.min_exponent`
+  (default 0): log-axis powers whose exponent is below it in magnitude read as plain
+  numbers. Also `LogFormatterMathtext::with_min_exponent` and
+  `LogLocator::auto_minor`, matplotlib's `LogLocator(subs='auto')`.
 - `Collection::set_joinstyle` / `with_joinstyle`, matplotlib's `set_joinstyle`: how a
   collection's edges join, round by default.
 - `GraphicsContext::miter_limit`: the longest a miter join may be, as a multiple of
@@ -248,6 +252,16 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 - Portable figures are schema 19 when a collection joins its edges other than
   round, as errorbar limit carets do (written only then); schema 1–18 artifacts still
   load, their collections joining round.
+- Portable figures are schema 20 when an axis has matplotlib's automatic log minor
+  ticks or a log formatter with a minimum exponent, or the rc sets
+  `axes_formatter_min_exponent` (written only then), so every figure with a log
+  axis made now. Schema 1–19 artifacts still load, their log axes as they were
+  written: no minor ticks, and labels in the new style.
+- `LogFormatterMathtext` labels every power of its base as `$base^{n}$`, matplotlib's
+  `LogFormatterSciNotation`, where it printed small powers as plain decimals.
+- Every scale setter resets the axis' minor ticks, as a matplotlib scale change
+  does: `set_*scale_log` to matplotlib's automatic log minor ticks, the others to
+  none.
 - `ColorScale::cmap` is a `CmapSpec` rather than a `String`, and
   `ColorMapping::cmap_name()` is now `ColorMapping::cmap()`, returning the `CmapSpec`.
   A `CmapSpec` converts from a name, so `ColorMapping::new("viridis")` and
@@ -306,7 +320,15 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":19`.
+- Every `.riz` artifact now declares `"schema":20`.
+- **Log axes label and tick as matplotlib's do.** Every major tick reads `base^n`
+  (`10⁰, 10¹, …, 10⁶`; `2⁴, 2⁵, …`), where small powers printed as plain decimals
+  (`10, 100, 1000, 10⁵`), and matplotlib's default minor ticks are drawn
+  (`LogLocator(subs='auto')`: 2–9 times each power for base 10; none for base 2 or
+  across ten or more powers). Labels and minor tick positions match matplotlib 3.11
+  for base-10 ranges [1e1, 1e6] and [1e-3, 1] and base-2 [16, 1024]. Every figure
+  with a log axis relabels and gains minor ticks; gallery images `loglog`,
+  `line_markers` and `migrate_text` change.
 - **Scatter edges join round**, as matplotlib's collections do whatever the marker,
   where they mitered. An edged `'*'` is 1.3–2.0 px narrower (now within 0.3 px of
   matplotlib's span), triangles about 0.7 px, `'D'` 0.3 px. Scatters without an edge,

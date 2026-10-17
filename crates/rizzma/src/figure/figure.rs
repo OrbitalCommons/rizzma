@@ -1366,6 +1366,7 @@ impl Figure {
                 spec.figure.axes.iter().any(|axes| !axes.quivers.is_empty()),
             ),
             (19, wire::uses_collection_joins(&spec.figure)),
+            (20, wire::uses_log_ticks(&spec.figure)),
         ]);
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(
@@ -1433,10 +1434,12 @@ impl Figure {
             controls: spec.controls,
             time: 0.0,
         };
-        // Line simplification is the figure's rc setting, carried per axes.
+        // Line simplification and the log formatter's minimum exponent are
+        // the figure's rc settings, carried per axes.
         let simplify = crate::figure::axes::simplify_threshold(&restored.rc);
         for ax in &mut restored.axes {
             ax.path_simplify = simplify;
+            ax.log_min_exponent = restored.rc.axes_formatter_min_exponent;
         }
         // Only now can targets be checked against the artists that exist. An
         // accepted figure is total: seek and set_control cannot fail on it,

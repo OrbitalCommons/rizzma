@@ -110,6 +110,11 @@ pub struct RcParams {
     /// above fills and scatters, below lines and markers.
     #[serde(default, skip_serializing_if = "is_default_axisbelow")]
     pub axes_axisbelow: AxisBelow,
+    /// Log-axis powers whose exponent is below this in magnitude are labelled
+    /// as plain numbers rather than `base^n` (`axes.formatter.min_exponent`;
+    /// default 0, every power as an exponent).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub axes_formatter_min_exponent: i32,
     /// Font size of the axes title in points (`axes.titlesize`).
     pub axes_titlesize: f64,
     /// Padding above the axes title in points (`axes.titlepad`).
@@ -201,6 +206,10 @@ pub struct RcParams {
     pub svg_fonttype: SvgFontType,
 }
 
+fn is_zero(value: &i32) -> bool {
+    *value == 0
+}
+
 fn is_default_axisbelow(axisbelow: &AxisBelow) -> bool {
     *axisbelow == AxisBelow::default()
 }
@@ -235,6 +244,7 @@ impl Default for RcParams {
             axes_linewidth: 0.8,
             axes_grid: false,
             axes_axisbelow: AxisBelow::Line,
+            axes_formatter_min_exponent: 0,
             axes_titlesize: 12.0,
             axes_titlepad: 6.0,
             axes_labelsize: 10.0,
@@ -342,6 +352,7 @@ impl RcParams {
         merge_field!(axes_linewidth);
         merge_field!(axes_grid);
         merge_field!(axes_axisbelow);
+        merge_field!(axes_formatter_min_exponent);
         merge_field!(axes_titlesize);
         merge_field!(axes_titlepad);
         merge_field!(axes_labelsize);
