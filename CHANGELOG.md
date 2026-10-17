@@ -343,6 +343,12 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
 - Every `.riz` artifact now declares `"schema":21`.
+- **Log axes over many decades thin their major ticks** as matplotlib's do: at most
+  9, every second, fourth (or so) power, where every power was labelled. 10⁻⁶..10⁶
+  shows 10⁻⁶, 10⁻⁴, …, 10⁶, and 1..10³⁰ every fourth power. Minor ticks show only
+  while every power is a major one, and a view within one power that holds at most
+  one log tick falls back to linear minor ticks. Axes too short for 9 ticks still
+  get 9 at most (#383).
 - **Lines cap and join as matplotlib's do.** Solid lines end in projecting caps and
   join round (`lines.solid_capstyle: projecting`, `lines.solid_joinstyle: round`),
   and dashed lines take butt caps and round joins, where every line had butt caps

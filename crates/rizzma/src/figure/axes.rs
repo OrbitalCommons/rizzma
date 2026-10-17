@@ -4259,6 +4259,58 @@ mod tests {
         }
     }
 
+    /// Log axes over many decades, and within one, against matplotlib 3.11
+    /// (`tests/fixtures/log_stride_mpl.py`): majors thinned to every few
+    /// powers, minors only when every power is a major.
+    #[test]
+    fn log_ticks_thin_over_many_decades_as_matplotlib_does() {
+        let reference = include_str!("../../tests/fixtures/log_stride_mpl.txt");
+        for (case, lim) in [
+            ("1em6_1e6", (1e-6, 1e6)),
+            ("1_1e12", (1.0, 1e12)),
+            ("1_1e30", (1.0, 1e30)),
+            ("1_1e9", (1.0, 1e9)),
+            ("2_8", (2.0, 8.0)),
+        ] {
+            for axis_name in ["x", "y"] {
+                let want = |kind: &str| -> Vec<f64> {
+                    reference
+                        .lines()
+                        .map(|l| l.split_whitespace().collect::<Vec<_>>())
+                        .filter(|f| f[0] == case && f[1] == axis_name && f[2] == kind)
+                        .map(|f| f[3].parse().unwrap())
+                        .collect()
+                };
+                let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+                let axis = if axis_name == "x" {
+                    axes.set_xscale_log(10.0);
+                    &axes.xaxis
+                } else {
+                    axes.set_yscale_log(10.0);
+                    &axes.yaxis
+                };
+                let (major, _) = axis.visible_ticks(lim);
+                let minor = axis.visible_minor_ticks(lim);
+                for (kind, ours, theirs) in [
+                    ("major", major, want("major")),
+                    ("minor", minor, want("minor")),
+                ] {
+                    assert_eq!(
+                        ours.len(),
+                        theirs.len(),
+                        "{case} {axis_name} {kind}: {ours:?} vs {theirs:?}"
+                    );
+                    for (a, b) in ours.iter().zip(&theirs) {
+                        assert!(
+                            (a - b).abs() <= 1e-9 * b,
+                            "{case} {axis_name} {kind}: {a} vs {b}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn many_decades_or_a_small_base_draw_no_log_minor_ticks() {
         let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
