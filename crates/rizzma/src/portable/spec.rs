@@ -170,7 +170,6 @@ pub(crate) fn uses_line_markers(figure: &FigureSpec) -> bool {
     })
 }
 
-#[cfg(feature = "portable")]
 fn is_zero_i32(value: &i32) -> bool {
     *value == 0
 }
