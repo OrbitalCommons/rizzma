@@ -170,6 +170,20 @@ pub(crate) fn uses_line_markers(figure: &FigureSpec) -> bool {
     })
 }
 
+/// Whether any line strokes differently dashed than solid, or the rc sets a
+/// line cap or join other than matplotlib's (schema 21).
+#[cfg(feature = "portable")]
+pub(crate) fn uses_line_styles(figure: &FigureSpec) -> bool {
+    let rc = &figure.rc;
+    let defaults = crate::artist::line::LineStyles::default();
+    crate::artist::line::LineStyles::from_rc(rc) != defaults
+        || figure.axes.iter().any(|axes| {
+            axes.lines
+                .iter()
+                .any(|l| l.dash_cap.is_some() || l.dash_join.is_some())
+        })
+}
+
 fn is_zero_i32(value: &i32) -> bool {
     *value == 0
 }
@@ -435,8 +449,16 @@ pub(crate) struct LineSpec {
     pub(crate) color: Rgba,
     pub(crate) linewidth: f64,
     pub(crate) dashes: Option<(f64, Vec<f64>)>,
+    /// The cap and join while the line is solid.
     pub(crate) cap: CapStyle,
     pub(crate) join: JoinStyle,
+    /// The cap and join while the line is dashed, each written only when it
+    /// differs from matplotlib's default (butt, round; schema 21). Before
+    /// schema 21, dashes took the solid cap and join.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) dash_cap: Option<CapStyle>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) dash_join: Option<JoinStyle>,
     pub(crate) visible: bool,
     pub(crate) zorder: f64,
     /// Per-artist legend label, collected by `Axes::legend_auto`.

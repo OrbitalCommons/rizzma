@@ -33,10 +33,15 @@ pub struct Line2D {
     linewidth: f64,
     /// Optional dash pattern as `(offset, on_off_lengths)` in points.
     dashes: Option<(f64, Vec<f64>)>,
-    /// Line cap style for open ends.
-    cap: CapStyle,
-    /// Line join style for corners.
-    join: JoinStyle,
+    /// Cap style of a solid line's ends; `None` until set, or resolved from
+    /// the axes' rc as the line is added.
+    cap: Option<CapStyle>,
+    /// Join style of a solid line's corners; `None` as for `cap`.
+    join: Option<JoinStyle>,
+    /// Cap style of a dashed line's dashes; `None` as for `cap`.
+    dash_cap: Option<CapStyle>,
+    /// Join style of a dashed line's corners; `None` as for `cap`.
+    dash_join: Option<JoinStyle>,
     /// Whether the line is drawn.
     visible: bool,
     /// Stacking order; higher draws on top.
@@ -164,10 +169,48 @@ impl LineMarker {
     }
 }
 
+/// The cap and join styles new lines take, solid and dashed: matplotlib's
+/// `lines.solid_capstyle`, `lines.solid_joinstyle`, `lines.dash_capstyle`
+/// and `lines.dash_joinstyle`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct LineStyles {
+    pub(crate) cap: CapStyle,
+    pub(crate) join: JoinStyle,
+    pub(crate) dash_cap: CapStyle,
+    pub(crate) dash_join: JoinStyle,
+}
+
+impl LineStyles {
+    /// The styles `rc` gives new lines.
+    pub(crate) fn from_rc(rc: &crate::core::RcParams) -> Self {
+        Self {
+            cap: rc.lines_solid_capstyle,
+            join: rc.lines_solid_joinstyle,
+            dash_cap: rc.lines_dash_capstyle,
+            dash_join: rc.lines_dash_joinstyle,
+        }
+    }
+}
+
+impl Default for LineStyles {
+    /// matplotlib's defaults: projecting caps and round joins when solid,
+    /// butt caps and round joins when dashed.
+    fn default() -> Self {
+        Self {
+            cap: CapStyle::Projecting,
+            join: JoinStyle::Round,
+            dash_cap: CapStyle::Butt,
+            dash_join: JoinStyle::Round,
+        }
+    }
+}
+
 impl Line2D {
     /// Construct a [`Line2D`] from `xdata` and `ydata` with matplotlib-ish
-    /// defaults: opaque black, `1.5`-point width, butt caps, miter joins,
-    /// visible, and zorder `2.0`.
+    /// defaults: opaque black, `1.5`-point width, visible, and zorder `2.0`.
+    /// Caps and joins follow the rc of the axes the line is added to
+    /// (matplotlib's `lines.solid_capstyle` and friends: projecting caps and
+    /// round joins when solid, butt caps and round joins when dashed).
     ///
     /// The `x` and `y` vectors are paired index-wise at draw time; only the
     /// common prefix is drawn if they differ in length. A non-finite `x` or `y`
@@ -181,8 +224,10 @@ impl Line2D {
             color: Rgba::BLACK,
             linewidth: 1.5,
             dashes: None,
-            cap: CapStyle::Butt,
-            join: JoinStyle::Miter,
+            cap: None,
+            join: None,
+            dash_cap: None,
+            dash_join: None,
             visible: true,
             zorder: 2.0,
             label: None,
@@ -230,16 +275,81 @@ impl Line2D {
         self
     }
 
-    /// Set the line cap style in place.
+    /// Set the cap style of the line's ends and dashes, solid or dashed, in
+    /// place.
     pub fn set_cap(&mut self, cap: CapStyle) -> &mut Self {
-        self.cap = cap;
+        self.cap = Some(cap);
+        self.dash_cap = Some(cap);
         self
     }
 
-    /// Set the line join style in place.
+    /// Set the join style of the line's corners, solid or dashed, in place.
     pub fn set_join(&mut self, join: JoinStyle) -> &mut Self {
-        self.join = join;
+        self.join = Some(join);
+        self.dash_join = Some(join);
         self
+    }
+
+    /// Set the cap style used while the line is solid, in place
+    /// (matplotlib's `set_solid_capstyle`).
+    pub fn set_solid_capstyle(&mut self, cap: CapStyle) -> &mut Self {
+        self.cap = Some(cap);
+        self
+    }
+
+    /// Set the join style used while the line is solid, in place
+    /// (matplotlib's `set_solid_joinstyle`).
+    pub fn set_solid_joinstyle(&mut self, join: JoinStyle) -> &mut Self {
+        self.join = Some(join);
+        self
+    }
+
+    /// Set the cap style used while the line is dashed, in place
+    /// (matplotlib's `set_dash_capstyle`).
+    pub fn set_dash_capstyle(&mut self, cap: CapStyle) -> &mut Self {
+        self.dash_cap = Some(cap);
+        self
+    }
+
+    /// Set the join style used while the line is dashed, in place
+    /// (matplotlib's `set_dash_joinstyle`).
+    pub fn set_dash_joinstyle(&mut self, join: JoinStyle) -> &mut Self {
+        self.dash_join = Some(join);
+        self
+    }
+
+    /// Stroke dashes with the solid cap and join, as every line did before
+    /// schema 21 kept them apart.
+    #[cfg(feature = "portable")]
+    pub(crate) fn dash_like_solid(&mut self) {
+        self.dash_cap = self.cap;
+        self.dash_join = self.join;
+    }
+
+    /// Give every cap and join style not yet set the value `styles` gives it.
+    pub(crate) fn resolve_styles(&mut self, styles: &LineStyles) {
+        self.cap.get_or_insert(styles.cap);
+        self.join.get_or_insert(styles.join);
+        self.dash_cap.get_or_insert(styles.dash_cap);
+        self.dash_join.get_or_insert(styles.dash_join);
+    }
+
+    /// The cap and join the line strokes with now: the dashed pair while it
+    /// has a dash pattern, the solid pair otherwise, matplotlib's defaults
+    /// for any unset.
+    fn cap_join(&self) -> (CapStyle, JoinStyle) {
+        let defaults = LineStyles::default();
+        if self.dashes.as_ref().is_some_and(|(_, p)| !p.is_empty()) {
+            (
+                self.dash_cap.unwrap_or(defaults.dash_cap),
+                self.dash_join.unwrap_or(defaults.dash_join),
+            )
+        } else {
+            (
+                self.cap.unwrap_or(defaults.cap),
+                self.join.unwrap_or(defaults.join),
+            )
+        }
     }
 
     /// Show or hide the line in place.
@@ -489,11 +599,12 @@ impl Line2D {
         if !self.visible || path.vertices().len() < 2 {
             return;
         }
+        let (cap, join) = self.cap_join();
         let gc = GraphicsContext {
             line_width: self.linewidth,
             dashes: self.dashes.clone(),
-            cap: self.cap,
-            join: self.join,
+            cap,
+            join,
             stroke: Some(self.color),
             ..GraphicsContext::new()
         };
@@ -549,14 +660,21 @@ impl Line2D {
         &self,
         bank: &mut crate::portable::data::BankWriter,
     ) -> crate::portable::spec::LineSpec {
+        let defaults = LineStyles::default();
+        let cap = self.cap.unwrap_or(defaults.cap);
+        let join = self.join.unwrap_or(defaults.join);
+        let dash_cap = self.dash_cap.unwrap_or(defaults.dash_cap);
+        let dash_join = self.dash_join.unwrap_or(defaults.dash_join);
         crate::portable::spec::LineSpec {
             x: bank.push_f64(&self.xdata),
             y: bank.push_f64(&self.ydata),
             color: self.color,
             linewidth: self.linewidth,
             dashes: self.dashes.clone(),
-            cap: self.cap,
-            join: self.join,
+            cap,
+            join,
+            dash_cap: (dash_cap != defaults.dash_cap).then_some(dash_cap),
+            dash_join: (dash_join != defaults.dash_join).then_some(dash_join),
             visible: self.visible,
             zorder: self.zorder,
             label: self.label.clone(),
@@ -575,8 +693,10 @@ impl Line2D {
             color: spec.color,
             linewidth: spec.linewidth,
             dashes: spec.dashes.clone(),
-            cap: spec.cap,
-            join: spec.join,
+            cap: Some(spec.cap),
+            join: Some(spec.join),
+            dash_cap: Some(spec.dash_cap.unwrap_or(LineStyles::default().dash_cap)),
+            dash_join: Some(spec.dash_join.unwrap_or(LineStyles::default().dash_join)),
             visible: spec.visible,
             zorder: spec.zorder,
             label: spec.label.clone(),

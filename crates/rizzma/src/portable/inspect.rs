@@ -72,6 +72,14 @@ struct RcHead {
     axes_axisbelow: Option<serde::de::IgnoredAny>,
     #[serde(default)]
     axes_formatter_min_exponent: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    lines_solid_capstyle: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    lines_solid_joinstyle: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    lines_dash_capstyle: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    lines_dash_joinstyle: Option<serde::de::IgnoredAny>,
 }
 
 /// Presence of an axes' title style, text size, minor-tick settings, artist
@@ -169,6 +177,10 @@ impl NormHead {
 struct LineHead {
     #[serde(default)]
     marker: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    dash_cap: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    dash_join: Option<serde::de::IgnoredAny>,
 }
 
 /// Presence of a legend row's scatter marker sample.
@@ -251,6 +263,20 @@ impl FigureHead {
         self.axes.iter().any(|axes| {
             axes.title_style.is_some() || axes.xaxis.minor.is_some() || axes.yaxis.minor.is_some()
         })
+    }
+
+    /// Mirrors [`uses_line_styles`](super::spec::uses_line_styles).
+    fn uses_line_styles(&self) -> bool {
+        let rc = &self.rc;
+        rc.lines_solid_capstyle.is_some()
+            || rc.lines_solid_joinstyle.is_some()
+            || rc.lines_dash_capstyle.is_some()
+            || rc.lines_dash_joinstyle.is_some()
+            || self.axes.iter().any(|axes| {
+                axes.lines
+                    .iter()
+                    .any(|l| l.dash_cap.is_some() || l.dash_join.is_some())
+            })
     }
 
     /// Mirrors [`uses_log_ticks`](super::spec::uses_log_ticks).
@@ -472,6 +498,7 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
                 .any(|axes| axes.collections.iter().any(|c| c.join.is_some())),
         ),
         (20, header.figure.uses_log_ticks()),
+        (21, header.figure.uses_line_styles()),
     ]);
     if header.schema < required {
         return Err(PortableError::Malformed(format!(

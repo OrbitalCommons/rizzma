@@ -10,6 +10,10 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 ## [Unreleased]
 
 ### Added
+- `RcParams::lines_solid_capstyle`, `lines_solid_joinstyle`, `lines_dash_capstyle`
+  and `lines_dash_joinstyle`, matplotlib's `lines.*style` (projecting, round, butt,
+  round), and `Line2D::set_solid_capstyle` / `set_solid_joinstyle` /
+  `set_dash_capstyle` / `set_dash_joinstyle`.
 - `RcParams::axes_formatter_min_exponent`, matplotlib's `axes.formatter.min_exponent`
   (default 0): log-axis powers whose exponent is below it in magnitude read as plain
   numbers. Also `LogFormatterMathtext::with_min_exponent` and
@@ -265,6 +269,13 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 - Every scale setter resets the axis' minor ticks, as a matplotlib scale change
   does: `set_*scale_log` to matplotlib's automatic log minor ticks, the others to
   none.
+- Portable figures are schema 21 when a line's dashed cap or join differs from
+  matplotlib's (butt, round) or the rc sets a line cap or join (written only then).
+  Lines from schema 1–20 artifacts stroke their dashes with their solid cap and
+  join, as they did.
+- `Line2D` keeps a solid and a dashed cap and join, like matplotlib's; `set_cap` and
+  `set_join` set both. A line takes any it has not been given from the rc of the
+  axes it is added to.
 - `ColorScale::cmap` is a `CmapSpec` rather than a `String`, and
   `ColorMapping::cmap_name()` is now `ColorMapping::cmap()`, returning the `CmapSpec`.
   A `CmapSpec` converts from a name, so `ColorMapping::new("viridis")` and
@@ -331,7 +342,18 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":20`.
+- Every `.riz` artifact now declares `"schema":21`.
+- **Lines cap and join as matplotlib's do.** Solid lines end in projecting caps and
+  join round (`lines.solid_capstyle: projecting`, `lines.solid_joinstyle: round`),
+  and dashed lines take butt caps and round joins, where every line had butt caps
+  and miter joins. Solid lines now reach half a line width past their end points,
+  and sharp corners no longer spike: a 4 pt zig-zag's ink matches matplotlib 3.11
+  within 1 px, solid and dashed (it was 2 px off at the corners). Against
+  matplotlib on a plain 1.5 pt polyline, the largest pixel difference drops from
+  220 to 26 levels; the many small differences left are anti-aliasing (tiny-skia
+  vs Agg). **Essentially every figure with a line renders differently** (39 of 79
+  gallery images), and byte-for-byte goldens of line plots, such as
+  2AMLogic/lindhard's SVGs, change on upgrade.
 - **Log axes label and tick as matplotlib's do.** Every major tick reads `base^n`
   (`10⁰, 10¹, …, 10⁶`; `2⁴, 2⁵, …`), where small powers printed as plain decimals
   (`10, 100, 1000, 10⁵`), and matplotlib's default minor ticks are drawn

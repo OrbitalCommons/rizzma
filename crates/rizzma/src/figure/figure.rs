@@ -1367,6 +1367,7 @@ impl Figure {
             ),
             (19, wire::uses_collection_joins(&spec.figure)),
             (20, wire::uses_log_ticks(&spec.figure)),
+            (21, wire::uses_line_styles(&spec.figure)),
         ]);
         if spec.schema < required {
             return Err(PortableError::Malformed(format!(
@@ -1407,6 +1408,7 @@ impl Figure {
             })?;
         }
         let reader = crate::portable::data::BankReader::new(bin, &spec.accessors);
+        let declared = spec.schema;
         let fig = spec.figure;
         let mut restored = Figure {
             width_in: fig.width_in,
@@ -1440,6 +1442,12 @@ impl Figure {
         for ax in &mut restored.axes {
             ax.path_simplify = simplify;
             ax.log_min_exponent = restored.rc.axes_formatter_min_exponent;
+            ax.line_styles = crate::artist::line::LineStyles::from_rc(&restored.rc);
+            if declared < 21 {
+                for line in &mut ax.lines {
+                    line.dash_like_solid();
+                }
+            }
         }
         // Only now can targets be checked against the artists that exist. An
         // accepted figure is total: seek and set_control cannot fail on it,

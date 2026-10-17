@@ -99,9 +99,10 @@ pub use timeline::{Interp, Target, Timeline, Track};
 /// 16 where the grid draws among the artists (`axisbelow`); schema 17 line
 /// markers; schema 18 matplotlib-style quivers; schema 19 collection edge
 /// joins; schema 20 matplotlib's default log ticks (automatic minor ticks and
-/// `axes.formatter.min_exponent`).
+/// `axes.formatter.min_exponent`); schema 21 separate dashed-line caps and
+/// joins and the line cap and join rc.
 #[cfg(feature = "portable")]
-pub const SCHEMA_VERSION: u32 = 20;
+pub const SCHEMA_VERSION: u32 = 21;
 
 /// Oldest schema version this build can still load.
 #[cfg(feature = "portable")]
