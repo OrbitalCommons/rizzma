@@ -171,6 +171,33 @@ pub(crate) fn uses_line_markers(figure: &FigureSpec) -> bool {
 }
 
 #[cfg(feature = "portable")]
+fn is_zero_i32(value: &i32) -> bool {
+    *value == 0
+}
+
+/// Whether any axis uses matplotlib's automatic log minor ticks or a log
+/// formatter with a minimum exponent, or the rc sets one (schema 20).
+#[cfg(feature = "portable")]
+pub(crate) fn uses_log_ticks(figure: &FigureSpec) -> bool {
+    let log_ticks = |axis: &AxisSpec| {
+        let locators = std::iter::once(&axis.locator)
+            .chain(axis.minor.as_ref().and_then(|m| m.locator.as_ref()));
+        locators
+            .into_iter()
+            .any(|l| matches!(l, LocatorSpec::Log { auto: true, .. }))
+            || matches!(
+                axis.formatter,
+                FormatterSpec::LogMathtext { min_exponent, .. } if min_exponent != 0
+            )
+    };
+    figure.rc.axes_formatter_min_exponent != 0
+        || figure
+            .axes
+            .iter()
+            .any(|axes| log_ticks(&axes.xaxis) || log_ticks(&axes.yaxis))
+}
+
+#[cfg(feature = "portable")]
 fn round_join() -> crate::render::JoinStyle {
     crate::render::JoinStyle::Round
 }
@@ -718,6 +745,9 @@ pub(crate) enum LocatorSpec {
     Log {
         base: f64,
         subs: Vec<f64>,
+        /// matplotlib's `subs='auto'`, written only when set (schema 20).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        auto: bool,
     },
     Symlog {
         base: f64,
@@ -762,6 +792,10 @@ pub(crate) enum FormatterSpec {
     },
     LogMathtext {
         base: f64,
+        /// Below this power, labels are plain numbers; written only when not
+        /// 0 (schema 20).
+        #[serde(default, skip_serializing_if = "is_zero_i32")]
+        min_exponent: i32,
     },
     Symlog {
         base: f64,

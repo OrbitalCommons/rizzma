@@ -454,6 +454,9 @@ pub struct Axes {
     /// before drawing; `None` draws them as given. From the figure's
     /// `path.simplify` and `path.simplify_threshold` rc settings.
     pub(crate) path_simplify: Option<f64>,
+    /// The figure's `axes.formatter.min_exponent`, given to the formatter a
+    /// log scale sets.
+    pub(crate) log_min_exponent: i32,
     /// Optional title drawn above the axes.
     title: Option<String>,
     /// Title font size (px at 100 DPI), seeded from `axes.titlesize`.
@@ -675,6 +678,7 @@ impl Axes {
             secondary_x: None,
             colorbar: None,
             path_simplify: simplify_threshold(&RcParams::default()),
+            log_min_exponent: 0,
             title: None,
             title_size: DEFAULT_TITLE_SIZE,
             title_pad: DEFAULT_TITLE_PAD,
@@ -1537,6 +1541,7 @@ impl Axes {
     /// [`Figure`]: crate::figure::Figure
     pub(crate) fn apply_rcparams(&mut self, rc: &RcParams) {
         self.path_simplify = simplify_threshold(rc);
+        self.log_min_exponent = rc.axes_formatter_min_exponent;
         self.axisbelow = rc.axes_axisbelow;
         self.facecolor = rc.axes_facecolor;
         self.edgecolor = rc.axes_edgecolor;
@@ -1626,7 +1631,8 @@ impl Axes {
         self.xaxis
             .set_scale(Box::new(LinearScale::new()))
             .set_locator(Box::new(AutoLocator::new()))
-            .set_formatter(Box::new(ScalarFormatter::new()));
+            .set_formatter(Box::new(ScalarFormatter::new()))
+            .minorticks_off();
         self
     }
 
@@ -1636,7 +1642,8 @@ impl Axes {
         self.yaxis
             .set_scale(Box::new(LinearScale::new()))
             .set_locator(Box::new(AutoLocator::new()))
-            .set_formatter(Box::new(ScalarFormatter::new()));
+            .set_formatter(Box::new(ScalarFormatter::new()))
+            .minorticks_off();
         self
     }
 
@@ -1748,7 +1755,10 @@ impl Axes {
         self.xaxis
             .set_scale(Box::new(LogScale::new(base)))
             .set_locator(Box::new(LogLocator::new(base)))
-            .set_formatter(Box::new(LogFormatterMathtext::new(base)));
+            .set_formatter(Box::new(
+                LogFormatterMathtext::new(base).with_min_exponent(self.log_min_exponent),
+            ))
+            .set_minor_locator(Box::new(LogLocator::auto_minor(base)));
         self
     }
 
@@ -1772,7 +1782,10 @@ impl Axes {
         self.yaxis
             .set_scale(Box::new(LogScale::new(base)))
             .set_locator(Box::new(LogLocator::new(base)))
-            .set_formatter(Box::new(LogFormatterMathtext::new(base)));
+            .set_formatter(Box::new(
+                LogFormatterMathtext::new(base).with_min_exponent(self.log_min_exponent),
+            ))
+            .set_minor_locator(Box::new(LogLocator::auto_minor(base)));
         self
     }
 
@@ -1802,7 +1815,8 @@ impl Axes {
         self.xaxis
             .set_scale(Box::new(SymlogScale::new(base, linthresh, 1.0)))
             .set_locator(Box::new(SymlogLocator::new(base, linthresh)))
-            .set_formatter(Box::new(SymlogFormatterMathtext::new(base, linthresh)));
+            .set_formatter(Box::new(SymlogFormatterMathtext::new(base, linthresh)))
+            .minorticks_off();
         self
     }
 
@@ -1832,7 +1846,8 @@ impl Axes {
         self.yaxis
             .set_scale(Box::new(SymlogScale::new(base, linthresh, 1.0)))
             .set_locator(Box::new(SymlogLocator::new(base, linthresh)))
-            .set_formatter(Box::new(SymlogFormatterMathtext::new(base, linthresh)));
+            .set_formatter(Box::new(SymlogFormatterMathtext::new(base, linthresh)))
+            .minorticks_off();
         self
     }
 
@@ -1858,7 +1873,8 @@ impl Axes {
         self.xaxis
             .set_scale(Box::new(AsinhScale::new(linear_width)))
             .set_locator(Box::new(AsinhLocator::new(linear_width)))
-            .set_formatter(Box::new(AsinhFormatterMathtext::new(10.0, linear_width)));
+            .set_formatter(Box::new(AsinhFormatterMathtext::new(10.0, linear_width)))
+            .minorticks_off();
         self
     }
 
@@ -1884,7 +1900,8 @@ impl Axes {
         self.yaxis
             .set_scale(Box::new(AsinhScale::new(linear_width)))
             .set_locator(Box::new(AsinhLocator::new(linear_width)))
-            .set_formatter(Box::new(AsinhFormatterMathtext::new(10.0, linear_width)));
+            .set_formatter(Box::new(AsinhFormatterMathtext::new(10.0, linear_width)))
+            .minorticks_off();
         self
     }
 
@@ -1901,7 +1918,8 @@ impl Axes {
         self.xaxis
             .set_scale(Box::new(LogitScale::new()))
             .set_locator(Box::new(LogitLocator::new()))
-            .set_formatter(Box::new(LogitFormatterMathtext::new()));
+            .set_formatter(Box::new(LogitFormatterMathtext::new()))
+            .minorticks_off();
         self
     }
 
@@ -1918,7 +1936,8 @@ impl Axes {
         self.yaxis
             .set_scale(Box::new(LogitScale::new()))
             .set_locator(Box::new(LogitLocator::new()))
-            .set_formatter(Box::new(LogitFormatterMathtext::new()));
+            .set_formatter(Box::new(LogitFormatterMathtext::new()))
+            .minorticks_off();
         self
     }
 
@@ -3343,6 +3362,7 @@ impl Axes {
             colorbar: spec.colorbar.clone(),
             // The figure re-applies its own rc setting after import.
             path_simplify: simplify_threshold(&RcParams::default()),
+            log_min_exponent: 0,
             title: spec.title.clone(),
             title_size: spec
                 .title_style
@@ -4185,6 +4205,88 @@ mod tests {
         assert_eq!(
             line_stroke(&axes.lines[1]),
             Rgba::from_hex("#1f77b4").unwrap()
+        );
+    }
+
+    /// Log y axes against matplotlib 3.11 (`tests/fixtures/log_ticks_mpl.py`):
+    /// the same major ticks with the same labels, and the same minor ticks.
+    #[test]
+    fn log_ticks_match_matplotlib() {
+        let reference = include_str!("../../tests/fixtures/log_ticks_mpl.txt");
+        for (case, base, lim) in [
+            ("b10_1e1_1e6", 10.0, (1e1, 1e6)),
+            ("b10_1em3_1", 10.0, (1e-3, 1.0)),
+            ("b2_16_1024", 2.0, (16.0, 1024.0)),
+        ] {
+            let rows = |kind: &str| -> Vec<Vec<&str>> {
+                reference
+                    .lines()
+                    .map(|l| l.split_whitespace().collect::<Vec<_>>())
+                    .filter(|f| f[0] == case && f[1] == kind)
+                    .collect()
+            };
+            let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+            axes.set_yscale_log(base);
+            let (ticks, labels) = axes.yaxis.visible_ticks(lim);
+            let major = rows("major");
+            assert_eq!(ticks.len(), major.len(), "{case}: major count");
+            for ((tick, label), want) in ticks.iter().zip(&labels).zip(&major) {
+                let value: f64 = want[2].parse().unwrap();
+                assert!(
+                    (tick - value).abs() <= 1e-12 * value,
+                    "{case}: {tick} vs {value}"
+                );
+                assert_eq!(label, want[3], "{case}: label of {value}");
+            }
+            let minor: Vec<f64> = rows("minor")
+                .iter()
+                .map(|f| f[2].parse().unwrap())
+                .collect();
+            let ours = axes.yaxis.visible_minor_ticks(lim);
+            assert_eq!(ours.len(), minor.len(), "{case}: minor count");
+            for (tick, value) in ours.iter().zip(&minor) {
+                assert!(
+                    (tick - value).abs() <= 1e-9 * value,
+                    "{case}: {tick} vs {value}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn many_decades_or_a_small_base_draw_no_log_minor_ticks() {
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.set_yscale_log(10.0);
+        assert!(axes.yaxis.visible_minor_ticks((1e-6, 1e6)).is_empty());
+        assert_eq!(axes.yaxis.visible_minor_ticks((1e-4, 1e4)).len(), 64);
+        axes.set_yscale_log(2.0);
+        assert!(axes.yaxis.visible_minor_ticks((1.0, 64.0)).is_empty());
+        axes.set_yscale_linear();
+        assert!(axes.yaxis.visible_minor_ticks((0.0, 1.0)).is_empty());
+    }
+
+    #[test]
+    fn min_exponent_labels_small_powers_plainly() {
+        let rc = RcParams {
+            axes_formatter_min_exponent: 3,
+            ..RcParams::default()
+        };
+        let mut axes = Axes::new(Bbox::from_extents(0.0, 0.0, 1.0, 1.0));
+        axes.apply_rcparams(&rc);
+        axes.set_yscale_log(10.0);
+        let (_, labels) = axes.yaxis.visible_ticks((1e-3, 1e4));
+        assert_eq!(
+            labels,
+            [
+                "$10^{-3}$",
+                "$0.01$",
+                "$0.1$",
+                "$1$",
+                "$10$",
+                "$100$",
+                "$10^{3}$",
+                "$10^{4}$"
+            ]
         );
     }
 }

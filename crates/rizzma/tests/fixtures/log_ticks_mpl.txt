@@ -1,0 +1,81 @@
+b10_1e1_1e6 major 10.0 $10^{1}$
+b10_1e1_1e6 major 100.0 $10^{2}$
+b10_1e1_1e6 major 1000.0 $10^{3}$
+b10_1e1_1e6 major 10000.0 $10^{4}$
+b10_1e1_1e6 major 100000.0 $10^{5}$
+b10_1e1_1e6 major 1000000.0 $10^{6}$
+b10_1e1_1e6 minor 20.0
+b10_1e1_1e6 minor 30.0
+b10_1e1_1e6 minor 40.0
+b10_1e1_1e6 minor 50.0
+b10_1e1_1e6 minor 60.0
+b10_1e1_1e6 minor 70.0
+b10_1e1_1e6 minor 80.0
+b10_1e1_1e6 minor 90.0
+b10_1e1_1e6 minor 200.0
+b10_1e1_1e6 minor 300.0
+b10_1e1_1e6 minor 400.0
+b10_1e1_1e6 minor 500.0
+b10_1e1_1e6 minor 600.0
+b10_1e1_1e6 minor 700.0
+b10_1e1_1e6 minor 800.0
+b10_1e1_1e6 minor 900.0
+b10_1e1_1e6 minor 2000.0
+b10_1e1_1e6 minor 3000.0
+b10_1e1_1e6 minor 4000.0
+b10_1e1_1e6 minor 5000.0
+b10_1e1_1e6 minor 6000.0
+b10_1e1_1e6 minor 7000.0
+b10_1e1_1e6 minor 8000.0
+b10_1e1_1e6 minor 9000.0
+b10_1e1_1e6 minor 20000.0
+b10_1e1_1e6 minor 30000.0
+b10_1e1_1e6 minor 40000.0
+b10_1e1_1e6 minor 50000.0
+b10_1e1_1e6 minor 60000.0
+b10_1e1_1e6 minor 70000.0
+b10_1e1_1e6 minor 80000.0
+b10_1e1_1e6 minor 90000.0
+b10_1e1_1e6 minor 200000.0
+b10_1e1_1e6 minor 300000.0
+b10_1e1_1e6 minor 400000.0
+b10_1e1_1e6 minor 500000.0
+b10_1e1_1e6 minor 600000.0
+b10_1e1_1e6 minor 700000.0
+b10_1e1_1e6 minor 800000.0
+b10_1e1_1e6 minor 900000.0
+b10_1em3_1 major 0.001 $10^{-3}$
+b10_1em3_1 major 0.01 $10^{-2}$
+b10_1em3_1 major 0.1 $10^{-1}$
+b10_1em3_1 major 1.0 $10^{0}$
+b10_1em3_1 minor 0.002
+b10_1em3_1 minor 0.003
+b10_1em3_1 minor 0.004
+b10_1em3_1 minor 0.005
+b10_1em3_1 minor 0.006
+b10_1em3_1 minor 0.007
+b10_1em3_1 minor 0.008
+b10_1em3_1 minor 0.009000000000000001
+b10_1em3_1 minor 0.02
+b10_1em3_1 minor 0.03
+b10_1em3_1 minor 0.04
+b10_1em3_1 minor 0.05
+b10_1em3_1 minor 0.06
+b10_1em3_1 minor 0.07
+b10_1em3_1 minor 0.08
+b10_1em3_1 minor 0.09
+b10_1em3_1 minor 0.2
+b10_1em3_1 minor 0.30000000000000004
+b10_1em3_1 minor 0.4
+b10_1em3_1 minor 0.5
+b10_1em3_1 minor 0.6000000000000001
+b10_1em3_1 minor 0.7000000000000001
+b10_1em3_1 minor 0.8
+b10_1em3_1 minor 0.9
+b2_16_1024 major 16.0 $2^{4}$
+b2_16_1024 major 32.0 $2^{5}$
+b2_16_1024 major 64.0 $2^{6}$
+b2_16_1024 major 128.0 $2^{7}$
+b2_16_1024 major 256.0 $2^{8}$
+b2_16_1024 major 512.0 $2^{9}$
+b2_16_1024 major 1024.0 $2^{10}$

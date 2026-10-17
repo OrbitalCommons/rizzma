@@ -1000,11 +1000,14 @@ impl Locator for FixedLocator {
 /// Major ticks are powers of `base`. Minor ticks can be requested by setting
 /// `subs` to multiples within each decade, for example `[2, 3, ..., 9]` for
 /// the usual base-10 minor ticks. The default locator produces major ticks
-/// only; [`LogLocator::minor`] constructs the common minor-tick locator.
+/// only; [`LogLocator::minor`] constructs the common minor-tick locator and
+/// [`LogLocator::auto_minor`] matplotlib's default one for log axes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LogLocator {
     base: f64,
     subs: Vec<f64>,
+    /// Choose the multiples from the view, as matplotlib's `subs='auto'`.
+    auto: bool,
 }
 
 impl LogLocator {
@@ -1033,7 +1036,36 @@ impl LogLocator {
         if subs.is_empty() {
             subs.push(1.0);
         }
-        LogLocator { base, subs }
+        LogLocator {
+            base,
+            subs,
+            auto: false,
+        }
+    }
+
+    /// matplotlib's default minor-tick locator for log axes,
+    /// `LogLocator(subs='auto')`: ticks at `2, 3, …` up to the base times
+    /// each power, unless the view spans ten or more powers or the base is
+    /// below 3, when there are none.
+    ///
+    /// `base` must be finite and greater than one.
+    pub fn auto_minor(base: f64) -> Self {
+        LogLocator {
+            auto: true,
+            ..Self::new(base)
+        }
+    }
+
+    /// `log_base(x)`, exact for the powers of 10 and 2 that matplotlib's
+    /// specialized logarithms keep exact.
+    fn log_b(&self, x: f64) -> f64 {
+        if self.base == 10.0 {
+            x.log10()
+        } else if self.base == 2.0 {
+            x.log2()
+        } else {
+            x.ln() / self.base.ln()
+        }
     }
 
     /// Construct the common minor-tick locator.
@@ -1074,6 +1106,7 @@ impl Locator for LogLocator {
         Some(PortableLocator(LocatorSpec::Log {
             base: self.base,
             subs: self.subs.clone(),
+            auto: self.auto,
         }))
     }
 
@@ -1090,11 +1123,23 @@ impl Locator for LogLocator {
         let log_base = self.base.ln();
         let start = (lo.ln() / log_base).floor() as i32;
         let end = (hi.ln() / log_base).ceil() as i32;
+        let subs: Vec<f64> = if self.auto {
+            let powers = self.log_b(hi).floor() - self.log_b(lo).ceil() + 1.0;
+            if powers >= 10.0 || self.base < 3.0 {
+                return Vec::new();
+            }
+            (2..)
+                .map(f64::from)
+                .take_while(|&s| s < self.base)
+                .collect()
+        } else {
+            self.subs.clone()
+        };
         let mut ticks = Vec::new();
 
         for exponent in start..=end {
             let decade = self.base.powi(exponent);
-            for &sub in &self.subs {
+            for &sub in &subs {
                 let tick = sub * decade;
                 if tick >= lo * (1.0 - 1e-12) && tick <= hi * (1.0 + 1e-12) {
                     ticks.push(tick);
@@ -1861,30 +1906,48 @@ impl Formatter for LogFormatter {
     }
 }
 
-/// Format logarithmic major ticks with mathtext for exponent labels.
+/// Format logarithmic ticks as mathtext powers, matplotlib's default for log
+/// axes (`LogFormatterSciNotation`).
 ///
-/// This formatter preserves [`LogFormatter`]'s compact decimal labels for
-/// nearby powers, hides non-decade minor ticks, and wraps large exponent labels
-/// in `$...$` so higher-level rich-text rendering can draw real superscripts.
+/// Every power of the base reads `$base^{n}$` (`10⁰, 10¹, …`, `2⁴, 2⁵, …`),
+/// one consistent label per major tick; a power whose exponent is below
+/// [`min_exponent`](Self::with_min_exponent) in magnitude reads as a plain
+/// number instead. Ticks between powers (minor ticks) are unlabelled.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LogFormatterMathtext {
-    inner: LogFormatter,
+    base: f64,
+    min_exponent: i32,
 }
 
 impl LogFormatterMathtext {
-    /// Construct a mathtext log formatter for the given base.
+    /// Construct a mathtext log formatter for the given base, labelling every
+    /// power as one.
     ///
     /// `base` must be finite and greater than one.
     pub fn new(base: f64) -> Self {
+        assert!(
+            base.is_finite() && base > 1.0,
+            "log formatter base must be finite and > 1"
+        );
         Self {
-            inner: LogFormatter::new(base),
+            base,
+            min_exponent: 0,
         }
+    }
+
+    /// Label powers whose exponent is below `min_exponent` in magnitude as
+    /// plain numbers (`1`, `10`, `100` for 2), matplotlib's
+    /// `axes.formatter.min_exponent`.
+    #[must_use]
+    pub fn with_min_exponent(mut self, min_exponent: i32) -> Self {
+        self.min_exponent = min_exponent;
+        self
     }
 
     /// Return this formatter's logarithm base.
     #[must_use]
     pub fn base(&self) -> f64 {
-        self.inner.base()
+        self.base
     }
 }
 
@@ -1898,16 +1961,31 @@ impl Default for LogFormatterMathtext {
 impl Formatter for LogFormatterMathtext {
     fn portable_spec(&self) -> Option<PortableFormatter> {
         Some(PortableFormatter(FormatterSpec::LogMathtext {
-            base: self.inner.base,
+            base: self.base,
+            min_exponent: self.min_exponent,
         }))
     }
 
     fn format(&self, value: f64, _pos: Option<usize>) -> String {
-        let Some(exponent) = self.inner.exponent(value) else {
+        if value == 0.0 {
+            return "$0$".to_string();
+        }
+        if !value.is_finite() {
             return String::new();
-        };
-
-        self.inner.format_exponent(exponent, true)
+        }
+        let sign = if value < 0.0 { "-" } else { "" };
+        let x = value.abs();
+        let fx = x.ln() / self.base.ln();
+        let exponent = fx.round();
+        // matplotlib's `_is_close_to_int`: `math.isclose`'s relative tolerance.
+        if (fx - exponent).abs() > 1e-9 * fx.abs().max(exponent.abs()) {
+            return String::new();
+        }
+        if exponent.abs() < f64::from(self.min_exponent) {
+            format!("${sign}{}$", format_general(x, 6, false))
+        } else {
+            format!("${sign}{}^{{{}}}$", self.base, exponent as i32)
+        }
     }
 }
 
@@ -3225,13 +3303,17 @@ impl crate::portable::spec::LocatorSpec {
             }
             L::LinearN { numticks } => Box::new(LinearLocator::new(numticks)),
             L::Fixed { locs, nbins } => Box::new(FixedLocator { locs, nbins }),
-            L::Log { base, subs } => {
+            L::Log { base, subs, auto } => {
                 if !(base.is_finite() && base > 1.0) {
                     return Err(PortableError::Malformed(
                         "log locator base must be finite and > 1".to_string(),
                     ));
                 }
-                Box::new(LogLocator::with_subs(base, subs))
+                if auto {
+                    Box::new(LogLocator::auto_minor(base))
+                } else {
+                    Box::new(LogLocator::with_subs(base, subs))
+                }
             }
             L::Symlog {
                 base,
@@ -3304,9 +3386,9 @@ impl crate::portable::spec::FormatterSpec {
                 None => ScalarFormatter::new(),
             }),
             F::Log { base } => Box::new(LogFormatter { base }),
-            F::LogMathtext { base } => Box::new(LogFormatterMathtext {
-                inner: LogFormatter { base },
-            }),
+            F::LogMathtext { base, min_exponent } => {
+                Box::new(LogFormatterMathtext { base, min_exponent })
+            }
             F::Symlog { base, linthresh } => Box::new(SymlogFormatter { base, linthresh }),
             F::SymlogMathtext { base, linthresh } => Box::new(SymlogFormatterMathtext {
                 inner: SymlogFormatter { base, linthresh },
@@ -3816,11 +3898,13 @@ mod tests {
     }
 
     #[test]
-    fn log_formatter_mathtext_wraps_exponent_labels() {
+    fn log_formatter_mathtext_labels_every_power_alike() {
         let formatter = LogFormatterMathtext::new(10.0);
 
-        assert_eq!(formatter.format(10.0, None), "10");
+        assert_eq!(formatter.format(1.0, None), "$10^{0}$");
+        assert_eq!(formatter.format(10.0, None), "$10^{1}$");
         assert_eq!(formatter.format(1e6, None), "$10^{6}$");
+        assert_eq!(formatter.format(1e-3, None), "$10^{-3}$");
         assert_eq!(formatter.format(2.0, None), "");
     }
 
@@ -3829,8 +3913,11 @@ mod tests {
         let formatter = LogFormatterMathtext::new(2.0);
 
         assert_eq!(formatter.base(), 2.0);
-        assert_eq!(formatter.format(8.0, None), "8");
+        assert_eq!(formatter.format(8.0, None), "$2^{3}$");
         assert_eq!(formatter.format(128.0, None), "$2^{7}$");
+        let plain = formatter.with_min_exponent(4);
+        assert_eq!(plain.format(8.0, None), "$8$");
+        assert_eq!(plain.format(16.0, None), "$2^{4}$");
     }
 
     #[test]

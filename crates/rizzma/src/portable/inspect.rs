@@ -70,6 +70,8 @@ struct RcHead {
     path_simplify_threshold: Option<serde::de::IgnoredAny>,
     #[serde(default)]
     axes_axisbelow: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    axes_formatter_min_exponent: Option<serde::de::IgnoredAny>,
 }
 
 /// Presence of an axes' title style, text size, minor-tick settings, artist
@@ -182,7 +184,65 @@ struct LegendHead {
 #[derive(Debug, Deserialize)]
 struct AxisHead {
     #[serde(default)]
-    minor: Option<serde::de::IgnoredAny>,
+    minor: Option<MinorHead>,
+    #[serde(default)]
+    locator: TickerHead,
+    #[serde(default)]
+    formatter: TickerHead,
+}
+
+/// An axis' minor-tick locator, for its schema-20 log-tick fields.
+#[derive(Debug, Deserialize)]
+struct MinorHead {
+    #[serde(default)]
+    locator: Option<TickerHead>,
+}
+
+/// Whether a locator or formatter, in its externally tagged wire form (a
+/// unit variant's name, or `{"variant": {fields}}`), carries a schema-20
+/// field: a log locator's `auto` or a log formatter's `min_exponent`.
+#[derive(Debug, Default)]
+struct TickerHead {
+    log_ticks: bool,
+}
+
+/// The schema-20 fields a variant's body may carry; any others are skipped.
+#[derive(Deserialize)]
+struct TickerFields {
+    #[serde(default)]
+    auto: Option<bool>,
+    #[serde(default)]
+    min_exponent: Option<serde::de::IgnoredAny>,
+}
+
+impl<'de> Deserialize<'de> for TickerHead {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = TickerHead;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a locator or formatter")
+            }
+
+            fn visit_str<E>(self, _: &str) -> Result<TickerHead, E> {
+                Ok(TickerHead::default())
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<TickerHead, A::Error> {
+                let mut log_ticks = false;
+                while map.next_key::<serde::de::IgnoredAny>()?.is_some() {
+                    let fields: TickerFields = map.next_value()?;
+                    log_ticks |= fields.auto == Some(true) || fields.min_exponent.is_some();
+                }
+                Ok(TickerHead { log_ticks })
+            }
+        }
+        deserializer.deserialize_any(Visitor)
+    }
 }
 
 impl FigureHead {
@@ -191,6 +251,24 @@ impl FigureHead {
         self.axes.iter().any(|axes| {
             axes.title_style.is_some() || axes.xaxis.minor.is_some() || axes.yaxis.minor.is_some()
         })
+    }
+
+    /// Mirrors [`uses_log_ticks`](super::spec::uses_log_ticks).
+    fn uses_log_ticks(&self) -> bool {
+        let log_ticks = |axis: &AxisHead| {
+            axis.locator.log_ticks
+                || axis.formatter.log_ticks
+                || axis
+                    .minor
+                    .as_ref()
+                    .and_then(|m| m.locator.as_ref())
+                    .is_some_and(|l| l.log_ticks)
+        };
+        self.rc.axes_formatter_min_exponent.is_some()
+            || self
+                .axes
+                .iter()
+                .any(|axes| log_ticks(&axes.xaxis) || log_ticks(&axes.yaxis))
     }
 
     /// Mirrors [`uses_text_sizes`](super::spec::uses_text_sizes).
@@ -393,6 +471,7 @@ pub fn inspect(bytes: &[u8], limits: &Limits) -> Result<Metadata, PortableError>
                 .iter()
                 .any(|axes| axes.collections.iter().any(|c| c.join.is_some())),
         ),
+        (20, header.figure.uses_log_ticks()),
     ]);
     if header.schema < required {
         return Err(PortableError::Malformed(format!(

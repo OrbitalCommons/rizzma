@@ -98,9 +98,10 @@ pub use timeline::{Interp, Target, Timeline, Track};
 /// schema 14 polygon collections; schema 15 embedded user colormaps; schema
 /// 16 where the grid draws among the artists (`axisbelow`); schema 17 line
 /// markers; schema 18 matplotlib-style quivers; schema 19 collection edge
-/// joins.
+/// joins; schema 20 matplotlib's default log ticks (automatic minor ticks and
+/// `axes.formatter.min_exponent`).
 #[cfg(feature = "portable")]
-pub const SCHEMA_VERSION: u32 = 19;
+pub const SCHEMA_VERSION: u32 = 20;
 
 /// Oldest schema version this build can still load.
 #[cfg(feature = "portable")]
