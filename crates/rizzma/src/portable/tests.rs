@@ -1980,7 +1980,7 @@ fn schema_cannot_be_under_declared() {
     // runtime watches it rejected for the unknown field. Both inspection and
     // import refuse the lie.
     let bytes = controlled_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":20", "\"schema\":3"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":21", "\"schema\":3"));
 
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -1997,7 +1997,7 @@ fn schema_cannot_be_under_declared() {
 
     // The same floor applies one level down: a timeline needs schema 3.
     let bytes = animated_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":20", "\"schema\":2"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":21", "\"schema\":2"));
     let Err(err) = Figure::from_portable(&forged) else {
         panic!("a timeline under schema 3 must not import");
     };
@@ -2013,7 +2013,7 @@ fn schema_cannot_be_under_declared() {
     ax.plot(&[0.0, 1.0], &[0.0, 1.0]);
     ax.minorticks_on();
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":20", "\"schema\":4"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":21", "\"schema\":4"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2032,7 +2032,7 @@ fn schema_cannot_be_under_declared() {
     fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
     fig.suptitle("sized").set_suptitle_size(20.0);
     let bytes = fig.to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":20", "\"schema\":5"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":21", "\"schema\":5"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2048,7 +2048,7 @@ fn schema_cannot_be_under_declared() {
 
     // Scatter legend samples and the artist order are schema 7.
     let bytes = scatter_legend_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":20", "\"schema\":6"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":21", "\"schema\":6"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2064,7 +2064,7 @@ fn schema_cannot_be_under_declared() {
 
     // Figure text and figure axis labels are schema 8.
     let bytes = figure_text_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":20", "\"schema\":7"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":21", "\"schema\":7"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2080,7 +2080,7 @@ fn schema_cannot_be_under_declared() {
 
     // Image norms and extreme colors are schema 9.
     let bytes = image_norm_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":20", "\"schema\":8"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":21", "\"schema\":8"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2096,7 +2096,7 @@ fn schema_cannot_be_under_declared() {
 
     // Colorbars and recorded color scales are schema 10.
     let bytes = colorbar_figure().to_portable().expect("export");
-    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":20", "\"schema\":9"));
+    let forged = reforge_json(&bytes, |json| json.replace("\"schema\":21", "\"schema\":9"));
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
         crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
@@ -2113,7 +2113,7 @@ fn schema_cannot_be_under_declared() {
     // An astronomical image normalization is schema 11.
     let bytes = astro_figure().to_portable().expect("export");
     let forged = reforge_json(&bytes, |json| {
-        json.replace("\"schema\":20", "\"schema\":10")
+        json.replace("\"schema\":21", "\"schema\":10")
     });
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -2168,7 +2168,7 @@ fn turning_line_simplification_off_survives_export() {
     assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
 
     let forged = reforge_json(&bytes, |json| {
-        json.replace("\"schema\":20", "\"schema\":11")
+        json.replace("\"schema\":21", "\"schema\":11")
     });
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -2208,7 +2208,7 @@ fn sky_projection_axes_round_trip() {
     assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
 
     let forged = reforge_json(&bytes, |json| {
-        json.replace("\"schema\":20", "\"schema\":12")
+        json.replace("\"schema\":21", "\"schema\":12")
     });
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -2246,7 +2246,7 @@ fn polygon_collections_round_trip() {
     assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
 
     let forged = reforge_json(&bytes, |json| {
-        json.replace("\"schema\":20", "\"schema\":13")
+        json.replace("\"schema\":21", "\"schema\":13")
     });
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -2302,7 +2302,7 @@ fn custom_colormaps_round_trip() {
     assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
 
     let forged = reforge_json(&bytes, |json| {
-        json.replace("\"schema\":20", "\"schema\":14")
+        json.replace("\"schema\":21", "\"schema\":14")
     });
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -2348,7 +2348,7 @@ fn axisbelow_round_trips_and_is_written_only_when_set() {
     assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
 
     let forged = reforge_json(&bytes, |json| {
-        json.replace("\"schema\":20", "\"schema\":15")
+        json.replace("\"schema\":21", "\"schema\":15")
     });
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -2383,7 +2383,7 @@ fn line_markers_round_trip() {
     assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
 
     let forged = reforge_json(&bytes, |json| {
-        json.replace("\"schema\":20", "\"schema\":16")
+        json.replace("\"schema\":21", "\"schema\":16")
     });
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -2432,7 +2432,7 @@ fn quivers_round_trip() {
     assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
 
     let forged = reforge_json(&bytes, |json| {
-        json.replace("\"schema\":20", "\"schema\":17")
+        json.replace("\"schema\":21", "\"schema\":17")
     });
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -2478,7 +2478,7 @@ fn collection_joins_round_trip() {
     assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
 
     let forged = reforge_json(&bytes, |json| {
-        json.replace("\"schema\":20", "\"schema\":18")
+        json.replace("\"schema\":21", "\"schema\":18")
     });
     for result in [
         Figure::from_portable(&forged).map(|_| ()),
@@ -2511,7 +2511,7 @@ fn log_ticks_round_trip() {
         assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
 
         let forged = reforge_json(&bytes, |json| {
-            json.replace("\"schema\":20", "\"schema\":19")
+            json.replace("\"schema\":21", "\"schema\":19")
         });
         for result in [
             Figure::from_portable(&forged).map(|_| ()),
@@ -2522,6 +2522,51 @@ fn log_ticks_round_trip() {
             };
             assert!(
                 matches!(&err, PortableError::Malformed(m) if m.contains("requiring schema 20")),
+                "{err}"
+            );
+        }
+    }
+}
+
+#[test]
+fn line_styles_round_trip() {
+    use crate::render::{CapStyle, JoinStyle};
+    let custom = RcParams {
+        lines_solid_capstyle: CapStyle::Round,
+        lines_dash_joinstyle: JoinStyle::Bevel,
+        ..RcParams::default()
+    };
+    for (rc, guarded) in [(RcParams::default(), false), (custom, true)] {
+        let mut fig = Figure::new(4.0, 3.0).with_rcparams(rc);
+        let ax = fig.add_subplot(1, 1, 1);
+        ax.plot(&[0.0, 1.0, 2.0], &[0.0, 2.0, 1.0]);
+        ax.plot(&[0.0, 1.0, 2.0], &[1.0, 0.0, 2.0])
+            .set_dashes(Some((0.0, vec![6.0, 3.0])));
+
+        let bytes = fig.to_portable().expect("export");
+        let back = Figure::from_portable(&bytes).expect("import");
+        assert_eq!(back.to_portable().expect("re-export"), bytes);
+        assert_eq!(back.encode_png().unwrap(), fig.encode_png().unwrap());
+
+        let forged = reforge_json(&bytes, |json| {
+            json.replace("\"schema\":21", "\"schema\":20")
+        });
+        if !guarded {
+            // Default styles write nothing new; declared older, the dashed
+            // line takes the solid cap and join, as it did then.
+            let old = Figure::from_portable(&forged).expect("schema 20 loads");
+            assert_ne!(old.encode_png().unwrap(), fig.encode_png().unwrap());
+            continue;
+        }
+        for result in [
+            Figure::from_portable(&forged).map(|_| ()),
+            crate::portable::inspect(&forged, &Limits::default()).map(|_| ()),
+        ] {
+            let Err(err) = result else {
+                panic!("line styles under schema 20 must not be accepted");
+            };
+            assert!(
+                matches!(&err, PortableError::Malformed(m) if m.contains("requiring schema 21")),
                 "{err}"
             );
         }

@@ -12,6 +12,7 @@
 //! format.
 
 use crate::core::color::{DEFAULT_COLOR_CYCLE, Rgba};
+use crate::render::{CapStyle, JoinStyle};
 
 /// The direction tick marks point relative to the axes.
 ///
@@ -115,6 +116,21 @@ pub struct RcParams {
     /// default 0, every power as an exponent).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub axes_formatter_min_exponent: i32,
+    /// Cap style of solid lines' ends (`lines.solid_capstyle`, projecting).
+    #[serde(
+        default = "default_solid_capstyle",
+        skip_serializing_if = "is_default_solid_capstyle"
+    )]
+    pub lines_solid_capstyle: CapStyle,
+    /// Join style of solid lines' corners (`lines.solid_joinstyle`, round).
+    #[serde(default = "round_join", skip_serializing_if = "is_round_join")]
+    pub lines_solid_joinstyle: JoinStyle,
+    /// Cap style of dashed lines' dashes (`lines.dash_capstyle`, butt).
+    #[serde(default, skip_serializing_if = "is_butt_cap")]
+    pub lines_dash_capstyle: CapStyle,
+    /// Join style of dashed lines' corners (`lines.dash_joinstyle`, round).
+    #[serde(default = "round_join", skip_serializing_if = "is_round_join")]
+    pub lines_dash_joinstyle: JoinStyle,
     /// Font size of the axes title in points (`axes.titlesize`).
     pub axes_titlesize: f64,
     /// Padding above the axes title in points (`axes.titlepad`).
@@ -210,6 +226,26 @@ fn is_zero(value: &i32) -> bool {
     *value == 0
 }
 
+fn default_solid_capstyle() -> CapStyle {
+    CapStyle::Projecting
+}
+
+fn is_default_solid_capstyle(cap: &CapStyle) -> bool {
+    *cap == CapStyle::Projecting
+}
+
+fn is_butt_cap(cap: &CapStyle) -> bool {
+    *cap == CapStyle::Butt
+}
+
+fn round_join() -> JoinStyle {
+    JoinStyle::Round
+}
+
+fn is_round_join(join: &JoinStyle) -> bool {
+    *join == JoinStyle::Round
+}
+
 fn is_default_axisbelow(axisbelow: &AxisBelow) -> bool {
     *axisbelow == AxisBelow::default()
 }
@@ -245,6 +281,10 @@ impl Default for RcParams {
             axes_grid: false,
             axes_axisbelow: AxisBelow::Line,
             axes_formatter_min_exponent: 0,
+            lines_solid_capstyle: CapStyle::Projecting,
+            lines_solid_joinstyle: JoinStyle::Round,
+            lines_dash_capstyle: CapStyle::Butt,
+            lines_dash_joinstyle: JoinStyle::Round,
             axes_titlesize: 12.0,
             axes_titlepad: 6.0,
             axes_labelsize: 10.0,
@@ -353,6 +393,10 @@ impl RcParams {
         merge_field!(axes_grid);
         merge_field!(axes_axisbelow);
         merge_field!(axes_formatter_min_exponent);
+        merge_field!(lines_solid_capstyle);
+        merge_field!(lines_solid_joinstyle);
+        merge_field!(lines_dash_capstyle);
+        merge_field!(lines_dash_joinstyle);
         merge_field!(axes_titlesize);
         merge_field!(axes_titlepad);
         merge_field!(axes_labelsize);

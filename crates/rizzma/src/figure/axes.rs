@@ -457,6 +457,8 @@ pub struct Axes {
     /// The figure's `axes.formatter.min_exponent`, given to the formatter a
     /// log scale sets.
     pub(crate) log_min_exponent: i32,
+    /// The figure's line cap and join rc, given to each line added without them.
+    pub(crate) line_styles: crate::artist::line::LineStyles,
     /// Optional title drawn above the axes.
     title: Option<String>,
     /// Title font size (px at 100 DPI), seeded from `axes.titlesize`.
@@ -679,6 +681,7 @@ impl Axes {
             colorbar: None,
             path_simplify: simplify_threshold(&RcParams::default()),
             log_min_exponent: 0,
+            line_styles: crate::artist::line::LineStyles::default(),
             title: None,
             title_size: DEFAULT_TITLE_SIZE,
             title_pad: DEFAULT_TITLE_PAD,
@@ -799,7 +802,8 @@ impl Axes {
 
     /// Append a line, recording its place in `artist_order`.
     /// Every line, patch and collection enters the axes through these pushes.
-    pub(crate) fn push_line(&mut self, line: Line2D) -> &mut Line2D {
+    pub(crate) fn push_line(&mut self, mut line: Line2D) -> &mut Line2D {
+        line.resolve_styles(&self.line_styles);
         self.artist_order.push(ArtistKind::Line);
         self.lines.push(line);
         self.lines.last_mut().expect("just pushed a line")
@@ -1542,6 +1546,7 @@ impl Axes {
     pub(crate) fn apply_rcparams(&mut self, rc: &RcParams) {
         self.path_simplify = simplify_threshold(rc);
         self.log_min_exponent = rc.axes_formatter_min_exponent;
+        self.line_styles = crate::artist::line::LineStyles::from_rc(rc);
         self.axisbelow = rc.axes_axisbelow;
         self.facecolor = rc.axes_facecolor;
         self.edgecolor = rc.axes_edgecolor;
@@ -3363,6 +3368,7 @@ impl Axes {
             // The figure re-applies its own rc setting after import.
             path_simplify: simplify_threshold(&RcParams::default()),
             log_min_exponent: 0,
+            line_styles: crate::artist::line::LineStyles::default(),
             title: spec.title.clone(),
             title_size: spec
                 .title_style
