@@ -320,6 +320,7 @@ impl Line2D {
 
     /// Stroke dashes with the solid cap and join, as every line did before
     /// schema 21 kept them apart.
+    #[cfg(feature = "portable")]
     pub(crate) fn dash_like_solid(&mut self) {
         self.dash_cap = self.cap;
         self.dash_join = self.join;
