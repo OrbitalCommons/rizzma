@@ -995,6 +995,10 @@ impl Locator for FixedLocator {
     }
 }
 
+/// The most major ticks a [`LogLocator`] places: what matplotlib's
+/// `numticks='auto'` resolves to without an axis.
+const LOG_NUMTICKS: i64 = 9;
+
 /// Place ticks on a logarithmic axis.
 ///
 /// Major ticks are powers of `base`. Minor ticks can be requested by setting
@@ -1120,12 +1124,14 @@ impl Locator for LogLocator {
         } else {
             (vmax, vmin)
         };
-        let log_base = self.base.ln();
-        let start = (lo.ln() / log_base).floor() as i32;
-        let end = (hi.ln() / log_base).ceil() as i32;
+        // matplotlib's `LogLocator.tick_values`, with the axis-less tick
+        // count `numticks='auto'` resolves to.
+        let (efmin, efmax) = (self.log_b(lo), self.log_b(hi));
+        let (emin, emax) = (efmin.ceil() as i64, efmax.floor() as i64);
+        // Powers of the base in view.
+        let n_avail = emax - emin + 1;
         let subs: Vec<f64> = if self.auto {
-            let powers = self.log_b(hi).floor() - self.log_b(lo).ceil() + 1.0;
-            if powers >= 10.0 || self.base < 3.0 {
+            if n_avail >= 10 || self.base < 3.0 {
                 return Vec::new();
             }
             (2..)
@@ -1135,17 +1141,63 @@ impl Locator for LogLocator {
         } else {
             self.subs.clone()
         };
-        let mut ticks = Vec::new();
-
-        for exponent in start..=end {
-            let decade = self.base.powi(exponent);
-            for &sub in &subs {
-                let tick = sub * decade;
-                if tick >= lo * (1.0 - 1e-12) && tick <= hi * (1.0 + 1e-12) {
-                    ticks.push(tick);
-                }
-            }
+        // The fewest powers apart major ticks can be and stay within the
+        // tick count, and which powers they fall on.
+        let mut n_request = LOG_NUMTICKS;
+        let mut stride = n_avail / (n_request + 1) + 1;
+        let fits = (n_avail + stride - 1) / stride;
+        if fits <= n_request {
+            n_request = fits;
         }
+        let decades: Vec<i64> = match n_request {
+            // No power in view: one just outside each end.
+            0 => {
+                stride = emax - emin + 2;
+                vec![emin - 1, emax + 1]
+            }
+            1 => {
+                let mid = ((efmin + efmax) / 2.0).round_ties_even() as i64;
+                stride = (mid - (emin - 1)).max(emax + 1 - mid);
+                vec![mid - stride, mid, mid + stride]
+            }
+            _ => {
+                stride = (n_avail - 1) / (n_request - 1);
+                if (stride as f64) < n_avail as f64 / n_request as f64 {
+                    stride = n_avail / n_request;
+                }
+                let olo = (n_avail - stride * n_request).max(0);
+                let ohi = (n_avail - stride * (n_request - 1)).min(stride);
+                let mut offset = (-emin).rem_euclid(stride);
+                if !(olo <= offset && offset < ohi) {
+                    offset = olo;
+                }
+                (emin + offset - stride..=emax + stride)
+                    .step_by(stride as usize)
+                    .collect()
+            }
+        };
+        let power = |e: i64| self.base.powi(e as i32);
+        let minor = subs.len() > 1 || subs.first().is_some_and(|&s| s != 1.0);
+        let all: Vec<f64> = if !minor {
+            decades.iter().map(|&e| power(e)).collect()
+        } else if stride == 1 || n_avail <= 1 {
+            // Minor ticks start in the power before the first major tick.
+            (emin - 1..=emax)
+                .flat_map(|e| subs.iter().map(move |&s| s * power(e)))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let in_view = |t: &f64| *t >= lo * (1.0 - 1e-12) && *t <= hi * (1.0 + 1e-12);
+        // A minor locator left with at most one tick, major or minor, in
+        // view falls back to linear ticks, as matplotlib's does.
+        if subs.len() > 1
+            && stride == 1
+            && decades.len() as i64 - 2 + all.iter().filter(|t| in_view(t)).count() as i64 <= 1
+        {
+            return AutoLocator::new().tick_values(vmin, vmax);
+        }
+        let mut ticks: Vec<f64> = all.into_iter().filter(in_view).collect();
 
         ticks.sort_by(|a, b| a.partial_cmp(b).expect("finite ticks are comparable"));
         ticks.dedup_by(|a, b| (*a - *b).abs() <= 1e-12 * a.abs().max(b.abs()).max(1.0));
@@ -3895,6 +3947,19 @@ mod tests {
         assert_eq!(formatter.format(8.0, None), "8");
         assert_eq!(formatter.format(128.0, None), "2^{7}");
         assert_eq!(formatter.format(3.0, None), "");
+    }
+
+    #[test]
+    fn log_minor_ticks_fall_back_to_linear_within_a_decade() {
+        // No multiple of a power in [2.1, 2.9]: matplotlib switches the minor
+        // locator to an AutoLocator.
+        let minor = LogLocator::auto_minor(10.0);
+        assert_eq!(
+            minor.tick_values(2.1, 2.9),
+            AutoLocator::new().tick_values(2.1, 2.9)
+        );
+        // Two multiples in view keep the log minor ticks.
+        assert_eq!(minor.tick_values(2.0, 3.0), [2.0, 3.0]);
     }
 
     #[test]
