@@ -9,6 +9,14 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
 
 ## [Unreleased]
 
+To be released as **1.14.0**, a minor version: beyond its additions, this release
+moves rendering onto matplotlib's in ways that change existing figures (see
+**Output changes**): every line's caps and joins, every uniform scatter's placement
+in PNG, log-axis labels and ticks, marker shapes, and the grid's place among the
+artists. Byte-for-byte goldens will need regenerating; anyone pinning `=1.13.x`
+should read Output changes before upgrading. Portable figures are now schema 21
+(1.13.7 wrote schema 6), and every older artifact still loads.
+
 ### Added
 - `RcParams::lines_solid_capstyle`, `lines_solid_joinstyle`, `lines_dash_capstyle`
   and `lines_dash_joinstyle`, matplotlib's `lines.*style` (projecting, round, butt,
@@ -129,13 +137,13 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   0.6 s instead of 34 s (matplotlib: 0.43 s on the same machine). It applies to lines
   of 1000 or more vertices and can be turned off with `RcParams::path_simplify`; the
   `bench_noisy_line` example measures it.
-- **Large uniform scatters render about 15× faster in PNG.** A scatter with one size,
+- **Large uniform scatters render about 25× faster in PNG.** A scatter with one size,
   face and edge color hands its markers to `Renderer::draw_markers` together, and the
-  tiny-skia backend rasterizes the marker once per sub-pixel phase (1/64 px) and
-  stamps it, compositing exactly as tiny-skia would — matplotlib Agg's
-  `draw_markers` approach, without its pixel snapping. 1e6 markers render in about
-  0.32 s instead of 5.1 s (matplotlib 3.11: 1.9 s at the same size); per-point styles
-  draw as before. The `bench_scatter` example measures it.
+  tiny-skia backend places them as matplotlib Agg's `draw_markers` does, every
+  marker at the same sub-pixel phase, so it rasterizes the marker once and stamps
+  it. 1e6 markers render in about 0.21 s instead of 5.0 s (matplotlib 3.11: 1.9 s at
+  the same size); per-point styles draw marker by marker. The `bench_scatter`
+  example measures it.
 - **Sky projections on regular axes.** `Axes::set_sky_projection(SkyProjection::
   Mollweide | Aitoff)` turns an axes into an all-sky map, matplotlib's
   `add_subplot(projection="mollweide")`: data is longitude/latitude in radians and
@@ -282,6 +290,39 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   `.cmap("gray")` are unchanged.
 
 ### Output changes
+- **Lines cap and join as matplotlib's do.** Solid lines end in projecting caps and
+  join round (`lines.solid_capstyle: projecting`, `lines.solid_joinstyle: round`),
+  and dashed lines take butt caps and round joins, where every line had butt caps
+  and miter joins. Solid lines now reach half a line width past their end points,
+  and sharp corners no longer spike: a 4 pt zig-zag's ink matches matplotlib 3.11
+  within 1 px, solid and dashed (it was 2 px off at the corners). Against
+  matplotlib on a plain 1.5 pt polyline, the largest pixel difference drops from
+  220 to 26 levels; the many small differences left are anti-aliasing (tiny-skia
+  vs Agg). **Essentially every figure with a line renders differently** (39 of 79
+  gallery images), and byte-for-byte goldens of line plots, such as
+  2AMLogic/lindhard's SVGs, change on upgrade.
+- **Scatters sit where matplotlib's raster backend puts them.** A uniform scatter
+  (one marker, size, face and edge, the usual case) goes through `draw_markers`,
+  and the raster backend now places markers as Agg's does: each on a pixel center,
+  a square-sided marker such as `'s'` snapped to whole pixels. Every PNG with such
+  a scatter moves its markers by up to half a pixel; edged markers' ink extents and
+  centroids now match matplotlib 3.11 within 0.5 px for `o s D ^ v < > d p h *`.
+  SVG and PDF scatters are unchanged (exact, as matplotlib's), as are scatters with
+  per-point sizes or colors.
+- **Log axes label and tick as matplotlib's do.** Every major tick reads `base^n`
+  (`10⁰, 10¹, …, 10⁶`; `2⁴, 2⁵, …`), where small powers printed as plain decimals
+  (`10, 100, 1000, 10⁵`), and matplotlib's default minor ticks are drawn
+  (`LogLocator(subs='auto')`: 2–9 times each power for base 10; none for base 2 or
+  across ten or more powers). Labels and minor tick positions match matplotlib 3.11
+  for base-10 ranges [1e1, 1e6] and [1e-3, 1] and base-2 [16, 1024]. Every figure
+  with a log axis relabels and gains minor ticks; gallery images `loglog`,
+  `line_markers` and `migrate_text` change.
+- **Log axes over many decades thin their major ticks** as matplotlib's do: at most
+  9, every second, fourth (or so) power, where every power was labelled. 10⁻⁶..10⁶
+  shows 10⁻⁶, 10⁻⁴, …, 10⁶, and 1..10³⁰ every fourth power. Minor ticks show only
+  while every power is a major one, and a view within one power that holds at most
+  one log tick falls back to linear minor ticks. Axes too short for 9 ticks still
+  get 9 at most (#383).
 - **Markers take matplotlib's shapes, fills and pixel snapping.** Every `MarkerStyle`
   code now follows matplotlib's `markers.py`:
   - **Triangles** are filled, and are matplotlib's triangle (apex `0.5` up, base
@@ -304,15 +345,6 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   and centroid now match within 0.5 px; before, `'^'` was 3.9 px off, `'D'` 3.4,
   `'d'` 3.1, `'.'` 2.6, `','` 2.0, `'*'` 1.6 and `'H'` 1.1, and `'p'`, `'h'` and
   the triangles were unfilled. (Markers on lines are new in this release.)
-- **Scatters sit where matplotlib's raster backend puts them.** A uniform scatter
-  (one marker, size, face and edge, the usual case) goes through `draw_markers`,
-  and the raster backend now places markers as Agg's does: each on a pixel center,
-  a square-sided marker such as `'s'` snapped to whole pixels. Every PNG with such
-  a scatter moves its markers by up to half a pixel; edged markers' ink extents and
-  centroids now match matplotlib 3.11 within 0.5 px for `o s D ^ v < > d p h *`.
-  One marker sprite now serves every point, where large scatters kept a sprite
-  per sub-pixel phase. SVG and PDF scatters are unchanged (exact, as
-  matplotlib's), as are scatters with per-point sizes or colors.
 - **SVG output is much smaller.** Elements clipped to the same rectangle share one
   `<clipPath>` def, and each element references it with its own `clip-path` attribute
   instead of being wrapped in a `<g>`. An unstroked marker (a scatter point, a line
@@ -342,32 +374,6 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   rather than every line before every patch: a labelled patch added before a
   labelled line now comes first. Legends built from lines alone, or from lines added
   before patches, render byte-identically.
-- Every `.riz` artifact now declares `"schema":21`.
-- **Log axes over many decades thin their major ticks** as matplotlib's do: at most
-  9, every second, fourth (or so) power, where every power was labelled. 10⁻⁶..10⁶
-  shows 10⁻⁶, 10⁻⁴, …, 10⁶, and 1..10³⁰ every fourth power. Minor ticks show only
-  while every power is a major one, and a view within one power that holds at most
-  one log tick falls back to linear minor ticks. Axes too short for 9 ticks still
-  get 9 at most (#383).
-- **Lines cap and join as matplotlib's do.** Solid lines end in projecting caps and
-  join round (`lines.solid_capstyle: projecting`, `lines.solid_joinstyle: round`),
-  and dashed lines take butt caps and round joins, where every line had butt caps
-  and miter joins. Solid lines now reach half a line width past their end points,
-  and sharp corners no longer spike: a 4 pt zig-zag's ink matches matplotlib 3.11
-  within 1 px, solid and dashed (it was 2 px off at the corners). Against
-  matplotlib on a plain 1.5 pt polyline, the largest pixel difference drops from
-  220 to 26 levels; the many small differences left are anti-aliasing (tiny-skia
-  vs Agg). **Essentially every figure with a line renders differently** (39 of 79
-  gallery images), and byte-for-byte goldens of line plots, such as
-  2AMLogic/lindhard's SVGs, change on upgrade.
-- **Log axes label and tick as matplotlib's do.** Every major tick reads `base^n`
-  (`10⁰, 10¹, …, 10⁶`; `2⁴, 2⁵, …`), where small powers printed as plain decimals
-  (`10, 100, 1000, 10⁵`), and matplotlib's default minor ticks are drawn
-  (`LogLocator(subs='auto')`: 2–9 times each power for base 10; none for base 2 or
-  across ten or more powers). Labels and minor tick positions match matplotlib 3.11
-  for base-10 ranges [1e1, 1e6] and [1e-3, 1] and base-2 [16, 1024]. Every figure
-  with a log axis relabels and gains minor ticks; gallery images `loglog`,
-  `line_markers` and `migrate_text` change.
 - **Scatter edges join round**, as matplotlib's collections do whatever the marker,
   where they mitered. An edged `'*'` is 1.3–2.0 px narrower (now within 0.3 px of
   matplotlib's span), triangles about 0.7 px, `'D'` 0.3 px. Scatters without an edge,
@@ -387,12 +393,6 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   streamplot changes in one antialiased edge pixel), and SVG and PDF output carry the
   simplified vertices. Shorter lines, and every other artist, are byte-identical; set
   `path_simplify: false` for the exact previous drawing.
-- Uniform scatters of 10 000 or more markers are stamped from sprites in PNG and
-  other raster output: each marker sits within 1/128 px of its exact position, so
-  99.2–99.9% of inked pixels match the previous per-marker drawing to within one unit
-  (at most 35 units apart on antialiased edges), and they are as close to
-  matplotlib's output as before. Smaller scatters, and all SVG and PDF output, are
-  unchanged.
 - NaN values in `scatter_mapped` and `pcolormesh` take the bad color (transparent
   unless set) rather than the colormap's bottom color, as in matplotlib; images
   already did. Renders without NaN in their color data are unchanged.
@@ -404,7 +404,8 @@ publish workflow (`.github/workflows/publish.yml`), which publishes it to crates
   `contour` / `contourf`, `tripcolor` / `tricontour`, color-mapped `streamplot` and 3D
   surfaces. Colorbar strips are unchanged (they sample each entry at its own index),
   and every render without a colormap — lines, patches, text, legends — is
-  byte-identical.
+  byte-identical by this change.
+- Every `.riz` artifact now declares `"schema":21`.
 
 ## [1.13.7] - 2026-10-08
 
