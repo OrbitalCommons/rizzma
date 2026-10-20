@@ -6,27 +6,21 @@
 //! matplotlib's `mpl-data` (see `fonts/LICENSE_DEJAVU`).
 
 use std::borrow::Cow;
-use std::sync::LazyLock;
 
 use ttf_parser::{Face, GlyphId};
 
-/// The vendored DejaVu Sans face, zlib-compressed (379 KB instead of 756 KB
-/// in every binary that embeds rizzma). Regenerate from the TTF with
-/// `python3 -c "import zlib,sys; sys.stdout.buffer.write(zlib.compress(open('DejaVuSans.ttf','rb').read(), 9))" > DejaVuSans.ttf.zlib`.
-static DEJAVU_SANS_ZLIB: &[u8] = include_bytes!("fonts/DejaVuSans.ttf.zlib");
-
-/// The face inflated once, on first use; zlib's Adler-32 check guards it.
-static DEJAVU_SANS: LazyLock<Vec<u8>> = LazyLock::new(|| {
-    miniz_oxide::inflate::decompress_to_vec_zlib(DEJAVU_SANS_ZLIB)
-        .expect("the embedded DejaVu Sans inflates")
-});
+/// Raw bytes of the vendored DejaVu Sans face, embedded at compile time.
+///
+/// This is the same TTF matplotlib ships as its default sans-serif font.
+#[deprecated(since = "1.14.1", note = "use `dejavu_sans_ttf()`")]
+pub static DEJAVU_SANS_TTF: &[u8] = include_bytes!("fonts/DejaVuSans.ttf");
 
 /// Raw bytes of the vendored DejaVu Sans face — the same TTF matplotlib
-/// ships as its default sans-serif font. Inflated on the first call and
-/// shared after.
+/// ships as its default sans-serif font.
 #[must_use]
 pub fn dejavu_sans_ttf() -> &'static [u8] {
-    &DEJAVU_SANS
+    #[allow(deprecated)]
+    DEJAVU_SANS_TTF
 }
 
 /// A set of embedded font faces usable for text measurement.

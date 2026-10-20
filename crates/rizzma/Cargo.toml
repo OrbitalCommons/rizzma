@@ -1,6 +1,6 @@
 [package]
 name = "rizzma"
-version = "1.14.0"
+version = "1.14.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -26,7 +26,7 @@ workspace = true
 [features]
 default = ["dates", "plot3d", "portable", "pyplot", "raster", "show", "wasm"]
 # Native-only: `Figure::show()` / `pyplot::show()` local browser viewer.
-show = []
+show = ["raster"]
 # No-ops within 1.x, kept so `features = ["raster"]` / `["dates"]` still
 # resolve: the raster backend and date axes are always built, as in 1.13.
 # Making them optional changes what `default-features = false` provides, so it
@@ -37,14 +37,13 @@ plot3d = []
 # `Figure::to_portable()` / `from_portable()`: the `.riz` self-describing
 # artifact (see `design/10-portable-figure.md`). Pulls in a JSON codec.
 portable = ["dep:serde_json", "dep:base64"]
-pyplot = []
-wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys"]
+pyplot = ["raster"]
+wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys", "raster"]
 
 [dependencies]
 base64 = { version = "0.22.1", optional = true }
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 js-sys = { version = "0.3", optional = true }
-miniz_oxide = "0.8"
 png = "0.18.1"
 serde = { version = "1.0.228", features = ["derive"] }
 # `float_roundtrip` is load-bearing, not a nicety: without it serde_json parses

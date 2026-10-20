@@ -23,6 +23,33 @@ env:
   WASM_RUNTIME_SIZE_MAX_BYTES: 5242880
 
 jobs:
+  # The public API against the code it changes (a pull request's base, or
+  # main before a push), with default features, with none, and with all: a
+  # change that breaks dependents within 1.x, as 1.14.0 did, fails in the
+  # pull request that makes it, unless its version bump says so.
+  semver:
+    name: semver against the base
+    runs-on: ubuntu-latest
+    # Warnings in the tool or the baseline are not this job's concern.
+    env:
+      RUSTFLAGS: ""
+      BASELINE: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-semver-checks
+        run: cargo install --locked cargo-semver-checks
+
+      - name: Check
+        run: |
+          for features in --default-features --only-explicit-features --all-features; do
+            cargo semver-checks check-release -p rizzma --baseline-rev "$BASELINE" "$features"
+          done
+
   msrv:
     name: msrv (1.85) library check
     runs-on: ubuntu-latest

@@ -1021,12 +1021,11 @@ dependencies = [
 
 [[package]]
 name = "rizzma"
-version = "1.14.0"
+version = "1.14.1"
 dependencies = [
  "base64",
  "chrono",
  "js-sys",
- "miniz_oxide",
  "png",
  "resvg",
  "serde",
@@ -1562,7 +1561,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "1.14.0"
+version = "1.14.1"
 dependencies = [
  "image",
  "rizzma",
