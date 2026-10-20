@@ -33,7 +33,8 @@ pub enum PortableError {
         max: u32,
     },
     /// The artifact uses something this build was compiled without: the named
-    /// cargo feature of rizzma (for example date ticks need `dates`).
+    /// cargo feature of rizzma. No feature of 1.x reports it: the raster
+    /// backend and date axes are always built.
     FeatureDisabled(&'static str),
     /// The JSON spec chunk failed to serialize or deserialize (including
     /// unknown fields and unknown enum variants, which are rejected).

@@ -31,7 +31,6 @@
 use crate::core::color::default_colormap;
 use crate::core::{Affine2D, Colormap, LinearNorm, Normalize, Path, color::Rgba};
 use crate::render::{GraphicsContext, Renderer, TextAnchor};
-#[cfg(feature = "raster")]
 use crate::skia::SkiaRenderer;
 
 /// An inclusive min/max span along one data axis.
@@ -911,7 +910,6 @@ impl Axes3D {
 
     /// Render the axes to a fresh white-backed [`SkiaRenderer`].
     #[must_use]
-    #[cfg(feature = "raster")]
     pub fn render_png(&self, width_px: u32, height_px: u32, dpi: f64) -> SkiaRenderer {
         let mut renderer = SkiaRenderer::new(width_px, height_px, dpi);
         // White background filling the whole canvas.
@@ -933,7 +931,6 @@ impl Axes3D {
     /// # Errors
     ///
     /// Returns the [`SkiaRenderer`] PNG error if encoding or writing fails.
-    #[cfg(feature = "raster")]
     pub fn save_png<P: AsRef<std::path::Path>>(
         &self,
         path: P,

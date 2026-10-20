@@ -7,6 +7,21 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [Unreleased]
+
+### Fixed
+- **`default-features = false` builds have PNG output and date axes again**, as in
+  1.13. 1.14.0 put the raster backend (`Figure::render` / `render_scaled` /
+  `save_png` / `encode_png` / `to_rgba8` / `to_rgb8` / `render_into*`, the `skia`
+  module, polar/sky/3D `render_png` / `save_png`) behind a `raster` feature and date
+  axes (`axis::dates`, `set_xaxis_date` / `set_yaxis_date`) behind `dates`, so a crate
+  depending on `rizzma = { version = "1.13", default-features = false }` that used
+  them failed to build against 1.14.0. Both are built unconditionally again;
+  `raster` and `dates` stay as features that enable nothing, so feature lists naming
+  them still resolve. `tiny-skia`, `png` and `chrono` are dependencies again in
+  every build; making them optional waits for 2.0. A test that uses this surface now
+  runs in CI without default features.
+
 ## [1.14.0] - 2026-10-20
 
 A minor version: beyond its additions, this release

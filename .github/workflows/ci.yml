@@ -67,16 +67,12 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-features
 
-      # The SVG-only configuration: no raster backend, PNG codec, dates or
-      # base64 in the build at all.
+      # Within 1.x, `default-features = false` keeps everything it offered in
+      # 1.13 (PNG output, date axes): this test uses that surface.
       - name: Build without default features
         run: |
           cargo build -p rizzma --no-default-features
-          if cargo tree -p rizzma --no-default-features -e normal --prefix none \
-              | grep -E '^(tiny-skia|png|chrono|base64) '; then
-            echo "an SVG-only build must not depend on the crates above" >&2
-            exit 1
-          fi
+          cargo test -p rizzma --no-default-features --test no_default_features_api
 
       # The library's own tests without `dates`: what an import reports when
       # the artifact needs a feature this build leaves out. (The tests render
