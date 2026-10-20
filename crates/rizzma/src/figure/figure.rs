@@ -17,7 +17,6 @@ use crate::core::{Bbox, color::Rgba};
 #[cfg(feature = "portable")]
 use crate::portable::PortableError;
 use crate::render::Renderer;
-#[cfg(feature = "raster")]
 use crate::skia::{PngError, SkiaRenderer};
 use crate::text::FontSource;
 
@@ -641,7 +640,6 @@ impl Figure {
     }
 
     /// Render the figure to a fresh [`SkiaRenderer`] and return it.
-    #[cfg(feature = "raster")]
     #[must_use]
     pub fn render(&self) -> SkiaRenderer {
         self.render_scaled(1.0)
@@ -659,7 +657,6 @@ impl Figure {
     /// # Panics
     ///
     /// Panics if `scale` is not finite and positive.
-    #[cfg(feature = "raster")]
     #[must_use]
     pub fn render_scaled(&self, scale: f64) -> SkiaRenderer {
         assert!(
@@ -678,7 +675,6 @@ impl Figure {
     /// # Errors
     ///
     /// Returns a [`PngError`] if encoding or writing the file fails.
-    #[cfg(feature = "raster")]
     pub fn save_png<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), PngError> {
         self.render().save_png(path)
     }
@@ -688,7 +684,6 @@ impl Figure {
     /// # Errors
     ///
     /// Returns a [`PngError`] if encoding fails.
-    #[cfg(feature = "raster")]
     pub fn encode_png(&self) -> Result<Vec<u8>, PngError> {
         self.render().encode_png()
     }
@@ -1107,17 +1102,10 @@ impl Figure {
     }
 
     /// The PNG poster a portable figure carries.
-    #[cfg(all(feature = "portable", feature = "raster"))]
+    #[cfg(feature = "portable")]
     fn encode_poster(&self) -> Result<Vec<u8>, PortableError> {
         self.encode_png()
             .map_err(|e| PortableError::Unsupported(format!("figure poster failed to encode: {e}")))
-    }
-
-    /// The PNG poster a portable figure carries, which takes the `raster`
-    /// feature to draw.
-    #[cfg(all(feature = "portable", not(feature = "raster")))]
-    fn encode_poster(&self) -> Result<Vec<u8>, PortableError> {
-        Err(PortableError::FeatureDisabled("raster"))
     }
 
     /// Serialize this figure to a portable figure with explicit options.

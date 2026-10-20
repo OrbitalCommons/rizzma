@@ -3406,18 +3406,12 @@ impl crate::portable::spec::LocatorSpec {
             L::Logit { max_exponent } => Box::new(LogitLocator::with_max_exponent(max_exponent)),
             L::Index { base, offset } => Box::new(IndexLocator::new(base, offset)),
             L::Null => Box::new(NullLocator),
-            #[cfg(feature = "dates")]
             L::AutoDate { maxticks } => {
                 Box::new(crate::axis::dates::AutoDateLocator::with_maxticks(maxticks))
             }
-            #[cfg(feature = "dates")]
             L::AutoDateMinor { maxticks } => Box::new(
                 crate::axis::dates::AutoDateMinorLocator::with_maxticks(maxticks),
             ),
-            #[cfg(not(feature = "dates"))]
-            L::AutoDate { .. } | L::AutoDateMinor { .. } => {
-                return Err(PortableError::FeatureDisabled("dates"));
-            }
         })
     }
 }
@@ -3476,14 +3470,8 @@ impl crate::portable::spec::FormatterSpec {
             F::Index { labels } => Box::new(IndexFormatter { labels }),
             F::FormatStr { fmt } => Box::new(FormatStrFormatter { fmt }),
             F::StrMethod { fmt } => Box::new(StrMethodFormatter { fmt }),
-            #[cfg(feature = "dates")]
             F::Date { fmt } => Box::new(crate::axis::dates::DateFormatter::new(fmt)),
-            #[cfg(feature = "dates")]
             F::ConciseDate => Box::new(crate::axis::dates::ConciseDateFormatter::new()),
-            #[cfg(not(feature = "dates"))]
-            F::Date { .. } | F::ConciseDate => {
-                return Err(crate::portable::PortableError::FeatureDisabled("dates"));
-            }
         })
     }
 }

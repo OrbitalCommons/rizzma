@@ -120,7 +120,6 @@ pub mod mathtext;
 pub mod pdf;
 pub mod portable;
 pub mod render;
-#[cfg(feature = "raster")]
 pub mod skia;
 pub mod svg;
 pub mod text;
@@ -140,7 +139,6 @@ pub use figure::{
     Mappable, PolarAxes, SkyAxes, SkyProjection, SubplotSpec, Text, TextBoxStyle,
     VerticalAlignment,
 };
-#[cfg(feature = "raster")]
 pub use figure::{BufferSizeError, PixelFormat};
 pub use portable::PortableError;
 

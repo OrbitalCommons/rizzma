@@ -8,7 +8,6 @@
 
 #[allow(clippy::module_inception)]
 pub mod axis;
-#[cfg(feature = "dates")]
 pub mod dates;
 pub mod scale;
 pub mod ticker;

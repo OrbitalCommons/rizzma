@@ -32,7 +32,6 @@
 use crate::core::color::{DEFAULT_COLOR_CYCLE, Rgba};
 use crate::core::{Affine2D, Path};
 use crate::render::{GraphicsContext, Renderer, TextAnchor};
-#[cfg(feature = "raster")]
 use crate::skia::SkiaRenderer;
 use crate::text::FontSource;
 
@@ -456,7 +455,6 @@ impl PolarAxes {
 
     /// Render the polar axes to a fresh white-backed [`SkiaRenderer`].
     #[must_use]
-    #[cfg(feature = "raster")]
     pub fn render_png(&self, width_px: u32, height_px: u32, dpi: f64) -> SkiaRenderer {
         let mut renderer = SkiaRenderer::new(width_px, height_px, dpi);
         let bg = Path::from_polyline(&[
@@ -482,7 +480,6 @@ impl PolarAxes {
     /// # Errors
     ///
     /// Returns the [`SkiaRenderer`] PNG error if encoding or writing fails.
-    #[cfg(feature = "raster")]
     pub fn save_png<P: AsRef<std::path::Path>>(
         &self,
         path: P,

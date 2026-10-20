@@ -2861,27 +2861,3 @@ fn the_control_manifest_answers_to_its_own_budgets() {
         );
     }
 }
-
-#[cfg(not(feature = "dates"))]
-#[test]
-fn date_ticks_without_the_dates_feature_say_so() {
-    let mut fig = Figure::new(4.0, 3.0);
-    fig.add_subplot(1, 1, 1).plot(&[0.0, 1.0], &[0.0, 1.0]);
-    let bytes = fig.to_portable().expect("export");
-    let locator = reforge_json(&bytes, |json| {
-        json.replacen(
-            "\"locator\":\"auto\"",
-            "\"locator\":{\"auto_date\":{\"maxticks\":5}}",
-            1,
-        )
-    });
-    let formatter = reforge_json(&bytes, |json| {
-        json.replacen("{\"scalar\":{\"decimals\":null}}", "\"concise_date\"", 1)
-    });
-    for forged in [locator, formatter] {
-        assert!(matches!(
-            Figure::from_portable(&forged),
-            Err(PortableError::FeatureDisabled("dates"))
-        ));
-    }
-}

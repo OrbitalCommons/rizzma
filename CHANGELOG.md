@@ -7,6 +7,46 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
+## [1.14.1] - 2026-10-20
+
+Fixes 1.14.0's breaks of the 1.x API; 1.14.0 is yanked. Everything else in 1.14.0
+(see below) stands.
+
+### Fixed
+- **`rizzma::text::font::DEJAVU_SANS_TTF` is back**, as the `&[u8]` it was in 1.13,
+  now deprecated in favour of `dejavu_sans_ttf()`. 1.14.0 had removed it when it
+  stored the font zlib-compressed; the font is embedded uncompressed again (756 KB
+  rather than 379 KB in every binary).
+- **`default-features = false` builds have PNG output and date axes again**, as in
+  1.13. 1.14.0 put the raster backend (`Figure::render` / `render_scaled` /
+  `save_png` / `encode_png` / `to_rgba8` / `to_rgb8` / `render_into*`, the `skia`
+  module, polar/sky/3D `render_png` / `save_png`) behind a `raster` feature and date
+  axes (`axis::dates`, `set_xaxis_date` / `set_yaxis_date`) behind `dates`, so a crate
+  depending on `rizzma = { version = "1.13", default-features = false }` that used
+  them failed to build against 1.14.0. Both are built unconditionally again;
+  `raster` and `dates` stay as features that enable nothing, so feature lists naming
+  them still resolve. `tiny-skia`, `png` and `chrono` are dependencies again in
+  every build; making them optional waits for 2.0. A test that uses this surface now
+  runs in CI without default features.
+
+### Compatibility
+`cargo semver-checks` now runs in CI against the latest release, with default
+features, none, and all. Against 1.13.7, 1.14.1 still reports these accepted,
+documented breaks; each only affects code that builds these types field by field or
+matches the enum exhaustively:
+- `constructible_struct_adds_field`: `RcParams` gained `axes_axisbelow`,
+  `path_simplify`, `path_simplify_threshold`, `svg_fonttype`,
+  `axes_formatter_min_exponent`, `lines_solid_capstyle`, `lines_solid_joinstyle`,
+  `lines_dash_capstyle` and `lines_dash_joinstyle`; `GraphicsContext` gained
+  `miter_limit` and `snap`. Struct literals ending in `..Default::default()` /
+  `..GraphicsContext::new()` are unaffected.
+- `constructible_struct_adds_private_field`: `RichText` keeps its runs privately; build
+  it with `layout_rich_text`.
+- `enum_variant_added`: `SkyProjection::Zenithal`. A `match` on `SkyProjection`
+  needs an arm for it.
+
+Against 1.14.0 there are no breaks.
+
 ## [1.14.0] - 2026-10-20
 
 A minor version: beyond its additions, this release

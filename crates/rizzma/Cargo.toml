@@ -1,6 +1,6 @@
 [package]
 name = "rizzma"
-version = "1.14.0"
+version = "1.14.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -27,13 +27,13 @@ workspace = true
 default = ["dates", "plot3d", "portable", "pyplot", "raster", "show", "wasm"]
 # Native-only: `Figure::show()` / `pyplot::show()` local browser viewer.
 show = ["raster"]
-# The tiny-skia raster backend and everything that makes pixels or PNGs:
-# `skia`, `Figure::render*` / `save_png` / `encode_png` / `to_rgba8` /
-# `render_into`. SVG and PDF output need none of it.
-raster = ["dep:tiny-skia", "dep:png"]
+# No-ops within 1.x, kept so `features = ["raster"]` / `["dates"]` still
+# resolve: the raster backend and date axes are always built, as in 1.13.
+# Making them optional changes what `default-features = false` provides, so it
+# waits for 2.0.
+raster = []
+dates = []
 plot3d = []
-# Date axes: `axis::dates` and `Axes::set_xaxis_date` / `set_yaxis_date`.
-dates = ["dep:chrono"]
 # `Figure::to_portable()` / `from_portable()`: the `.riz` self-describing
 # artifact (see `design/10-portable-figure.md`). Pulls in a JSON codec.
 portable = ["dep:serde_json", "dep:base64"]
@@ -42,10 +42,9 @@ wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys", "raster"]
 
 [dependencies]
 base64 = { version = "0.22.1", optional = true }
-chrono = { version = "0.4.45", default-features = false, features = ["std"], optional = true }
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 js-sys = { version = "0.3", optional = true }
-miniz_oxide = "0.8"
-png = { version = "0.18.1", optional = true }
+png = "0.18.1"
 serde = { version = "1.0.228", features = ["derive"] }
 # `float_roundtrip` is load-bearing, not a nicety: without it serde_json parses
 # f64 back one ULP off, so a re-exported portable figure differs from its
@@ -53,7 +52,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.150", features = [
     "float_roundtrip",
 ], optional = true }
-tiny-skia = { version = "0.12.0", optional = true }
+tiny-skia = "0.12.0"
 ttf-parser = "0.25.1"
 wasm-bindgen = { version = "0.2.126", optional = true }
 web-sys = { version = "0.3.103", optional = true, features = [

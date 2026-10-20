@@ -30,7 +30,6 @@ use std::f64::consts::{FRAC_PI_2, PI, SQRT_2};
 use crate::core::color::{DEFAULT_COLOR_CYCLE, Rgba};
 use crate::core::{Affine2D, Path, PathCode};
 use crate::render::{GraphicsContext, Renderer, TextAnchor};
-#[cfg(feature = "raster")]
 use crate::skia::SkiaRenderer;
 use crate::text::FontSource;
 
@@ -586,7 +585,6 @@ impl SkyAxes {
     /// Render this sky axes to a fresh raster canvas of `width_px` x
     /// `height_px` at `dpi`.
     #[must_use]
-    #[cfg(feature = "raster")]
     pub fn render_png(&self, width_px: u32, height_px: u32, dpi: f64) -> SkiaRenderer {
         let mut renderer = SkiaRenderer::new(width_px, height_px, dpi);
         // White canvas background.
@@ -607,7 +605,6 @@ impl SkyAxes {
     /// # Errors
     ///
     /// Returns a [`crate::skia::PngError`] if encoding or writing fails.
-    #[cfg(feature = "raster")]
     pub fn save_png<P: AsRef<std::path::Path>>(
         &self,
         path: P,

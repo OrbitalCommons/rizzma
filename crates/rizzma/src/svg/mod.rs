@@ -371,68 +371,15 @@ fn encode_rgba_png(rgba: &[u8], width: usize, height: usize) -> Option<Vec<u8>> 
     let (Ok(w), Ok(h)) = (u32::try_from(width), u32::try_from(height)) else {
         return None;
     };
-    #[cfg(feature = "raster")]
+    let mut bytes = Vec::new();
     {
-        let mut bytes = Vec::new();
-        {
-            let mut encoder = png::Encoder::new(&mut bytes, w, h);
-            encoder.set_color(png::ColorType::Rgba);
-            encoder.set_depth(png::BitDepth::Eight);
-            let mut writer = encoder.write_header().ok()?;
-            writer.write_image_data(rgba).ok()?;
-        }
-        Some(bytes)
+        let mut encoder = png::Encoder::new(&mut bytes, w, h);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().ok()?;
+        writer.write_image_data(rgba).ok()?;
     }
-    #[cfg(not(feature = "raster"))]
-    Some(minimal_png(rgba, w, h))
-}
-
-/// A plain PNG of `w` × `h` straight RGBA8 pixels, for builds without the
-/// `png` crate: every row unfiltered, one zlib-compressed `IDAT`.
-#[cfg(any(test, not(feature = "raster")))]
-fn minimal_png(rgba: &[u8], w: u32, h: u32) -> Vec<u8> {
-    fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
-        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
-        let start = out.len();
-        out.extend_from_slice(kind);
-        out.extend_from_slice(data);
-        let crc = crc32(&out[start..]);
-        out.extend_from_slice(&crc.to_be_bytes());
-    }
-    let mut header = Vec::with_capacity(13);
-    header.extend_from_slice(&w.to_be_bytes());
-    header.extend_from_slice(&h.to_be_bytes());
-    // Bit depth 8, color type 6 (RGBA), deflate, adaptive filtering, no
-    // interlace.
-    header.extend_from_slice(&[8, 6, 0, 0, 0]);
-    let row = w as usize * 4;
-    let mut raw = Vec::with_capacity((row + 1) * h as usize);
-    for line in rgba.chunks(row) {
-        raw.push(0);
-        raw.extend_from_slice(line);
-    }
-    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
-    chunk(&mut out, b"IHDR", &header);
-    chunk(
-        &mut out,
-        b"IDAT",
-        &miniz_oxide::deflate::compress_to_vec_zlib(&raw, 6),
-    );
-    chunk(&mut out, b"IEND", &[]);
-    out
-}
-
-/// The CRC-32 (ISO-HDLC, as PNG uses) of `bytes`.
-#[cfg(any(test, not(feature = "raster")))]
-fn crc32(bytes: &[u8]) -> u32 {
-    let mut crc = !0u32;
-    for &byte in bytes {
-        crc ^= u32::from(byte);
-        for _ in 0..8 {
-            crc = (crc >> 1) ^ (0xedb8_8320 & (crc & 1).wrapping_neg());
-        }
-    }
-    !crc
+    Some(bytes)
 }
 
 impl Renderer for SvgRenderer {
@@ -933,28 +880,6 @@ mod tests {
             );
             assert!(a.data() == b.data(), "stroke {stroke:?}: rasters differ");
         }
-    }
-
-    #[test]
-    fn crc32_matches_the_check_value() {
-        assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
-        assert_eq!(crc32(b""), 0);
-    }
-
-    #[cfg(feature = "raster")]
-    #[test]
-    fn minimal_png_decodes_to_its_pixels() {
-        let (w, h) = (5u32, 3u32);
-        let rgba: Vec<u8> = (0..w * h * 4).map(|i| (i * 37 % 256) as u8).collect();
-        let bytes = minimal_png(&rgba, w, h);
-        let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes))
-            .read_info()
-            .expect("valid png header");
-        let mut pixels = vec![0; decoder.output_buffer_size().expect("buffer size")];
-        let info = decoder.next_frame(&mut pixels).expect("valid png data");
-        assert_eq!((info.width, info.height), (w, h));
-        assert_eq!(info.color_type, png::ColorType::Rgba);
-        assert_eq!(&pixels[..info.buffer_size()], &rgba[..]);
     }
 
     #[test]
