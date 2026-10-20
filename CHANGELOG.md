@@ -7,9 +7,9 @@ All notable changes to this project are recorded here. The format follows
 `rizzma` is a single crate. Bumping the version on a push to `main` triggers the
 publish workflow (`.github/workflows/publish.yml`), which publishes it to crates.io.
 
-## [Unreleased]
+## [1.14.0] - 2026-10-20
 
-To be released as **1.14.0**, a minor version: beyond its additions, this release
+A minor version: beyond its additions, this release
 moves rendering onto matplotlib's in ways that change existing figures (see
 **Output changes**): every line's caps and joins, every uniform scatter's placement
 in PNG, log-axis labels and ticks, marker shapes, and the grid's place among the
